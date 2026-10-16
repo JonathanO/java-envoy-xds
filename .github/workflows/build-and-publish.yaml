@@ -63,8 +63,3 @@ jobs:
         uses: gradle/gradle-build-action@v2
         with:
           arguments: publishToMavenLocal --info
-      - name: "Tag release"
-        if: github.ref == 'refs/heads/main'
-        uses: gradle/gradle-build-action@v2
-        with:
-          arguments: tagRelease --info

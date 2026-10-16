@@ -1,6 +1,13 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "local>transferwise/renovate-config"
+    "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "description": "Compile against the oldest supported Envoy API; users supply their own version",
+      "matchPackageNames": ["com.transferwise.envoy:envoy-api"],
+      "enabled": false
+    }
   ]
 }

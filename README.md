@@ -1,6 +1,8 @@
-# Wise Envoy xDS
+# Envoy xDS
 
-Wise Envoy xDS is an Envoy ADS implementation. It provides the framework necessary to correctly sequence xDS updates towards
+> Forked from [transferwise/wise-envoy-xds](https://github.com/transferwise/wise-envoy-xds), originally developed at Wise.
+
+Envoy xDS is an Envoy ADS implementation. It provides the framework necessary to correctly sequence xDS updates towards
 Envoy instances. See the envoy [xDS docs](https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol) for details
 of the protocol.
 
@@ -8,9 +10,11 @@ This is not a service mesh control plane, it is a library that can be used to im
 
 ## Why did you write this?
 
-There wasn't a choice at the time. The first production deployment was in early 2018, making it one of the first
-xDS implementations to be deployed large scale to a production environment. Since then, it has been actively
-maintained within Wise, and continues to form the core of EGADS, our service mesh control plane.
+There wasn't a choice at the time. It was originally written at Wise, where the first production deployment was in
+early 2018, making it one of the first xDS implementations to be deployed large scale to a production environment. It
+went on to form the core of EGADS, Wise's service mesh control plane, and was open sourced as
+[transferwise/wise-envoy-xds](https://github.com/transferwise/wise-envoy-xds). This repository is an independently
+maintained fork of that project.
 
 ## Does it do anything special?
 
@@ -23,15 +27,15 @@ order, as per the xDS protocol spec;
 
 ## Does it scale?
 
-In our largest cluster we run about 25 network changes a second through it, with up to around 1000 envoys per instance,
+In the largest cluster at Wise it ran about 25 network changes a second through it, with up to around 1000 envoys per instance,
 resulting in peaks of emitting around 333 DeltaDiscoveryResponses per second for a single instance (plus handling the
 corresponding acks from envoy.)
-Is that good? I have no idea. But mostly its Pods tick along at under half a core. This isn't very quantitative, is it?
-But I guess the answer is - it scales well enough for us under non-trivial loads.
+Is that good? I have no idea. But mostly its Pods ticked along at under half a core. This isn't very quantitative, is it?
+But I guess the answer is - it scales well enough under non-trivial loads.
 
 ## Usage
 
-wise-envoy-xds-example contains a toy example ADS, documented [here](wise-envoy-xds-example/README.md).
+envoy-xds-example contains a toy example ADS, documented [here](envoy-xds-example/README.md).
 Any implementation will need to provide a dependency on a version of com.transferwise.envoy:envoy-api supported by the
 envoy version they run.
 
@@ -42,6 +46,7 @@ on classes and fields that are common to all versions of the v3 API, there is no
 version specific.
 
 Users of the library can depend on any version of com.transferwise.envoy:envoy-api appropriate for the Envoy version used.
+The upstream io.envoyproxy.controlplane:api protos should also work, as the generated packages are the same.
 See Envoy's deprecation rules for specifics of what version you should choose.
 
 In the future it's possible this library will support new API versions, or that the v3 API will change in some way that breaks
@@ -77,6 +82,7 @@ discussed and reviewed PRs over the years, and the leads who believed it was wor
 
 ## License
 Copyright 2022 Wise Plc.
+Copyright 2026 Jonathan Oddy.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
