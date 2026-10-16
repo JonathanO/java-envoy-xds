@@ -1,6 +1,5 @@
 import com.github.spotbugs.snom.Effort
 import com.github.spotbugs.snom.SpotBugsTask
-import org.eclipse.jgit.api.errors.RefAlreadyExistsException
 
 buildscript {
     repositories {
@@ -15,7 +14,6 @@ plugins {
     id "com.github.spotbugs" version "6.5.13" apply false
     id "net.ltgt.errorprone" version "5.1.1" apply false
     id 'info.solidsoft.pitest' version '1.19.0' apply false
-    id 'org.ajoberstar.grgit' version '5.3.3'
     id 'io.github.gradle-nexus.publish-plugin' version "2.0.0"
 }
 
@@ -35,21 +33,6 @@ idea.module {
     excludeDirs += file('.idea')
     excludeDirs += file('.gradle')
     excludeDirs += file('logs2')
-}
-
-task tagRelease {
-    doLast {
-        try {
-            grgit.tag.add {
-                name = "v$version"
-                message = "Release of ${version}"
-            }
-            grgit.push(refsOrSpecs: ["v$version"])
-        }
-        catch (RefAlreadyExistsException ignored) {
-            logger.warn("Tag v$version already exists.")
-        }
-    }
 }
 
 group = "net.woaf.jono.envoy"

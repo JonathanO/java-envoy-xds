@@ -13,6 +13,8 @@ All notable changes to this project will be documented in this file.
 * Bump test dependencies: JUnit 6, Mockito 5, Testcontainers 2
 * Removed unmaintained yamlvalidator plugin
 * Removed unused jqwik test dependency
+* Core depends on protobuf-java instead of the unused protobuf-java-util
+* Removed grgit plugin and unused tagRelease task
 
 ## [1.0.1] - 2026-08-19
 ### Changed
