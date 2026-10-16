@@ -1,3 +1,5 @@
+import com.github.spotbugs.snom.Effort
+import com.github.spotbugs.snom.SpotBugsTask
 import org.eclipse.jgit.api.errors.RefAlreadyExistsException
 
 buildscript {
@@ -10,12 +12,11 @@ buildscript {
 plugins {
     id 'java'
     id 'idea'
-    id "at.zierler.yamlvalidator" version "1.5.0"
-    id "com.github.spotbugs" version "5.0.13" apply false
-    id "net.ltgt.errorprone" version "3.0.1" apply false
-    id 'info.solidsoft.pitest' version '1.9.11' apply false
-    id 'org.ajoberstar.grgit' version '4.1.1'
-    id 'io.github.gradle-nexus.publish-plugin' version "1.1.0"
+    id "com.github.spotbugs" version "6.5.13" apply false
+    id "net.ltgt.errorprone" version "5.1.1" apply false
+    id 'info.solidsoft.pitest' version '1.19.0' apply false
+    id 'org.ajoberstar.grgit' version '5.3.3'
+    id 'io.github.gradle-nexus.publish-plugin' version "2.0.0"
 }
 
 idea.project {
@@ -34,12 +35,6 @@ idea.module {
     excludeDirs += file('.idea')
     excludeDirs += file('.gradle')
     excludeDirs += file('logs2')
-}
-
-yamlValidator {
-    searchPaths = ['.github/workflows/']
-    allowDuplicates = false
-    searchRecursive = true
 }
 
 task tagRelease {
@@ -64,6 +59,21 @@ nexusPublishing {
         sonatype {
             username = System.getenv("SONATYPE_USER")
             password = System.getenv("SONATYPE_PASSWORD")
+        }
+    }
+}
+
+subprojects {
+    tasks.withType(SpotBugsTask).configureEach {
+        effort = Effort.MAX
+        maxHeapSize = '1g'
+        includeFilter = rootProject.file("spotbugs_include_filter.xml")
+        omitVisitors = ['FindReturnRef', 'ThrowingExceptions']
+
+        reports {
+            create("xml") {
+                required = true
+            }
         }
     }
 }

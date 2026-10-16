@@ -1,7 +1,9 @@
 <FindBugsFilter>
     <Match>
-      <Or>
         <Package name="~net\.woaf\.jono\..*" />
-      </Or>
+        <!-- Guards against finalizer attacks; finalization is deprecated for removal (JEP 421). -->
+        <Not>
+            <Bug pattern="CT_CONSTRUCTOR_THROW" />
+        </Not>
     </Match>
 </FindBugsFilter>

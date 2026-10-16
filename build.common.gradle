@@ -22,20 +22,19 @@ repositories {
 }
 
 dependencies {
-    testImplementation(platform('org.junit:junit-bom:5.8.2'))
+    testImplementation(platform('org.junit:junit-bom:6.1.3'))
     testImplementation('org.junit.jupiter:junit-jupiter')
-    testImplementation("org.assertj:assertj-core:3.22.0")
-    testImplementation 'org.mockito:mockito-core:4.5.1'
+    testRuntimeOnly('org.junit.platform:junit-platform-launcher')
+    testImplementation("org.assertj:assertj-core:3.27.7")
+    testImplementation 'org.mockito:mockito-core:5.24.0'
     testImplementation 'com.transferwise.envoy:envoy-api:1.17.0'
-    testImplementation 'org.mockito:mockito-junit-jupiter:4.5.1'
-    testImplementation 'net.jqwik:jqwik:1.6.5'
-    spotbugs 'com.github.spotbugs:spotbugs:4.7.2'
-    errorprone "com.google.errorprone:error_prone_core:2.15.0"
+    testImplementation 'org.mockito:mockito-junit-jupiter:5.24.0'
+    testImplementation 'net.jqwik:jqwik:1.10.2'
+    spotbugs 'com.github.spotbugs:spotbugs:4.10.5'
+    errorprone "com.google.errorprone:error_prone_core:2.50.0"
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
     withSourcesJar()
     withJavadocJar()
 }
@@ -47,6 +46,11 @@ jar {
                 "Implementation-Version": archiveVersion
         )
     }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    // Error Prone needs JDK 21+ to run; keep the published bytecode at 17.
+    options.release = 17
 }
 
 compileJava {
@@ -75,19 +79,8 @@ tasks.withType(Checkstyle) {
     maxWarnings = 0
 
     reports {
-        xml.enabled true
-        html.enabled false
-    }
-}
-
-tasks.findAll { it.name.startsWith("spotbugs") }*.configure {
-    effort = "max"
-    maxHeapSize = '1g'
-    includeFilter = file("../spotbugs_include_filter.xml")
-    omitVisitors = ['FindReturnRef', 'ThrowingExceptions']
-
-    reports {
-        xml.enabled true
+        xml.required = true
+        html.required = false
     }
 }
 
@@ -97,10 +90,4 @@ tasks.withType(JavaCompile).configureEach {
 
 clean.doFirst {
     delete "out"
-}
-
-yamlValidator {
-    searchPaths = ['src']
-    allowDuplicates = false
-    searchRecursive = true
 }

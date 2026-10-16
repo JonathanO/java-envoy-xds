@@ -201,7 +201,6 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
         }
     }
 
-    @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Spotbugs is confused by lambdas")
     @GuardedBy("this")
     private void notifyClientConnected() {
         if (node == null) {
@@ -214,7 +213,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
         }
     }
 
-    @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Spotbugs is confused by lambdas")
+    @SuppressWarnings("GuardedBy") // runner.exec() runs synchronously, so the lock is still held
     @GuardedBy("this")
     private void cleanupOnDisconnect(RunWithExceptions runner) {
         isDead = true;

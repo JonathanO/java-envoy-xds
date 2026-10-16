@@ -3,7 +3,6 @@ package net.woaf.jono.envoy.xds.delta;
 import com.google.common.collect.ImmutableSet;
 import net.woaf.jono.envoy.xds.NodeConfig;
 import net.woaf.jono.envoy.xds.delta.WildcardSubManager;
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.junit.jupiter.api.Test;
 
 import java.util.function.Predicate;
@@ -12,7 +11,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 
 @SuppressWarnings("Duplicates")
-@SuppressFBWarnings(value = "URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD", justification = "Mockito rule")
 public class WildcardSubManagerSpec {
 
     @Test

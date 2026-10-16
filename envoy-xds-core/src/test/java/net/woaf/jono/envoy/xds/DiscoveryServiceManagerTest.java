@@ -8,7 +8,6 @@ import net.woaf.jono.envoy.xds.DiscoveryServiceManager;
 import net.woaf.jono.envoy.xds.TypeUrl;
 import net.woaf.jono.envoy.xds.api.StateBacklog;
 import net.woaf.jono.envoy.xds.api.DiscoveryServiceManagerMetrics;
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -28,7 +27,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
-@SuppressFBWarnings(value = {"URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD", "RV_RETURN_VALUE_IGNORED_NO_SIDE_EFFECT"}, justification = "Mockito rule")
 @ExtendWith(MockitoExtension.class)
 public class DiscoveryServiceManagerTest {
 

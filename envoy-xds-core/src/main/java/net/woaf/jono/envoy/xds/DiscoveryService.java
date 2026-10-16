@@ -30,8 +30,10 @@ public interface DiscoveryService<RequestT extends Message, StateUpdT> {
     boolean awaitingAck();
 
     /**
-     * <p>Called when the DiscoveryServiceManager is initialized.</p>
+     * Called when the DiscoveryServiceManager is initialized.
+     *
      * <p>The DSM is initialized the first time any message from envoy is received, regardless of which DiscoveryService will handle the message.</p>
+     *
      * <p>The state passed can either be a genuinely full state (with only added services),
      * or a differential state (from which the full state can still be reconstructed).</p>
      */
