@@ -1,3 +1,3 @@
-include "wise-envoy-xds-core"
-include "wise-envoy-xds-example"
-include "wise-envoy-xds-e2e-tests"
+include "envoy-xds-core"
+include "envoy-xds-example"
+include "envoy-xds-e2e-tests"

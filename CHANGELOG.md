@@ -1,6 +1,13 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [2.0.0] - 2026-10-16
+### Changed
+* Forked from [transferwise/wise-envoy-xds](https://github.com/transferwise/wise-envoy-xds)
+* **Breaking:** Java packages renamed from `com.transferwise.envoy` to `net.woaf.jono.envoy`
+* **Breaking:** Maven coordinates changed from `com.transferwise.envoy:wise-envoy-xds-core` to `net.woaf.jono.envoy:envoy-xds-core`
+* Replaced dependabot with Renovate
+
 ## [1.0.1] - 2026-08-19
 ### Changed
 * Bump com.google.protobuf:protobuf-java from 3.21.12 to 3.25.9

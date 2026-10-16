@@ -1,11 +1,9 @@
 apply plugin: "maven-publish"
 apply plugin: "signing"
 
-ext.projectGitHubRepoName = "wise-envoy-xds"
-ext.projectScmUrl = "https://github.com/transferwise/${projectGitHubRepoName}"
-ext.projectScmConnection = "scm:git:git://github.com/transferwise/${projectGitHubRepoName}.git"
-ext.artifactoryUser = project.hasProperty("artifactoryUser") ? project.artifactoryUser : System.env.ARTIFACTORY_USER as String
-ext.artifactoryPassword = project.hasProperty("artifactoryPassword") ? project.artifactoryPassword : System.env.ARTIFACTORY_PASSWORD as String
+ext.projectGitHubRepoName = "java-envoy-xds"
+ext.projectScmUrl = "https://github.com/JonathanO/${projectGitHubRepoName}"
+ext.projectScmConnection = "scm:git:git://github.com/JonathanO/${projectGitHubRepoName}.git"
 
 publishing {
     publications {
@@ -22,7 +20,7 @@ publishing {
                 packaging = "jar"
                 licenses {
                     license {
-                        name = 'The Apache License, Version 2.0, Copyright 2022 Wise Plc'
+                        name = 'The Apache License, Version 2.0, Copyright 2022 Wise Plc, 2026 Jonathan Oddy'
                         url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
                     }
                 }
@@ -30,9 +28,7 @@ publishing {
                     developer {
                         id = 'JonathanO'
                         name = 'Jonathan Oddy'
-                        email = "jonathan.oddy@wise.com"
-                        organization = "Wise Plc"
-                        organizationUrl = "https://github.com/transferwise"
+                        email = "jonathan@woaf.net"
                     }
                 }
                 scm {

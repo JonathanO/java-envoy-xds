@@ -14,7 +14,7 @@ apply plugin: "idea"
 apply plugin: 'net.ltgt.errorprone'
 apply plugin: 'com.github.spotbugs'
 
-group = "com.transferwise.envoy"
+group = "net.woaf.jono.envoy"
 
 repositories {
     mavenCentral()

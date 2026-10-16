@@ -1,0 +1,6 @@
+Envoy xDS
+Copyright 2022 Wise Plc.
+Copyright 2026 Jonathan Oddy.
+
+This product is a fork of wise-envoy-xds (https://github.com/transferwise/wise-envoy-xds),
+originally developed by Wise Plc and licensed under the Apache License, Version 2.0.
