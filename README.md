@@ -1,5 +1,7 @@
 # Envoy xDS
 
+> Forked from [transferwise/wise-envoy-xds](https://github.com/transferwise/wise-envoy-xds), originally developed at Wise.
+
 Envoy xDS is an Envoy ADS implementation. It provides the framework necessary to correctly sequence xDS updates towards
 Envoy instances. See the envoy [xDS docs](https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol) for details
 of the protocol.
