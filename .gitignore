@@ -8,7 +8,6 @@ logs
 application.pid
 out/
 gen/
-.jqwik-database
 .classpath
 .project
 bin/

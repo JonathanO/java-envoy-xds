@@ -10,8 +10,9 @@ All notable changes to this project will be documented in this file.
 * Build now requires JDK 21+ (Error Prone); published bytecode still targets Java 17
 * Bump Gradle 7.5.1 -> 9.8.1 and all build plugins
 * Bump guava 31.1 -> 33.7.2, grpc-stub 1.52.1 -> 1.85.0, slf4j 2.0.6 -> 2.0.20, spotbugs-annotations 4.7.3 -> 4.10.5
-* Bump test dependencies: JUnit 6, Mockito 5, jqwik 1.10, Testcontainers 2
+* Bump test dependencies: JUnit 6, Mockito 5, Testcontainers 2
 * Removed unmaintained yamlvalidator plugin
+* Removed unused jqwik test dependency
 
 ## [1.0.1] - 2026-08-19
 ### Changed
