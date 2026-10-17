@@ -3,7 +3,7 @@ package net.woaf.jono.envoy.xds.api;
 import java.util.function.Supplier;
 
 /**
- * <p>Records metrics about state update latencies for Envoy clients.</p>
+ * Records metrics about state update latencies for Envoy clients.
  *
  * <p>One instance will be instantiated per discovery stream.
  * Thread safety: unsafe! The caller must make sure synchronization happens.

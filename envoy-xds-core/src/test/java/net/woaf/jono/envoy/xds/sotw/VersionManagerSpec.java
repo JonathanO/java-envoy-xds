@@ -2,7 +2,6 @@ package net.woaf.jono.envoy.xds.sotw;
 
 import com.google.common.primitives.UnsignedLong;
 import net.woaf.jono.envoy.xds.sotw.VersionManager;
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -10,7 +9,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 
 @SuppressWarnings("Duplicates")
-@SuppressFBWarnings(value = "URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD", justification = "Mockito rule")
 public class VersionManagerSpec {
 
     @Test

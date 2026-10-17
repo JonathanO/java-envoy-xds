@@ -2,7 +2,6 @@ package net.woaf.jono.envoy.xds.sotw;
 
 import com.google.common.collect.ImmutableMap;
 import net.woaf.jono.envoy.xds.sotw.WildcardSubManager;
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
@@ -12,7 +11,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SuppressWarnings("Duplicates")
-@SuppressFBWarnings(value = "URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD", justification = "Mockito rule")
 public class WildcardSubManagerSpec {
 
     @Test

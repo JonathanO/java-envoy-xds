@@ -50,7 +50,7 @@ publishing {
     task delombok(type: JavaExec, dependsOn: compileJava) {
         classpath  = sourceSets.main.compileClasspath
         mainClass = 'lombok.launch.Main'
-        ext.outputDir = file("$buildDir/delombok")
+        ext.outputDir = layout.buildDirectory.dir("delombok").get().asFile
         outputs.dir(outputDir)
         args 'delombok'
         sourceSets.main.java.srcDirs.each { 
@@ -69,7 +69,7 @@ publishing {
 
     repositories {
         maven {
-            url System.getenv("MAVEN_URL")
+            url = System.getenv("MAVEN_URL")
             credentials {
                 username = System.getenv("MAVEN_USER")
                 password = System.getenv("MAVEN_PASSWORD")

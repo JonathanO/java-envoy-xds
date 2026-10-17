@@ -2,7 +2,6 @@ package net.woaf.jono.envoy.xds.sotw;
 
 import com.google.common.collect.ImmutableMap;
 import net.woaf.jono.envoy.xds.sotw.SubListSubManager;
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -12,7 +11,6 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SuppressWarnings("Duplicates")
-@SuppressFBWarnings(value = "URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD", justification = "Mockito rule")
 public class SubListSubManagerSpec {
 
     @Test

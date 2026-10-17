@@ -10,7 +10,6 @@ import net.woaf.jono.envoy.xds.api.ClusterEventSource;
 import net.woaf.jono.envoy.xds.api.ClusterManagerEventListener;
 import net.woaf.jono.envoy.xds.api.XdsEventListener;
 import net.woaf.jono.envoy.xds.api.DiscoveryServiceManagerMetrics;
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.envoyproxy.envoy.config.core.v3.Node;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
@@ -188,33 +187,31 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
         }
     }
 
-    @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Spotbugs is confused by lambdas")
     @GuardedBy("this")
-    private void notifyClientDisconnected() {
+    private void notifyClientDisconnected(RunWithExceptions runner) {
+        Node node = this.node;
         if (node == null) {
             return;
         }
-        try (RunWithExceptions runner = new RunWithExceptions("notifying XdsEventListeners of client disconnection")) {
-            for (XdsEventListener<DetailsT> listener: listeners) {
-                runner.exec(() -> listener.onClientDisconnected(this, node));
-            }
+        for (XdsEventListener<DetailsT> listener: listeners) {
+            runner.exec(() -> listener.onClientDisconnected(this, node));
         }
     }
 
-    @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Spotbugs is confused by lambdas")
     @GuardedBy("this")
     private void notifyClientConnected() {
+        Node node = this.node;
         if (node == null) {
             return;
         }
+        XdsConfig<DetailsT> config = xdsConfig.getXdsConfig();
         try (RunWithExceptions runner = new RunWithExceptions("notifying XdsEventListeners of client connection")) {
             for (XdsEventListener<DetailsT> listener: listeners) {
-                runner.exec(() -> listener.onNewClient(this, node, xdsConfig.getXdsConfig()));
+                runner.exec(() -> listener.onNewClient(this, node, config));
             }
         }
     }
 
-    @SuppressFBWarnings(value = "IS2_INCONSISTENT_SYNC", justification = "Spotbugs is confused by lambdas")
     @GuardedBy("this")
     private void cleanupOnDisconnect(RunWithExceptions runner) {
         isDead = true;
@@ -223,7 +220,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             runner.exec(() -> discoveryServiceManager.close());
             discoveryServiceManager = null;
         }
-        runner.exec(this::notifyClientDisconnected);
+        notifyClientDisconnected(runner);
     }
 
     @Override
