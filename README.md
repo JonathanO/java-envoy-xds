@@ -39,6 +39,27 @@ envoy-xds-example contains a toy example ADS, documented [here](envoy-xds-exampl
 Any implementation will need to provide a dependency on a version of com.transferwise.envoy:envoy-api supported by the
 envoy version they run.
 
+### Snapshots (experimental)
+
+`envoy-xds-snapshot` lets you describe the whole desired config instead of writing `IncrementalConfigBuilder`s.
+Publish snapshots to a `SnapshotSource` and serve them with `SnapshotConfigBuilder.forTypes(...)`. Each change is
+still applied make-before-break: added and changed resources go out in add order, deleted ones in remove order.
+
+```java
+SnapshotSource<ClientConfig> source = new SnapshotSource<>();
+AggregatedDiscoveryService<SnapshotUpdate<ClientConfig>, ClientConfig> ads = new AggregatedDiscoveryService<>(
+    source,
+    SnapshotConfigBuilder.forTypes(Cluster.class, ClusterLoadAssignment.class, Listener.class, RouteConfiguration.class),
+    clientConfigProvider, ImmutableList.of(), MergingStateBacklog.factory(), metricsFactory);
+
+// Route, cluster and endpoints in one change: Envoy gets the cluster and endpoints before the route.
+source.update(e -> e.put(cluster).put(endpoints).put(routes));
+```
+
+Edit the current snapshot (`update()` or `current().edit()`) so only the names you touch are compared. For per-client
+resources, pass `new SnapshotSource<>((base, clientDetails) -> overlay)`: the overlay adds or replaces resources by name,
+and is computed once per snapshot for each distinct `clientDetails` value.
+
 ## Versioning
 
 At the moment the library has a compile-only dependency on a version of com.transferwise.envoy:envoy-api. It relies only

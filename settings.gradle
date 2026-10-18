@@ -1,3 +1,4 @@
 include "envoy-xds-core"
+include "envoy-xds-snapshot"
 include "envoy-xds-example"
 include "envoy-xds-e2e-tests"
