@@ -15,8 +15,10 @@ import io.envoyproxy.envoy.config.listener.v3.Listener;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.assertj.core.api.AssertFactory;
@@ -174,13 +176,69 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
 
     @Override
     @CanIgnoreReturnValue
-    public SotwConversationAssert sentNoEmptyResponses() {
+    public SotwConversationAssert sentNoEmptyResponses(int fromMessage) {
         isNotNull();
-        for (Object message : actual.getMessages()) {
+        for (Object message : actual.getMessages().subList(fromMessage, actual.getMessages().size())) {
             // An empty response is meaningful for wildcard types: it removes everything.
             if (message instanceof DiscoveryResponse r && r.getResourcesCount() == 0 && !TypeUrl.of(r.getTypeUrl()).isWildcard()) {
                 failWithMessage("Sent empty response <%s> for type <%s>", r.getNonce(), r.getTypeUrl());
             }
+        }
+        return this;
+    }
+
+    @Override
+    @CanIgnoreReturnValue
+    public SotwConversationAssert wasMakeBeforeBreak(int fromMessage) {
+        isNotNull();
+        AckedState state = new AckedState();
+        Map<String, DiscoveryResponse> pending = new HashMap<>();
+        Map<String, Set<String>> pendingRemovals = new HashMap<>();
+        List<Object> messages = actual.getMessages();
+        for (int i = 0; i < messages.size(); i++) {
+            Object message = messages.get(i);
+            if (message instanceof DiscoveryResponse r) {
+                // CDS is a wildcard type: each response is the full set, so anything Envoy has that's missing is removed.
+                Set<String> removed = new HashSet<>();
+                if (r.getTypeUrl().equals(TypeUrl.CDS.getTypeUrl())) {
+                    removed.addAll(state.clusters());
+                    r.getResourcesList().forEach(any -> removed.remove(getNameForResource(any)));
+                }
+                if (i >= fromMessage) {
+                    state.checkResponse(r.getTypeUrl(), r.getResourcesList(), removed);
+                }
+                pending.put(r.getNonce(), r);
+                pendingRemovals.put(r.getNonce(), removed);
+            } else if (message instanceof DiscoveryRequest r && !r.hasErrorDetail()) {
+                DiscoveryResponse ackedResponse = pending.remove(r.getResponseNonce());
+                if (ackedResponse != null) {
+                    state.acked(ackedResponse.getTypeUrl(), ackedResponse.getResourcesList(), pendingRemovals.remove(r.getResponseNonce()));
+                }
+            }
+        }
+        if (!state.problems().isEmpty()) {
+            failWithMessage("Not make before break: <%s>", state.problems());
+        }
+        return this;
+    }
+
+    @Override
+    @CanIgnoreReturnValue
+    public SotwConversationAssert answeredEveryType() {
+        isNotNull();
+        Set<String> unanswered = new HashSet<>();
+        for (Object message : actual.getMessages()) {
+            if (message instanceof DiscoveryRequest r) {
+                unanswered.add(r.getTypeUrl());
+            }
+        }
+        for (Object message : actual.getMessages()) {
+            if (message instanceof DiscoveryResponse r) {
+                unanswered.remove(r.getTypeUrl());
+            }
+        }
+        if (!unanswered.isEmpty()) {
+            failWithMessage("Envoy got no response at all for <%s>", unanswered);
         }
         return this;
     }
