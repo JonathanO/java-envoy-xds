@@ -23,6 +23,12 @@ public abstract class EnvoyAssert<SelfT extends EnvoyAssert<SelfT>> extends Abst
     public abstract SelfT nothingSentUnasked(boolean allowBrokenReconnectWildcardBehaviourPre119);
 
     @CanIgnoreReturnValue
+    public abstract SelfT unsubscribedFrom(String typeUrl, String resourceName);
+
+    @CanIgnoreReturnValue
+    public abstract SelfT sentNoEmptyResponses();
+
+    @CanIgnoreReturnValue
     public abstract SelfT hadConversationsWith(String... typeUrls);
 
 }

@@ -128,6 +128,31 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
 
     @Override
     @CanIgnoreReturnValue
+    public DeltaConversationAssert unsubscribedFrom(String typeUrl, String resourceName) {
+        isNotNull();
+        for (Object message : actual.getMessages()) {
+            if (message instanceof DeltaDiscoveryRequest r && r.getTypeUrl().equals(typeUrl) && r.getResourceNamesUnsubscribeList().contains(resourceName)) {
+                return this;
+            }
+        }
+        failWithMessage("Envoy never unsubscribed type <%s> from resource <%s>", typeUrl, resourceName);
+        return this;
+    }
+
+    @Override
+    @CanIgnoreReturnValue
+    public DeltaConversationAssert sentNoEmptyResponses() {
+        isNotNull();
+        for (Object message : actual.getMessages()) {
+            if (message instanceof DeltaDiscoveryResponse r && r.getResourcesCount() == 0 && r.getRemovedResourcesCount() == 0) {
+                failWithMessage("Sent empty response <%s> for type <%s>", r.getNonce(), r.getTypeUrl());
+            }
+        }
+        return this;
+    }
+
+    @Override
+    @CanIgnoreReturnValue
     public DeltaConversationAssert hadConversationsWith(String... typeUrls) {
         isNotNull();
 

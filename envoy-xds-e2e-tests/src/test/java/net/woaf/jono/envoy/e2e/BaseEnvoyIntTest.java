@@ -50,13 +50,15 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @ExtendWith(MockitoExtension.class)
 public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>> {
 
+    private final List<String> envoyLog = Collections.synchronizedList(new ArrayList<>());
     @Container
     private final EnvoyContainer envoy = new EnvoyContainer(getEnvoyImageName())
         .withClasspathResourceMapping(getEnvoyConfigFileName(), "/envoy-custom.yaml", BindMode.READ_ONLY)
         .withCommand("-l", "debug", "-c", "/envoy-custom.yaml")
         .withExposedPorts(9901)
         .withAccessToHost(true)
-        .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(BaseEnvoyIntTest.class)));
+        .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(BaseEnvoyIntTest.class)))
+        .withLogConsumer(frame -> envoyLog.add(frame.getUtf8StringWithoutLineEnding()));
     Server server = null;
     EnvoyAdminClient adminClient = null;
 
@@ -222,6 +224,44 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
             assertThat(getClusters(dump)).extracting(Cluster::getName).containsExactlyInAnyOrder("foo", "baz");
         }
 
+    }
+
+    @Test
+    public void removeServiceWhileConnected() throws IOException {
+        ClusterManager clusterManager = new ClusterManager();
+
+        List<DiscoveryServiceManagerEventListener> conversations = Collections.synchronizedList(new ArrayList<>());
+
+        AggregatedDiscoveryService<SimpleUpdate, ClientConfig> ads = configureAds(clusterManager, conversations);
+
+        ConversationLogger conversationInterceptor = new ConversationLogger();
+        server = ServerBuilder.forPort(6566).addService(ads).intercept(conversationInterceptor).intercept(new GrpcXdsV3ProtocolLoggingInterceptor()).build();
+        server.start();
+        org.testcontainers.Testcontainers.exposeHostPorts(6566);
+
+        clusterManager.setEndpoints(ImmutableMap.of(
+            "foo", ImmutableList.of(HostAndPort.fromString("127.0.0.5"), HostAndPort.fromString("127.0.0.6")),
+            "bar", ImmutableList.of(HostAndPort.fromString("127.0.0.7"), HostAndPort.fromString("127.0.0.8"))
+        ));
+        await().atMost(30, TimeUnit.SECONDS).until(() -> !conversations.isEmpty() && conversations.get(0).isIdle()
+            && getClusters(adminClient.configDump()).size() == 2);
+
+        // Earlier warnings are from startup, e.g. retrying before our server is up.
+        final int logMark = envoyLog.size();
+
+        // Envoy drops its EDS subscription for a removed cluster, which needs no response.
+        clusterManager.removeService("bar");
+        await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> envoyAssertThat(conversationInterceptor.getConversations().get(0)).unsubscribedFrom(TypeUrl.EDS.getTypeUrl(), "bar"));
+        await().atMost(30, TimeUnit.SECONDS).until(() -> conversations.get(0).isIdle());
+
+        // Envoy still takes updates afterwards.
+        clusterManager.setEndpoints("baz", HostAndPort.fromString("127.0.0.9"), HostAndPort.fromString("127.0.0.10"));
+        await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> assertThat(getClusters(adminClient.configDump())).extracting(Cluster::getName).containsExactlyInAnyOrder("foo", "baz"));
+        await().atMost(30, TimeUnit.SECONDS).until(() -> conversations.get(0).isIdle());
+
+        assertThat(conversationInterceptor.getConversations()).hasSize(1);
+        envoyAssertThat(conversationInterceptor.getConversations().get(0)).nothingSentUnasked().allWereAcked().sentNoEmptyResponses();
+        assertThat(envoyLog.subList(logMark, envoyLog.size())).filteredOn(l -> l.matches(".*\\]\\[(warning|error|critical)\\]\\[.*")).isEmpty();
     }
 
     private List<Cluster> getClusters(TypedEnvoyConfigDump dump) {
