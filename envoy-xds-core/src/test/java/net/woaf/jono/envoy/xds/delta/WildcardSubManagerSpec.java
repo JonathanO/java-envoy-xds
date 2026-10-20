@@ -68,8 +68,7 @@ public class WildcardSubManagerSpec {
 
 
         // Unsubscribe from foo
-        wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of("foo")).orElseThrow();
-        assertThat(wouldSendUpdates).rejects("foo", "bar", "baz");
+        assertThat(subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of("foo"))).isNotPresent();
 
 
         assertThat(subManager.isSubscribedTo("foo")).isFalse();

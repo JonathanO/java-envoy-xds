@@ -26,8 +26,9 @@ class SubListSubManager implements SubManager {
                 throw new IllegalArgumentException("Attempt to subscribe and unsubscribe from the same resource in one request: " + name);
             }
         }
-        boolean didUnsubscribe = subs.removeAll(resourceNamesUnsubscribe);
-        if (!didUnsubscribe && newSubs.isEmpty()) { // TODO(jono): why do we check didUnsubscribe here?
+        subs.removeAll(resourceNamesUnsubscribe);
+        if (newSubs.isEmpty()) {
+            // Unsubscribing needs no response, and sending an empty one would hold up pushes until Envoy ACKs it.
             return Optional.empty();
         }
         return Optional.of(newSubs::contains);
