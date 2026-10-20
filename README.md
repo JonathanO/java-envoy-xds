@@ -60,6 +60,8 @@ Edit the current snapshot (`update()` or `current().edit()`) so only the names y
 resources, pass `new SnapshotSource<>((base, clientDetails) -> overlay)`: the overlay adds or replaces resources by name,
 and is computed once per snapshot for each distinct `clientDetails` value.
 
+`SnapshotExample` in [envoy-xds-example](envoy-xds-example/README.md) is a runnable version of the toy example built this way.
+
 ## Versioning
 
 At the moment the library has a compile-only dependency on a version of com.transferwise.envoy:envoy-api. It relies only
