@@ -4,6 +4,7 @@ import static net.woaf.jono.envoy.e2e.configdump.EnvoyAdminClient.sneakyUnpack;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.net.HostAndPort;
@@ -29,6 +30,11 @@ import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import java.io.IOException;
+import java.util.Map;
+import java.nio.charset.StandardCharsets;
+import java.net.Socket;
+import java.io.InputStreamReader;
+import java.io.BufferedReader;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -36,31 +42,28 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.assertj.core.api.InstanceOfAssertFactory;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.BindMode;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
-@Testcontainers
 @ExtendWith(MockitoExtension.class)
 public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>> {
 
     private final List<String> envoyLog = Collections.synchronizedList(new ArrayList<>());
-    @Container
     private final EnvoyContainer envoy = new EnvoyContainer(getEnvoyImageName())
         .withClasspathResourceMapping(getEnvoyConfigFileName(), "/envoy-custom.yaml", BindMode.READ_ONLY)
         .withCommand("-l", "debug", "-c", "/envoy-custom.yaml")
-        .withExposedPorts(9901)
+        .withExposedPorts(9901, 10000)
         .withAccessToHost(true)
         .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(BaseEnvoyIntTest.class)))
         .withLogConsumer(frame -> envoyLog.add(frame.getUtf8StringWithoutLineEnding()));
     Server server = null;
     EnvoyAdminClient adminClient = null;
+    private volatile int logMark = 0;
+    private volatile int messageMark = 0;
 
     protected abstract String getEnvoyImageName();
 
@@ -70,13 +73,9 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
 
     protected abstract InstanceOfAssertFactory<Conversation, AsserterT> assertFactory();
 
-    @BeforeEach
-    public void createAdminClient() throws IOException {
-        adminClient = new EnvoyAdminClient(HostAndPort.fromParts(envoy.getHost(), envoy.getMappedPort(9901)));
-    }
-
     @AfterEach
     public void stopServer() throws InterruptedException {
+        envoy.stop();
         if (server != null) {
             server.shutdownNow();
             server.awaitTermination();
@@ -84,7 +83,82 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         }
     }
 
+    /**
+     * Start our ADS, then Envoy if it isn't running yet. In that order so Envoy connects at once, rather than backing
+     * off for long enough to time out its initial fetches.
+     */
+    protected void startServer(AggregatedDiscoveryService<?, ?> ads, ConversationLogger conversationInterceptor) throws IOException {
+        server = ServerBuilder.forPort(6566).addService(ads).intercept(conversationInterceptor).intercept(new GrpcXdsV3ProtocolLoggingInterceptor()).build();
+        server.start();
+        org.testcontainers.Testcontainers.exposeHostPorts(6566);
+        if (!envoy.isRunning()) {
+            envoy.start();
+            adminClient = new EnvoyAdminClient(HostAndPort.fromParts(envoy.getHost(), envoy.getMappedPort(9901)));
+        }
+    }
+
     protected abstract AsserterT envoyAssertThat(Conversation conversation);
+
+    /**
+     * Call once Envoy has synced: everything it asked for must have been answered by now, or it sits waiting out its
+     * initial fetch timeout. The stricter assertSettled() checks start from here, and Envoy's log so far is ignored,
+     * e.g. warnings from startup or from a deliberate disconnect.
+     */
+    protected void startChecking(Conversation conversation) {
+        await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> envoyAssertThat(conversation).answeredEveryType());
+        logMark = envoyLog.size();
+        messageMark = conversation.getMessages().size();
+    }
+
+    /**
+     * Everything we expect once Envoy has settled after a change: a sane conversation, nothing rejected, nothing stuck
+     * warming or waiting on an initial fetch, still connected, and no warnings or errors logged since startChecking().
+     * @param conversation the current conversation
+     * @param reconnected true if Envoy reconnected to start this conversation. We can't know what config it kept, so
+     *     make before break can't be checked, and old Envoys may wrongly resend resource names for wildcard types.
+     */
+    protected void assertSettled(Conversation conversation, boolean reconnected) {
+        AsserterT asserter = envoyAssertThat(conversation)
+            .nothingSentUnasked(reconnected && hasBrokenWildcardReconnect())
+            .allWereAcked()
+            .sentNoEmptyResponses(messageMark);
+        if (!reconnected) {
+            asserter.wasMakeBeforeBreak(messageMark);
+        }
+        // Stats can trail the ACK a little.
+        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            Map<String, Long> stats = adminClient.stats();
+            assertThat(stats)
+                .containsEntry("control_plane.connected_state", 1L)
+                .containsEntry("cluster_manager.warming_clusters", 0L)
+                .containsEntry("listener_manager.total_listeners_warming", 0L);
+            assertThat(stats.entrySet().stream()
+                .filter(e -> (e.getKey().endsWith(".update_rejected") || e.getKey().endsWith(".init_fetch_timeout")) && e.getValue() != 0)
+                .toList()).as("rejected updates and initial fetch timeouts").isEmpty();
+        });
+        List<String> newLog;
+        synchronized (envoyLog) { // Envoy's log consumer is still appending
+            newLog = new ArrayList<>(envoyLog.subList(logMark, envoyLog.size()));
+        }
+        assertThat(newLog).as("Envoy warnings and errors")
+            .filteredOn(l -> l.matches(".*\\]\\[(warning|error|critical)\\]\\[.*")).isEmpty();
+    }
+
+    /**
+     * Status code of a request through Envoy's listener to a virtual host.
+     */
+    protected int httpStatus(String virtualHost) throws IOException {
+        try (Socket socket = new Socket(envoy.getHost(), envoy.getMappedPort(10000))) {
+            socket.setSoTimeout(5000);
+            socket.getOutputStream().write(("GET / HTTP/1.1\r\nHost: " + virtualHost + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+            String statusLine = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII)).readLine();
+            return Integer.parseInt(Splitter.on(' ').splitToList(statusLine).get(1));
+        }
+    }
+
+    private static void awaitPush(DiscoveryServiceManagerEventListener listener, long pushesBefore) {
+        await().atMost(30, TimeUnit.SECONDS).until(() -> listener.getPushed() > pushesBefore && listener.isIdle());
+    }
 
     protected AggregatedDiscoveryService<SimpleUpdate, ClientConfig> configureAds(ClusterManager clusterManager, List<DiscoveryServiceManagerEventListener> conversations) {
         return new AggregatedDiscoveryService<>(
@@ -114,9 +188,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         AggregatedDiscoveryService<SimpleUpdate, ClientConfig> ads = configureAds(clusterManager, conversations);
 
         ConversationLogger conversationInterceptor = new ConversationLogger();
-        server = ServerBuilder.forPort(6566).addService(ads).intercept(conversationInterceptor).intercept(new GrpcXdsV3ProtocolLoggingInterceptor()).build();
-        server.start();
-        org.testcontainers.Testcontainers.exposeHostPorts(6566);
+        startServer(ads, conversationInterceptor);
 
         await().atMost(30, TimeUnit.SECONDS).untilAsserted(
             () -> assertThat(conversationInterceptor.getConversations())
@@ -128,6 +200,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
 
         envoyAssertThat(conversationInterceptor.getConversations().get(0)).nothingSentUnasked().allWereAcked();
         assertThat(conversations.get(0).getPushed()).isZero(); // We have not pushed any changes yet.
+        startChecking(conversationInterceptor.getConversations().get(0));
 
         clusterManager.setEndpoints("foo", HostAndPort.fromString("127.0.0.5"), HostAndPort.fromString("127.0.0.6"));
 
@@ -136,7 +209,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         assertThat(conversations).hasSize(1);
         assertThat(conversationInterceptor.getConversations()).hasSize(1);
 
-        envoyAssertThat(conversationInterceptor.getConversations().get(0)).nothingSentUnasked().allWereAcked();
+        assertSettled(conversationInterceptor.getConversations().get(0), false);
 
         TypedEnvoyConfigDump dump = adminClient.configDump();
 
@@ -154,9 +227,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         AggregatedDiscoveryService<SimpleUpdate, ClientConfig> ads = configureAds(clusterManager, conversations);
 
         ConversationLogger conversationInterceptor = new ConversationLogger();
-        server = ServerBuilder.forPort(6566).addService(ads).intercept(conversationInterceptor).build();
-        server.start();
-        org.testcontainers.Testcontainers.exposeHostPorts(6566);
+        startServer(ads, conversationInterceptor);
         {
             await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> assertThat(conversationInterceptor.getConversations()).isNotEmpty().first(assertFactory()).hadConversationsWith(TypeUrl.CDS.getTypeUrl(), TypeUrl.RDS.getTypeUrl()));
             await().atMost(30, TimeUnit.SECONDS).until(() -> conversations.size() > 0 && conversations.get(0).isIdle());
@@ -167,6 +238,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
             assertThat(dump.getRoutesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
             assertThat(dump.getClustersConfigDump().getDynamicActiveClustersCount()).isEqualTo(0);
             assertThat(conversations.get(0).getPushed()).isZero();
+            startChecking(conversationInterceptor.getConversations().get(0));
         }
 
         clusterManager.setEndpoints(ImmutableMap.of(
@@ -180,7 +252,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
             assertThat(conversations).hasSize(1);
             assertThat(conversationInterceptor.getConversations()).hasSize(1);
 
-            envoyAssertThat(conversationInterceptor.getConversations().get(0)).nothingSentUnasked().allWereAcked();
+            assertSettled(conversationInterceptor.getConversations().get(0), false);
 
             TypedEnvoyConfigDump dump = adminClient.configDump();
             assertThat(dump.getRoutesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
@@ -196,9 +268,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         // When envoy reconnects and sends us the list of stuff it knew about, we should immediately tell it remove the lost service.
         clusterManager.removeService("bar");
 
-        server = ServerBuilder.forPort(6566).addService(ads).intercept(conversationInterceptor).intercept(new GrpcXdsV3ProtocolLoggingInterceptor()).build();
-        server.start();
-        org.testcontainers.Testcontainers.exposeHostPorts(6566);
+        startServer(ads, conversationInterceptor);
 
         {
             await().atMost(30, TimeUnit.SECONDS)
@@ -211,6 +281,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
             assertThat(dump.getRoutesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
             assertThat(getClusters(dump)).extracting(Cluster::getName).containsExactlyInAnyOrder("foo");
             assertThat(conversations.get(1).getPushed()).isZero();
+            startChecking(conversationInterceptor.getConversations().get(1)); // We caused the disconnect, so ignore Envoy's warnings about it.
         }
 
         clusterManager.setEndpoints("baz", HostAndPort.fromString("127.0.0.9"), HostAndPort.fromString("127.0.0.10"));
@@ -218,7 +289,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         {
             await().atMost(30, TimeUnit.SECONDS).until(() -> conversations.get(1).getPushed() > 0 && conversations.get(1).isIdle());
 
-            envoyAssertThat(conversationInterceptor.getConversations().get(1)).nothingSentUnasked(hasBrokenWildcardReconnect()).allWereAcked();
+            assertSettled(conversationInterceptor.getConversations().get(1), true);
 
             TypedEnvoyConfigDump dump = adminClient.configDump();
             assertThat(getClusters(dump)).extracting(Cluster::getName).containsExactlyInAnyOrder("foo", "baz");
@@ -227,7 +298,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
     }
 
     @Test
-    public void removeServiceWhileConnected() throws IOException {
+    public void changesWhileConnected() throws IOException {
         ClusterManager clusterManager = new ClusterManager();
 
         List<DiscoveryServiceManagerEventListener> conversations = Collections.synchronizedList(new ArrayList<>());
@@ -235,33 +306,48 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         AggregatedDiscoveryService<SimpleUpdate, ClientConfig> ads = configureAds(clusterManager, conversations);
 
         ConversationLogger conversationInterceptor = new ConversationLogger();
-        server = ServerBuilder.forPort(6566).addService(ads).intercept(conversationInterceptor).intercept(new GrpcXdsV3ProtocolLoggingInterceptor()).build();
-        server.start();
-        org.testcontainers.Testcontainers.exposeHostPorts(6566);
+        startServer(ads, conversationInterceptor);
 
+        // Envoy's own admin port stands in for upstream servers: every 127/8 address in its container reaches it.
         clusterManager.setEndpoints(ImmutableMap.of(
-            "foo", ImmutableList.of(HostAndPort.fromString("127.0.0.5"), HostAndPort.fromString("127.0.0.6")),
-            "bar", ImmutableList.of(HostAndPort.fromString("127.0.0.7"), HostAndPort.fromString("127.0.0.8"))
+            "foo", ImmutableList.of(HostAndPort.fromString("127.0.0.1:9901")),
+            "bar", ImmutableList.of(HostAndPort.fromString("127.0.0.2:9901"))
         ));
         await().atMost(30, TimeUnit.SECONDS).until(() -> !conversations.isEmpty() && conversations.get(0).isIdle()
             && getClusters(adminClient.configDump()).size() == 2);
+        final DiscoveryServiceManagerEventListener listener = conversations.get(0);
+        final Conversation conversation = conversationInterceptor.getConversations().get(0);
+        startChecking(conversation);
+        assertSettled(conversation, false);
+        assertThat(httpStatus("foo")).isEqualTo(200);
+        assertThat(httpStatus("bar")).isEqualTo(200);
 
-        // Earlier warnings are from startup, e.g. retrying before our server is up.
-        final int logMark = envoyLog.size();
+        // Change only the endpoints.
+        long pushes = listener.getPushed();
+        clusterManager.setEndpoints("foo", HostAndPort.fromString("127.0.0.3:9901"), HostAndPort.fromString("127.0.0.4:9901"));
+        awaitPush(listener, pushes);
+        assertSettled(conversation, false);
+        assertThat(httpStatus("foo")).isEqualTo(200);
 
-        // Envoy drops its EDS subscription for a removed cluster, which needs no response.
+        // Remove a service. Envoy drops its EDS subscription, which needs no response.
+        pushes = listener.getPushed();
         clusterManager.removeService("bar");
-        await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> envoyAssertThat(conversationInterceptor.getConversations().get(0)).unsubscribedFrom(TypeUrl.EDS.getTypeUrl(), "bar"));
-        await().atMost(30, TimeUnit.SECONDS).until(() -> conversations.get(0).isIdle());
+        awaitPush(listener, pushes);
+        await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> envoyAssertThat(conversation).unsubscribedFrom(TypeUrl.EDS.getTypeUrl(), "bar"));
+        await().atMost(30, TimeUnit.SECONDS).until(listener::isIdle);
+        assertSettled(conversation, false);
+        assertThat(httpStatus("bar")).isEqualTo(404);
+        assertThat(httpStatus("foo")).isEqualTo(200);
 
         // Envoy still takes updates afterwards.
-        clusterManager.setEndpoints("baz", HostAndPort.fromString("127.0.0.9"), HostAndPort.fromString("127.0.0.10"));
-        await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> assertThat(getClusters(adminClient.configDump())).extracting(Cluster::getName).containsExactlyInAnyOrder("foo", "baz"));
-        await().atMost(30, TimeUnit.SECONDS).until(() -> conversations.get(0).isIdle());
+        pushes = listener.getPushed();
+        clusterManager.setEndpoints("baz", HostAndPort.fromString("127.0.0.5:9901"));
+        awaitPush(listener, pushes);
+        assertSettled(conversation, false);
+        assertThat(getClusters(adminClient.configDump())).extracting(Cluster::getName).containsExactlyInAnyOrder("foo", "baz");
+        assertThat(httpStatus("baz")).isEqualTo(200);
 
         assertThat(conversationInterceptor.getConversations()).hasSize(1);
-        envoyAssertThat(conversationInterceptor.getConversations().get(0)).nothingSentUnasked().allWereAcked().sentNoEmptyResponses();
-        assertThat(envoyLog.subList(logMark, envoyLog.size())).filteredOn(l -> l.matches(".*\\]\\[(warning|error|critical)\\]\\[.*")).isEmpty();
     }
 
     private List<Cluster> getClusters(TypedEnvoyConfigDump dump) {

@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.e2e.configdump;
 
+import com.google.common.base.Splitter;
 import com.google.common.net.HostAndPort;
 import com.google.common.reflect.ClassPath;
 import com.google.protobuf.Any;
@@ -15,6 +16,8 @@ import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 import lombok.SneakyThrows;
 
 /**
@@ -77,14 +80,32 @@ public class EnvoyAdminClient {
      * @throws IOException if there was an IO error trying to call envoy's admin interface
      */
     public TypedEnvoyConfigDump configDump() throws IOException {
-        URLConnection configDumper = new URL("http://" + hostAndPort.toString() + "/config_dump").openConnection();
-        String asJson;
-        try (InputStream response = configDumper.getInputStream()) {
-            asJson = new String(response.readAllBytes(), StandardCharsets.UTF_8);
-        }
         ConfigDump.Builder dumpBuilder = ConfigDump.newBuilder();
-        parser.merge(asJson, dumpBuilder);
+        parser.merge(get("/config_dump"), dumpBuilder);
         return new TypedEnvoyConfigDump(dumpBuilder.build());
+    }
+
+    /**
+     * Call the stats endpoint.
+     * @return counters and gauges by name (histograms and 64 bit hashes such as versions are left out)
+     * @throws IOException if there was an IO error trying to call envoy's admin interface
+     */
+    public Map<String, Long> stats() throws IOException {
+        Map<String, Long> stats = new HashMap<>();
+        for (String line : Splitter.on('\n').split(get("/stats"))) {
+            int sep = line.lastIndexOf(": ");
+            if (sep > 0 && line.substring(sep + 2).matches("\\d{1,18}")) {
+                stats.put(line.substring(0, sep), Long.parseLong(line.substring(sep + 2)));
+            }
+        }
+        return stats;
+    }
+
+    private String get(String path) throws IOException {
+        URLConnection connection = new URL("http://" + hostAndPort.toString() + path).openConnection();
+        try (InputStream response = connection.getInputStream()) {
+            return new String(response.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 
 
