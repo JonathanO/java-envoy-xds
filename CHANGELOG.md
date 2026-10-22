@@ -1,6 +1,10 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+### Added
+* Experimental `envoy-xds-snapshot` module: snapshot-style config with automatic make-before-break ordering
+
 ## [2.0.0] - 2026-10-16
 ### Changed
 * Forked from [transferwise/wise-envoy-xds](https://github.com/transferwise/wise-envoy-xds)
