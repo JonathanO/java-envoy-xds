@@ -1,5 +1,8 @@
-package net.woaf.jono.envoy.e2e.configdump;
+package net.woaf.jono.envoy.testing.configdump;
 
+import com.google.common.base.Splitter;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.net.HostAndPort;
 import com.google.common.reflect.ClassPath;
 import com.google.protobuf.Any;
@@ -10,11 +13,14 @@ import com.google.protobuf.util.JsonFormat.TypeRegistry;
 import io.envoyproxy.envoy.admin.v3.ConfigDump;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 import lombok.SneakyThrows;
 
 /**
@@ -23,16 +29,14 @@ import lombok.SneakyThrows;
  */
 public class EnvoyAdminClient {
 
+    // Scanning the classpath takes seconds, so do it once.
+    private static final Supplier<JsonFormat.Parser> PARSER = Suppliers.memoize(
+        () -> JsonFormat.parser().ignoringUnknownFields().usingTypeRegistry(buildTypeRegistry()));
+
     private final HostAndPort hostAndPort;
-    private final TypeRegistry typeRegistry;
 
-    private final JsonFormat.Parser parser;
-
-    public EnvoyAdminClient(HostAndPort hostAndPort) throws IOException {
+    public EnvoyAdminClient(HostAndPort hostAndPort) {
         this.hostAndPort = hostAndPort;
-        this.typeRegistry = buildTypeRegistry();
-        this.parser = JsonFormat.parser().ignoringUnknownFields()
-            .usingTypeRegistry(typeRegistry);
     }
 
     /**
@@ -48,10 +52,15 @@ public class EnvoyAdminClient {
         return thing.unpack(clazz);
     }
 
-    private TypeRegistry buildTypeRegistry() throws IOException {
+    private static TypeRegistry buildTypeRegistry() {
         // Surely there is a better way than this?
         TypeRegistry.Builder typeRegistryBuilder = TypeRegistry.newBuilder();
-        ClassPath cp = ClassPath.from(ClassLoader.getSystemClassLoader());
+        ClassPath cp;
+        try {
+            cp = ClassPath.from(ClassLoader.getSystemClassLoader());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
         cp.getTopLevelClassesRecursive("io.envoyproxy.envoy").forEach(classinfo -> {
             Class<?> clazz;
             try {
@@ -77,14 +86,32 @@ public class EnvoyAdminClient {
      * @throws IOException if there was an IO error trying to call envoy's admin interface
      */
     public TypedEnvoyConfigDump configDump() throws IOException {
-        URLConnection configDumper = new URL("http://" + hostAndPort.toString() + "/config_dump").openConnection();
-        String asJson;
-        try (InputStream response = configDumper.getInputStream()) {
-            asJson = new String(response.readAllBytes(), StandardCharsets.UTF_8);
-        }
         ConfigDump.Builder dumpBuilder = ConfigDump.newBuilder();
-        parser.merge(asJson, dumpBuilder);
+        PARSER.get().merge(get("/config_dump"), dumpBuilder);
         return new TypedEnvoyConfigDump(dumpBuilder.build());
+    }
+
+    /**
+     * Call the stats endpoint.
+     * @return counters and gauges by name (histograms and 64 bit hashes such as versions are left out)
+     * @throws IOException if there was an IO error trying to call envoy's admin interface
+     */
+    public Map<String, Long> stats() throws IOException {
+        Map<String, Long> stats = new HashMap<>();
+        for (String line : Splitter.on('\n').split(get("/stats"))) {
+            int sep = line.lastIndexOf(": ");
+            if (sep > 0 && line.substring(sep + 2).matches("\\d{1,18}")) {
+                stats.put(line.substring(0, sep), Long.parseLong(line.substring(sep + 2)));
+            }
+        }
+        return stats;
+    }
+
+    private String get(String path) throws IOException {
+        URLConnection connection = new URL("http://" + hostAndPort.toString() + path).openConnection();
+        try (InputStream response = connection.getInputStream()) {
+            return new String(response.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 
 

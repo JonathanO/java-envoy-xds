@@ -17,6 +17,7 @@ dependencies {
     implementation 'io.grpc:grpc-stub:1.85.0'
     implementation project(':envoy-xds-core')
     implementation project(':envoy-xds-example')
+    implementation project(':envoy-xds-testing')
     implementation 'com.transferwise.envoy:envoy-api:1.17.0'
     implementation 'org.projectlombok:lombok:1.18.48'
     implementation 'org.testcontainers:testcontainers-junit-jupiter:2.0.5'

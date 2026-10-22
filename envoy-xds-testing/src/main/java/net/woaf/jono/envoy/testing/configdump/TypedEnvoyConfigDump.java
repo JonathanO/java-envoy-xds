@@ -1,4 +1,4 @@
-package net.woaf.jono.envoy.e2e.configdump;
+package net.woaf.jono.envoy.testing.configdump;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.InvalidProtocolBufferException;

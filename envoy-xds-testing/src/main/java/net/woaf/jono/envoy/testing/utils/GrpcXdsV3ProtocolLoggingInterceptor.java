@@ -1,4 +1,4 @@
-package net.woaf.jono.envoy.e2e.utils;
+package net.woaf.jono.envoy.testing.utils;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;

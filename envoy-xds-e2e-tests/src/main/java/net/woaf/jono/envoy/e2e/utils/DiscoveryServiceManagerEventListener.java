@@ -1,10 +1,11 @@
 package net.woaf.jono.envoy.e2e.utils;
 
+import net.woaf.jono.envoy.testing.Settled;
 import net.woaf.jono.envoy.xds.api.DiscoveryServiceManagerMetrics;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class DiscoveryServiceManagerEventListener implements DiscoveryServiceManagerMetrics {
+public class DiscoveryServiceManagerEventListener implements DiscoveryServiceManagerMetrics, Settled.Hook {
 
     private final AtomicBoolean pushInProgress = new AtomicBoolean(false);
     private final AtomicLong pushed = new AtomicLong(0);
@@ -47,6 +48,7 @@ public class DiscoveryServiceManagerEventListener implements DiscoveryServiceMan
         return messagesOutstanding.get() != 0;
     }
 
+    @Override
     public boolean isIdle() {
         return !isPushInProgress() && !awaitingAcks();
     }

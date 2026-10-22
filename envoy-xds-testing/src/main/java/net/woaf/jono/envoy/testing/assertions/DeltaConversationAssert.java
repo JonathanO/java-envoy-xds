@@ -1,15 +1,18 @@
-package net.woaf.jono.envoy.e2e.assertions;
+package net.woaf.jono.envoy.testing.assertions;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultimap;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
-import net.woaf.jono.envoy.e2e.utils.ConversationLogger.Conversation;
-import net.woaf.jono.envoy.xds.TypeUrl;
+import com.google.protobuf.Any;
+import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
+import net.woaf.jono.envoy.testing.XdsTypes;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.Resource;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.assertj.core.api.AssertFactory;
 import org.assertj.core.api.InstanceOfAssertFactory;
@@ -82,7 +85,7 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
             if (message instanceof DeltaDiscoveryRequest r) {
                 List<String> addsSubs = r.getResourceNamesSubscribeList();
                 if (seenTypeUrls.add(r.getTypeUrl())
-                    && (addsSubs.isEmpty() || (TypeUrl.of(r.getTypeUrl()).isWildcard() && allowBrokenReconnectWildcardBehaviourPre119))
+                    && (addsSubs.isEmpty() || (XdsTypes.isWildcard(r.getTypeUrl()) && allowBrokenReconnectWildcardBehaviourPre119))
                 ) {
                     // First request of this type, allow old wildcard behaviour
                     addsSubs = List.of("*");
@@ -141,12 +144,64 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
 
     @Override
     @CanIgnoreReturnValue
-    public DeltaConversationAssert sentNoEmptyResponses() {
+    public DeltaConversationAssert sentNoEmptyResponses(int fromMessage) {
         isNotNull();
-        for (Object message : actual.getMessages()) {
+        for (Object message : actual.getMessages().subList(fromMessage, actual.getMessages().size())) {
             if (message instanceof DeltaDiscoveryResponse r && r.getResourcesCount() == 0 && r.getRemovedResourcesCount() == 0) {
                 failWithMessage("Sent empty response <%s> for type <%s>", r.getNonce(), r.getTypeUrl());
             }
+        }
+        return this;
+    }
+
+    @Override
+    @CanIgnoreReturnValue
+    public DeltaConversationAssert wasMakeBeforeBreak(int fromMessage) {
+        isNotNull();
+        AckedState state = new AckedState();
+        Map<String, DeltaDiscoveryResponse> pending = new HashMap<>();
+        List<Object> messages = actual.getMessages();
+        for (int i = 0; i < messages.size(); i++) {
+            Object message = messages.get(i);
+            if (message instanceof DeltaDiscoveryResponse r) {
+                if (i >= fromMessage) {
+                    state.checkResponse(r.getTypeUrl(), resources(r), r.getRemovedResourcesList());
+                }
+                pending.put(r.getNonce(), r);
+            } else if (message instanceof DeltaDiscoveryRequest r && !r.hasErrorDetail()) {
+                DeltaDiscoveryResponse ackedResponse = pending.remove(r.getResponseNonce());
+                if (ackedResponse != null) {
+                    state.acked(ackedResponse.getTypeUrl(), resources(ackedResponse), ackedResponse.getRemovedResourcesList());
+                }
+            }
+        }
+        if (!state.problems().isEmpty()) {
+            failWithMessage("Not make before break: <%s>", state.problems());
+        }
+        return this;
+    }
+
+    private static List<Any> resources(DeltaDiscoveryResponse response) {
+        return response.getResourcesList().stream().map(Resource::getResource).toList();
+    }
+
+    @Override
+    @CanIgnoreReturnValue
+    public DeltaConversationAssert answeredEveryType() {
+        isNotNull();
+        Set<String> unanswered = new HashSet<>();
+        for (Object message : actual.getMessages()) {
+            if (message instanceof DeltaDiscoveryRequest r) {
+                unanswered.add(r.getTypeUrl());
+            }
+        }
+        for (Object message : actual.getMessages()) {
+            if (message instanceof DeltaDiscoveryResponse r) {
+                unanswered.remove(r.getTypeUrl());
+            }
+        }
+        if (!unanswered.isEmpty()) {
+            failWithMessage("Envoy got no response at all for <%s>", unanswered);
         }
         return this;
     }

@@ -1,22 +1,24 @@
-package net.woaf.jono.envoy.e2e.assertions;
+package net.woaf.jono.envoy.testing.assertions;
 
-import static net.woaf.jono.envoy.e2e.configdump.EnvoyAdminClient.sneakyUnpack;
+import static net.woaf.jono.envoy.testing.configdump.EnvoyAdminClient.sneakyUnpack;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.SetMultimap;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.protobuf.Any;
-import net.woaf.jono.envoy.e2e.utils.ConversationLogger.Conversation;
-import net.woaf.jono.envoy.xds.TypeUrl;
+import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
+import net.woaf.jono.envoy.testing.XdsTypes;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import io.envoyproxy.envoy.config.listener.v3.Listener;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.assertj.core.api.AssertFactory;
@@ -100,7 +102,7 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
         for (Object message : actual.getMessages()) {
             if (message instanceof DiscoveryRequest r) {
                 Set<String> requestedSubs = Set.copyOf(r.getResourceNamesList());
-                if (seen.add(r.getTypeUrl()) && (TypeUrl.of(r.getTypeUrl()).isWildcard() && allowBrokenReconnectWildcardBehaviourPre119)) {
+                if (seen.add(r.getTypeUrl()) && (XdsTypes.isWildcard(r.getTypeUrl()) && allowBrokenReconnectWildcardBehaviourPre119)) {
                     // First request, allow bad behaviour from old versions.
                     requestedSubs = Set.of();
                 }
@@ -137,7 +139,7 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
     }
 
     private String getNameForResource(Any any) {
-        Object resource = sneakyUnpack(any, TypeUrl.of(any.getTypeUrl()).getMessageClazz());
+        Object resource = sneakyUnpack(any, XdsTypes.messageClass(any.getTypeUrl()));
         if (resource instanceof Cluster c) {
             return c.getName();
         }
@@ -174,13 +176,69 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
 
     @Override
     @CanIgnoreReturnValue
-    public SotwConversationAssert sentNoEmptyResponses() {
+    public SotwConversationAssert sentNoEmptyResponses(int fromMessage) {
         isNotNull();
-        for (Object message : actual.getMessages()) {
+        for (Object message : actual.getMessages().subList(fromMessage, actual.getMessages().size())) {
             // An empty response is meaningful for wildcard types: it removes everything.
-            if (message instanceof DiscoveryResponse r && r.getResourcesCount() == 0 && !TypeUrl.of(r.getTypeUrl()).isWildcard()) {
+            if (message instanceof DiscoveryResponse r && r.getResourcesCount() == 0 && !XdsTypes.isWildcard(r.getTypeUrl())) {
                 failWithMessage("Sent empty response <%s> for type <%s>", r.getNonce(), r.getTypeUrl());
             }
+        }
+        return this;
+    }
+
+    @Override
+    @CanIgnoreReturnValue
+    public SotwConversationAssert wasMakeBeforeBreak(int fromMessage) {
+        isNotNull();
+        AckedState state = new AckedState();
+        Map<String, DiscoveryResponse> pending = new HashMap<>();
+        Map<String, Set<String>> pendingRemovals = new HashMap<>();
+        List<Object> messages = actual.getMessages();
+        for (int i = 0; i < messages.size(); i++) {
+            Object message = messages.get(i);
+            if (message instanceof DiscoveryResponse r) {
+                // CDS is a wildcard type: each response is the full set, so anything Envoy has that's missing is removed.
+                Set<String> removed = new HashSet<>();
+                if (r.getTypeUrl().equals(XdsTypes.CDS)) {
+                    removed.addAll(state.clusters());
+                    r.getResourcesList().forEach(any -> removed.remove(getNameForResource(any)));
+                }
+                if (i >= fromMessage) {
+                    state.checkResponse(r.getTypeUrl(), r.getResourcesList(), removed);
+                }
+                pending.put(r.getNonce(), r);
+                pendingRemovals.put(r.getNonce(), removed);
+            } else if (message instanceof DiscoveryRequest r && !r.hasErrorDetail()) {
+                DiscoveryResponse ackedResponse = pending.remove(r.getResponseNonce());
+                if (ackedResponse != null) {
+                    state.acked(ackedResponse.getTypeUrl(), ackedResponse.getResourcesList(), pendingRemovals.remove(r.getResponseNonce()));
+                }
+            }
+        }
+        if (!state.problems().isEmpty()) {
+            failWithMessage("Not make before break: <%s>", state.problems());
+        }
+        return this;
+    }
+
+    @Override
+    @CanIgnoreReturnValue
+    public SotwConversationAssert answeredEveryType() {
+        isNotNull();
+        Set<String> unanswered = new HashSet<>();
+        for (Object message : actual.getMessages()) {
+            if (message instanceof DiscoveryRequest r) {
+                unanswered.add(r.getTypeUrl());
+            }
+        }
+        for (Object message : actual.getMessages()) {
+            if (message instanceof DiscoveryResponse r) {
+                unanswered.remove(r.getTypeUrl());
+            }
+        }
+        if (!unanswered.isEmpty()) {
+            failWithMessage("Envoy got no response at all for <%s>", unanswered);
         }
         return this;
     }

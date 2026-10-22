@@ -1,10 +1,10 @@
 package net.woaf.jono.envoy.e2e.delta;
 
-import static net.woaf.jono.envoy.e2e.assertions.DeltaConversationAssert.DELTA_CONVERSATION;
+import static net.woaf.jono.envoy.testing.assertions.DeltaConversationAssert.DELTA_CONVERSATION;
 
 import net.woaf.jono.envoy.e2e.BaseEnvoyIntTest;
-import net.woaf.jono.envoy.e2e.assertions.DeltaConversationAssert;
-import net.woaf.jono.envoy.e2e.utils.ConversationLogger.Conversation;
+import net.woaf.jono.envoy.testing.assertions.DeltaConversationAssert;
+import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
 import org.assertj.core.api.InstanceOfAssertFactory;
 
 
