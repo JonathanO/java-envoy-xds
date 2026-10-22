@@ -1,4 +1,4 @@
-package net.woaf.jono.envoy.e2e.utils;
+package net.woaf.jono.envoy.testing.utils;
 
 import io.grpc.ForwardingServerCall;
 import io.grpc.ForwardingServerCallListener;

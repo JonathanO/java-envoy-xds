@@ -1,10 +1,10 @@
 package net.woaf.jono.envoy.e2e.sotw;
 
-import static net.woaf.jono.envoy.e2e.assertions.SotwConversationAssert.SOTW_CONVERSATION;
+import static net.woaf.jono.envoy.testing.assertions.SotwConversationAssert.SOTW_CONVERSATION;
 
 import net.woaf.jono.envoy.e2e.BaseEnvoyIntTest;
-import net.woaf.jono.envoy.e2e.assertions.SotwConversationAssert;
-import net.woaf.jono.envoy.e2e.utils.ConversationLogger.Conversation;
+import net.woaf.jono.envoy.testing.assertions.SotwConversationAssert;
+import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
 import org.assertj.core.api.InstanceOfAssertFactory;
 
 public abstract class EnvoyIntTest extends BaseEnvoyIntTest<SotwConversationAssert> {

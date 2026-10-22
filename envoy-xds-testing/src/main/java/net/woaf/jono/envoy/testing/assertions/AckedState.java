@@ -1,6 +1,6 @@
-package net.woaf.jono.envoy.e2e.assertions;
+package net.woaf.jono.envoy.testing.assertions;
 
-import static net.woaf.jono.envoy.e2e.configdump.EnvoyAdminClient.sneakyUnpack;
+import static net.woaf.jono.envoy.testing.configdump.EnvoyAdminClient.sneakyUnpack;
 
 import com.google.protobuf.Any;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
@@ -15,7 +15,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import net.woaf.jono.envoy.xds.TypeUrl;
+import net.woaf.jono.envoy.testing.XdsTypes;
 
 /**
  * What Envoy has ACKed so far, to check each response only relies on config Envoy already has (make before break).
@@ -43,7 +43,7 @@ final class AckedState {
      * @param removed resource names removed
      */
     void checkResponse(String typeUrl, Collection<Any> resources, Collection<String> removed) {
-        if (typeUrl.equals(TypeUrl.RDS.getTypeUrl())) {
+        if (typeUrl.equals(XdsTypes.RDS)) {
             for (Any any : resources) {
                 RouteConfiguration route = sneakyUnpack(any, RouteConfiguration.class);
                 for (String cluster : referencedClusters(route)) {
@@ -54,7 +54,7 @@ final class AckedState {
                     }
                 }
             }
-        } else if (typeUrl.equals(TypeUrl.CDS.getTypeUrl())) {
+        } else if (typeUrl.equals(XdsTypes.CDS)) {
             for (String cluster : removed) {
                 routes.forEach((name, used) -> {
                     if (used.contains(cluster)) {
@@ -72,7 +72,7 @@ final class AckedState {
      * @param removed resource names removed
      */
     void acked(String typeUrl, Collection<Any> resources, Collection<String> removed) {
-        if (typeUrl.equals(TypeUrl.CDS.getTypeUrl())) {
+        if (typeUrl.equals(XdsTypes.CDS)) {
             for (Any any : resources) {
                 Cluster cluster = sneakyUnpack(any, Cluster.class);
                 clusters.add(cluster.getName());
@@ -84,10 +84,10 @@ final class AckedState {
             }
             clusters.removeAll(removed);
             edsClusters.removeAll(removed);
-        } else if (typeUrl.equals(TypeUrl.EDS.getTypeUrl())) {
+        } else if (typeUrl.equals(XdsTypes.EDS)) {
             resources.forEach(any -> endpoints.add(sneakyUnpack(any, ClusterLoadAssignment.class).getClusterName()));
             endpoints.removeAll(removed);
-        } else if (typeUrl.equals(TypeUrl.RDS.getTypeUrl())) {
+        } else if (typeUrl.equals(XdsTypes.RDS)) {
             resources.forEach(any -> {
                 RouteConfiguration route = sneakyUnpack(any, RouteConfiguration.class);
                 routes.put(route.getName(), referencedClusters(route));

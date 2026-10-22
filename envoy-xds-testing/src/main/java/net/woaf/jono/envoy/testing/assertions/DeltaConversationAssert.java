@@ -1,11 +1,11 @@
-package net.woaf.jono.envoy.e2e.assertions;
+package net.woaf.jono.envoy.testing.assertions;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultimap;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.protobuf.Any;
-import net.woaf.jono.envoy.e2e.utils.ConversationLogger.Conversation;
-import net.woaf.jono.envoy.xds.TypeUrl;
+import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
+import net.woaf.jono.envoy.testing.XdsTypes;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.Resource;
@@ -85,7 +85,7 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
             if (message instanceof DeltaDiscoveryRequest r) {
                 List<String> addsSubs = r.getResourceNamesSubscribeList();
                 if (seenTypeUrls.add(r.getTypeUrl())
-                    && (addsSubs.isEmpty() || (TypeUrl.of(r.getTypeUrl()).isWildcard() && allowBrokenReconnectWildcardBehaviourPre119))
+                    && (addsSubs.isEmpty() || (XdsTypes.isWildcard(r.getTypeUrl()) && allowBrokenReconnectWildcardBehaviourPre119))
                 ) {
                     // First request of this type, allow old wildcard behaviour
                     addsSubs = List.of("*");

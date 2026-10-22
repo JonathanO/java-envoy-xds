@@ -1,4 +1,4 @@
-package net.woaf.jono.envoy.e2e.utils;
+package net.woaf.jono.envoy.testing.utils;
 
 import com.google.common.collect.ImmutableList;
 import io.grpc.ForwardingServerCall;
@@ -8,6 +8,7 @@ import io.grpc.ServerCall;
 import io.grpc.ServerCall.Listener;
 import io.grpc.ServerCallHandler;
 import io.grpc.ServerInterceptor;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -38,6 +39,7 @@ public class ConversationLogger implements ServerInterceptor {
 
         private final List<Object> messages = new ArrayList<>();
         private boolean isFinished = false;
+        private long lastMessageNanos = System.nanoTime();
 
         public synchronized void onCancel() {
             isFinished = true;
@@ -49,10 +51,25 @@ public class ConversationLogger implements ServerInterceptor {
 
         public synchronized void onRequest(Object request) {
             messages.add(request);
+            lastMessageNanos = System.nanoTime();
         }
 
         public synchronized void onResponse(Object response) {
             messages.add(response);
+            lastMessageNanos = System.nanoTime();
+        }
+
+        public synchronized int size() {
+            return messages.size();
+        }
+
+        /**
+         * Whether nothing has been sent either way for a while.
+         * @param period how long
+         * @return true if the last message is at least that old
+         */
+        public synchronized boolean quietFor(Duration period) {
+            return System.nanoTime() - lastMessageNanos >= period.toNanos();
         }
 
         public synchronized List<Object> getMessages() {

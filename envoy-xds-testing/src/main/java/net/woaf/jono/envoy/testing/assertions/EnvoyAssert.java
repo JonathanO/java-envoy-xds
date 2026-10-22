@@ -1,7 +1,7 @@
-package net.woaf.jono.envoy.e2e.assertions;
+package net.woaf.jono.envoy.testing.assertions;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
-import net.woaf.jono.envoy.e2e.utils.ConversationLogger.Conversation;
+import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
 import org.assertj.core.api.AbstractAssert;
 
 public abstract class EnvoyAssert<SelfT extends EnvoyAssert<SelfT>> extends AbstractAssert<SelfT, Conversation> {
