@@ -21,6 +21,16 @@ public final class EnvoyChecks {
      * @param envoy the running Envoy
      */
     public static void assertHealthy(EnvoyContainer envoy) {
+        assertHealthy(envoy, Map.of());
+    }
+
+    /**
+     * As {@link #assertHealthy(EnvoyContainer)}, but only counting rejections and timeouts since baseline was taken, e.g.
+     * after a deliberately rejected update.
+     * @param envoy the running Envoy
+     * @param baseline earlier {@link net.woaf.jono.envoy.testing.configdump.EnvoyAdminClient#stats()}
+     */
+    public static void assertHealthy(EnvoyContainer envoy, Map<String, Long> baseline) {
         await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
             Map<String, Long> stats = envoy.admin().stats();
             assertThat(stats)
@@ -28,7 +38,7 @@ public final class EnvoyChecks {
                 .containsEntry("cluster_manager.warming_clusters", 0L)
                 .containsEntry("listener_manager.total_listeners_warming", 0L);
             assertThat(stats.entrySet().stream()
-                .filter(e -> (e.getKey().endsWith(".update_rejected") || e.getKey().endsWith(".init_fetch_timeout")) && e.getValue() != 0)
+                .filter(e -> (e.getKey().endsWith(".update_rejected") || e.getKey().endsWith(".init_fetch_timeout")) && !e.getValue().equals(baseline.getOrDefault(e.getKey(), 0L)))
                 .toList()).as("rejected updates and initial fetch timeouts").isEmpty();
         });
     }

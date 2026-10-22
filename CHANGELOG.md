@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 ### Added
 * Experimental `envoy-xds-snapshot` module: snapshot-style config with automatic make-before-break ordering
+* `envoy-xds-testing` module: helpers for testing a control plane against a real Envoy, and an xDS library conformance suite
 
 ## [2.0.0] - 2026-10-16
 ### Changed
