@@ -47,17 +47,13 @@ class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends Abstr
 
     private void processSubUpdate(Predicate<String> subChanged) {
         // Remove state for anything we're no longer subscribed to.
-        boolean hasUpdates = resourceState.keySet().removeIf(n -> !subManager.isSubscribedTo(n));
+        resourceState.keySet().removeIf(n -> !subManager.isSubscribedTo(n));
 
-        IncrementalConfigBuilder.Resources<E> resources = getResources(subChanged);
-        if (!resources.getResources().isEmpty()) {
-            hasUpdates = true;
-            resources.getResources().forEach(msg -> resourceState.put(msg.getName(), msg));
-        }
-        hasUpdates = applyCurrentState() || hasUpdates;
-        if (hasUpdates) {
-            pushResources(resourceState.values());
-        }
+        getResources(subChanged).getResources().forEach(msg -> resourceState.put(msg.getName(), msg));
+        applyCurrentState();
+        // Answer even if nothing changed: Envoy waits for a response to its first request of each type, e.g. CDS when
+        // there are no clusters yet, and to tell it that names it asked for don't exist.
+        pushResources(resourceState.values());
     }
 
     @Override
