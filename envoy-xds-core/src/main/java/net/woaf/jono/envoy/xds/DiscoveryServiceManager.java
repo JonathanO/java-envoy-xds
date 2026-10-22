@@ -95,8 +95,8 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
 
 
     public void init(StateUpdT initialStateChange, TypeUrl delayUpdatesUntilAckOf) {
-        init(initialStateChange);
         this.delayUpdatesUntilAckOf = delayUpdatesUntilAckOf;
+        init(initialStateChange, delayUpdatesUntilAckOf != null);
     }
 
     /**
@@ -104,7 +104,14 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      * All changes provided to pushUpdates are expected to apply sequentially from this initial state.
      */
     public void init(StateUpdT initialStateChange) {
-        discoveryServices.forEach((t, s) -> s.init(initialStateChange));
+        init(initialStateChange, false);
+    }
+
+    private void init(StateUpdT initialStateChange, boolean deferInitialResourceVersionRemovals) {
+        discoveryServices.forEach((t, s) -> {
+            s.init(initialStateChange);
+            s.setDeferInitialResourceVersionRemovals(deferInitialResourceVersionRemovals);
+        });
         initialized = true;
     }
 
@@ -130,7 +137,20 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
         if (value.getErrorDetail() != null) {
             freeze();
         }
+        updateOutstandingAckState(typeUrl, discoveryService);
 
+        if (frozen) {
+            return;
+        }
+        if (currentChange != null) {
+            // Continue attempting to push the current change as this might have been an ack the current push was waiting for.
+            continuePush();
+        } else {
+            pushAllowedWorkIfAny();
+        }
+    }
+
+    private void updateOutstandingAckState(TypeUrl typeUrl, DiscoveryService<RequestT, StateUpdT> discoveryService) {
         if (discoveryService.awaitingAck()) {
             if (outstandingAcks.add(discoveryService)) {
                 metrics.onAwaitingAck();
@@ -142,16 +162,6 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
                     delayUpdatesUntilAckOf = null;
                 }
             }
-        }
-
-        if (frozen) {
-            return;
-        }
-        if (currentChange != null) {
-            // Continue attempting to push the current change as this might have been an ack the current push was waiting for.
-            continuePush();
-        } else if (isPushAllowed()) {
-            pushWaitingChangeIfAny();
         }
     }
 
@@ -186,6 +196,16 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
 
     private boolean isPushAllowed() {
         return outstandingAcks.isEmpty() && delayUpdatesUntilAckOf == null;
+    }
+
+    private void pushAllowedWorkIfAny() {
+        if (!isPushAllowed()) {
+            return;
+        }
+        if (pushDeferredReconnectRemovalsIfAny()) {
+            return;
+        }
+        pushWaitingChangeIfAny();
     }
 
     private void beginPush() {
@@ -253,19 +273,40 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
         // All done!
         currentChange = null;
 
-        pushWaitingChangeIfAny();
+        pushAllowedWorkIfAny();
     }
 
     /**
      * Start pushing any waiting changes to envoy.
      * Can only be called if there is no current change in progress.
      */
-    private void pushWaitingChangeIfAny() {
+    private boolean pushWaitingChangeIfAny() {
         Preconditions.checkState(currentChange == null, "Should not start pushing waiting change if we already have a current change to push.");
         currentChange = waitingStateBacklog.take();
         if (currentChange != null) {
             beginPush();
+            return true;
         }
+        return false;
+    }
+
+    private boolean pushDeferredReconnectRemovalsIfAny() {
+        Preconditions.checkState(currentChange == null, "Should not send deferred reconnect removals if we already have a current change to push.");
+        for (DiscoveryService<RequestT, StateUpdT> discoveryService: postOrder) {
+            if (discoveryService == null) {
+                continue;
+            }
+            if (discoveryService.hasDeferredReconnectRemovals()) {
+                discoveryService.sendDeferredReconnectRemovals();
+                if (discoveryService.awaitingAck()) {
+                    if (outstandingAcks.add(discoveryService)) {
+                        metrics.onAwaitingAck();
+                    }
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

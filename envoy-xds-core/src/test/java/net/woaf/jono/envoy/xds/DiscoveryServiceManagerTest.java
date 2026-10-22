@@ -2,6 +2,7 @@ package net.woaf.jono.envoy.xds;
 
 import com.google.common.base.Preconditions;
 import com.google.protobuf.Message;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import net.woaf.jono.envoy.xds.CommonDiscoveryRequest;
 import net.woaf.jono.envoy.xds.DiscoveryService;
 import net.woaf.jono.envoy.xds.DiscoveryServiceManager;
@@ -56,6 +57,7 @@ public class DiscoveryServiceManagerTest {
     }
 
     @Test
+    @SuppressFBWarnings(value = "RV_RETURN_VALUE_IGNORED_NO_SIDE_EFFECT", justification = "Mockito verification")
     public void testSingleServicePush(@Mock DiscoveryService<Message, DummyUpdate> mockDiscoveryService) {
 
         DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(Map.of(TypeUrl.EDS, mockDiscoveryService), List.of(TypeUrl.EDS), List.of(TypeUrl.EDS), new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS);
@@ -66,6 +68,7 @@ public class DiscoveryServiceManagerTest {
 
         InOrder inOrder = Mockito.inOrder(mockDiscoveryService);
         inOrder.verify(mockDiscoveryService).init(initUpdate);
+        inOrder.verify(mockDiscoveryService).setDeferInitialResourceVersionRemovals(false);
 
         var update = new DummyUpdate();
 
@@ -75,6 +78,7 @@ public class DiscoveryServiceManagerTest {
         inOrder.verify(mockDiscoveryService).awaitingAck();
         inOrder.verify(mockDiscoveryService).sendNetworkUpdatePost();
         inOrder.verify(mockDiscoveryService).awaitingAck();
+        inOrder.verify(mockDiscoveryService).hasDeferredReconnectRemovals();
         verifyNoMoreInteractions(mockDiscoveryService);
     }
 
@@ -311,6 +315,36 @@ public class DiscoveryServiceManagerTest {
         verify(mockDiscoveryService, never()).onNetworkUpdate(queued);
         verify(mockDiscoveryService, never()).onNetworkUpdate(later);
         verify(metrics).onPushComplete(); // the abandoned push ended, so the stream looks idle
+    }
+
+    @Test
+    public void testConfiguredDelayWithoutAckBlocksQueuedUpdates() {
+        final DiscoveryService<Message, DummyUpdate> mockDiscoveryServiceA = spy(StateAwareFakeDiscoveryService.class);
+        final DiscoveryService<Message, DummyUpdate> mockDiscoveryServiceB = spy(StateAwareFakeDiscoveryService.class);
+
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.CDS, mockDiscoveryServiceA, TypeUrl.RDS, mockDiscoveryServiceB),
+            List.of(TypeUrl.CDS, TypeUrl.RDS), List.of(TypeUrl.RDS, TypeUrl.CDS),
+            new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS
+        );
+
+        dsm.init(new DummyUpdate(), TypeUrl.RDS);
+
+        final var update = new DummyUpdate();
+        final var cdsRequest = CommonDiscoveryRequest.builder()
+            .typeUrl(TypeUrl.CDS.getTypeUrl())
+            .build();
+
+        dsm.processUpdate(cdsRequest);
+        dsm.processUpdate(cdsRequest);
+
+        dsm.pushUpdates(update);
+
+        dsm.processUpdate(cdsRequest);
+        dsm.processUpdate(cdsRequest);
+
+        verify(mockDiscoveryServiceA, never()).sendNetworkUpdatePre();
+        verify(mockDiscoveryServiceB, never()).sendNetworkUpdatePre();
     }
 
     public static class StateAwareFakeDiscoveryService implements DiscoveryService<Message, DummyUpdate> {
