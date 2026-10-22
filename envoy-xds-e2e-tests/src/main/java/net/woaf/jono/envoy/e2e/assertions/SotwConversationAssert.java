@@ -156,6 +156,37 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
 
     @Override
     @CanIgnoreReturnValue
+    public SotwConversationAssert unsubscribedFrom(String typeUrl, String resourceName) {
+        isNotNull();
+        boolean subscribed = false;
+        for (Object message : actual.getMessages()) {
+            if (message instanceof DiscoveryRequest r && r.getTypeUrl().equals(typeUrl)) {
+                if (r.getResourceNamesList().contains(resourceName)) {
+                    subscribed = true;
+                } else if (subscribed) {
+                    return this;
+                }
+            }
+        }
+        failWithMessage("Envoy never unsubscribed type <%s> from resource <%s>", typeUrl, resourceName);
+        return this;
+    }
+
+    @Override
+    @CanIgnoreReturnValue
+    public SotwConversationAssert sentNoEmptyResponses() {
+        isNotNull();
+        for (Object message : actual.getMessages()) {
+            // An empty response is meaningful for wildcard types: it removes everything.
+            if (message instanceof DiscoveryResponse r && r.getResourcesCount() == 0 && !TypeUrl.of(r.getTypeUrl()).isWildcard()) {
+                failWithMessage("Sent empty response <%s> for type <%s>", r.getNonce(), r.getTypeUrl());
+            }
+        }
+        return this;
+    }
+
+    @Override
+    @CanIgnoreReturnValue
     public SotwConversationAssert hadConversationsWith(String... typeUrls) {
         isNotNull();
 
