@@ -26,11 +26,9 @@ public class XdsConfig<DetailsT> {
     TypeUrl delayUpdatesUntilAckOf;
 
     /**
-     * Set to true to quietly ignore a nack from envoy.
-     * The default behaviour would be to log an error and disconnect the client, since we have no good way to recover from inconsistent state. If you have a bad client then this gets really spammy, since the client will keep re-connecting in
-     * a tight loop (by default) and trigger the same error over and over. Normally such errors will be due to producing invalid config in some corner cases, or some serious desync issue in our xds implementation, in which case re-connecting will
-     * maybe clear the problem.
-     * But if you've got some clients that are e.g. developer laptops, which could be running out of date envoy versions, then it's crazy noisy. Set this to true for them.
+     * Set to true to log NACKs from this client at info rather than error, e.g. for developer laptops that may run out of
+     * date Envoy versions. Either way we stop sending changes to a client once it has NACKed: retrying is spam, and
+     * dropping the stream makes Envoy reconnect in a tight loop.
      */
     boolean silentNacks;
 }

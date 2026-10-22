@@ -290,6 +290,37 @@ public class IncrementalDiscoveryServiceTest {
     }
 
     @Test
+    public void testNackIsAnAnswer(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
+                                   @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
+        final DummyUpdate initState = new DummyUpdate();
+        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder()
+            .resource(IncrementalConfigBuilder.NamedMessage.of(Cluster.newBuilder().setName("foo").build())).build());
+        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryService<>(TypeUrl.EDS, responseObserver, configBuilder, nodeConfig, new SubListSubManager(nodeConfig));
+        ds.init(initState);
+
+        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
+            .typeUrl(TypeUrl.EDS.getTypeUrl())
+            .message(DeltaDiscoveryRequest.newBuilder().setTypeUrl(TypeUrl.EDS.getTypeUrl()).addResourceNamesSubscribe("foo").build())
+            .build());
+        verify(responseObserver).onNext(responseCaptor.capture());
+        assertThat(ds.awaitingAck()).isTrue();
+
+        DeltaDiscoveryRequest nack = DeltaDiscoveryRequest.newBuilder()
+            .setTypeUrl(TypeUrl.EDS.getTypeUrl())
+            .setResponseNonce(responseCaptor.getValue().getNonce())
+            .setErrorDetail(com.google.rpc.Status.newBuilder().setMessage("rejected"))
+            .build();
+        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
+            .typeUrl(TypeUrl.EDS.getTypeUrl())
+            .message(nack)
+            .errorDetail(nack.getErrorDetail())
+            .build());
+
+        assertThat(ds.awaitingAck()).isFalse();
+    }
+
+    @Test
     public void testNewWildcardSub(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
                                    @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
 

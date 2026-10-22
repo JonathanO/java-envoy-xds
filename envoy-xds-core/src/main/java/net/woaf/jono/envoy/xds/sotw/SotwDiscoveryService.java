@@ -63,6 +63,10 @@ class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends Abstr
             // Stale or otherwise invalid
             return;
         }
+        if (value.hasErrorDetail()) {
+            // Envoy rejected awaitingVersion, so it's answered. The DiscoveryServiceManager stops sending changes after a NACK.
+            awaitingVersion = null;
+        }
         subManager.processResourceListChange(value.getResourceNamesList()).ifPresent(this::processSubUpdate);
     }
 

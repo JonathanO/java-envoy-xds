@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 * Experimental `envoy-xds-snapshot` module: snapshot-style config with automatic make-before-break ordering
 * `envoy-xds-testing` module: helpers for testing a control plane against a real Envoy, and an xDS library conformance suite
 
+### Changed
+* **Breaking:** after Envoy NACKs, we stop sending it changes on that stream, for both SotW and delta. Envoy keeps its last good config until it reconnects. Previously delta dropped the stream (Envoy then reconnects in a tight loop), and SotW stalled without saying so while its backlog grew. `ClientNackException` is gone.
+
 ## [2.0.0] - 2026-10-16
 ### Changed
 * Forked from [transferwise/wise-envoy-xds](https://github.com/transferwise/wise-envoy-xds)
