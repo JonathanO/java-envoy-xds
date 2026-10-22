@@ -62,6 +62,12 @@ and is computed once per snapshot for each distinct `clientDetails` value.
 
 `SnapshotExample` in [envoy-xds-example](envoy-xds-example/README.md) is a runnable version of the toy example built this way.
 
+### Testing against a real Envoy
+
+`envoy-xds-testing` runs your control plane against a real Envoy in Docker. It records the xDS conversation and
+checks it, including make before break, and checks Envoy's stats and log. It works for any Java control plane, not
+just this library's, and includes a conformance suite for xDS libraries. See [its README](envoy-xds-testing/README.md).
+
 ## Versioning
 
 At the moment the library has a compile-only dependency on a version of com.transferwise.envoy:envoy-api. It relies only
