@@ -30,7 +30,7 @@ dependencies {
     testImplementation 'com.transferwise.envoy:envoy-api:1.17.0'
     testImplementation 'org.mockito:mockito-junit-jupiter:5.24.0'
     spotbugs 'com.github.spotbugs:spotbugs:4.10.5'
-    errorprone "com.google.errorprone:error_prone_core:2.50.0"
+    errorprone "com.google.errorprone:error_prone_core:2.51.0"
 }
 
 java {
