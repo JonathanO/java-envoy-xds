@@ -1,0 +1,18 @@
+repositories {
+    mavenCentral()
+}
+ext.projectName = "Envoy xDS Snapshot"
+ext.projectDescription = "Snapshot-style config for Envoy xDS, with automatic make-before-break ordering"
+ext.projectArtifactName = "envoy-xds-snapshot"
+
+apply from: "${rootDir}/build.common.gradle"
+apply from: "${rootDir}/publishing.gradle"
+
+dependencies {
+    api project(':envoy-xds-core')
+    implementation 'com.google.protobuf:protobuf-java:3.25.9'
+    implementation "com.google.guava:guava:33.7.2-jre"
+    implementation 'com.github.spotbugs:spotbugs-annotations:4.10.5'
+    compileOnly 'com.transferwise.envoy:envoy-api:1.17.0' // Users are expected to provide a compatible envoy api
+    compileOnly 'org.projectlombok:lombok:1.18.48' // publishing.gradle delomboks sources for javadoc
+}
