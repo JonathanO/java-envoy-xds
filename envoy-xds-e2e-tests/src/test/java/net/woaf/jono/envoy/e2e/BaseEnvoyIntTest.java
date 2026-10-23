@@ -2,7 +2,10 @@ package net.woaf.jono.envoy.e2e;
 
 import static net.woaf.jono.envoy.testing.configdump.EnvoyAdminClient.sneakyUnpack;
 import static org.assertj.core.api.Assertions.assertThat;
+import static net.woaf.jono.envoy.testing.matchers.XdsMatchers.activeClusterNames;
 import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.hasSize;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -38,6 +41,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.assertj.core.api.InstanceOfAssertFactory;
+import org.hamcrest.MatcherAssert;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -213,7 +217,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         TypedEnvoyConfigDump dump = adminClient.configDump();
 
         assertThat(dump.getRoutesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
-        assertThat(getClusters(dump)).extracting(Cluster::getName).containsExactlyInAnyOrder("foo");
+        MatcherAssert.assertThat(dump, activeClusterNames(containsInAnyOrder("foo")));
 
     }
 
@@ -255,7 +259,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
 
             TypedEnvoyConfigDump dump = adminClient.configDump();
             assertThat(dump.getRoutesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
-            assertThat(getClusters(dump)).extracting(Cluster::getName).containsExactlyInAnyOrder("foo", "bar");
+            MatcherAssert.assertThat(dump, activeClusterNames(containsInAnyOrder("foo", "bar")));
         }
 
         // Restart the grpc service, keeping the cluster manager, etc, intact.
@@ -277,7 +281,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
 
             TypedEnvoyConfigDump dump = adminClient.configDump();
             assertThat(dump.getRoutesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
-            assertThat(getClusters(dump)).extracting(Cluster::getName).containsExactlyInAnyOrder("foo");
+            MatcherAssert.assertThat(dump, activeClusterNames(containsInAnyOrder("foo")));
             assertThat(conversations.get(1).getPushed()).isZero();
             startChecking(conversationInterceptor.getConversations().get(1)); // We caused the disconnect, so ignore Envoy's warnings about it.
         }
@@ -290,7 +294,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
             assertSettled(conversationInterceptor.getConversations().get(1), true);
 
             TypedEnvoyConfigDump dump = adminClient.configDump();
-            assertThat(getClusters(dump)).extracting(Cluster::getName).containsExactlyInAnyOrder("foo", "baz");
+            MatcherAssert.assertThat(dump, activeClusterNames(containsInAnyOrder("foo", "baz")));
         }
 
     }
@@ -312,7 +316,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
             "bar", ImmutableList.of(HostAndPort.fromString("127.0.0.2:9901"))
         ));
         await().atMost(30, TimeUnit.SECONDS).until(() -> !conversations.isEmpty() && conversations.get(0).isIdle()
-            && getClusters(adminClient.configDump()).size() == 2);
+            && activeClusterNames(hasSize(2)).matches(adminClient.configDump()));
         final DiscoveryServiceManagerEventListener listener = conversations.get(0);
         final Conversation conversation = conversationInterceptor.getConversations().get(0);
         startChecking(conversation);
@@ -342,16 +346,10 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         clusterManager.setEndpoints("baz", HostAndPort.fromString("127.0.0.5:9901"));
         awaitChange(conversation, mark, listener);
         assertSettled(conversation, false);
-        assertThat(getClusters(adminClient.configDump())).extracting(Cluster::getName).containsExactlyInAnyOrder("foo", "baz");
+        MatcherAssert.assertThat(adminClient.configDump(), activeClusterNames(containsInAnyOrder("foo", "baz")));
         assertThat(httpStatus("baz")).isEqualTo(200);
 
         assertThat(conversationInterceptor.getConversations()).hasSize(1);
-    }
-
-    private List<Cluster> getClusters(TypedEnvoyConfigDump dump) {
-        return dump.getClustersConfigDump().getDynamicActiveClustersList().stream()
-            .map(c -> sneakyUnpack(c.getCluster(), Cluster.class)) // Collect the names of each of the clusters.
-            .collect(Collectors.toList());
     }
 
 }
