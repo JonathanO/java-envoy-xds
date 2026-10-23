@@ -5,6 +5,7 @@ import com.google.protobuf.Message;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
+import io.envoyproxy.envoy.config.core.v3.Node;
 import io.grpc.BindableService;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -15,12 +16,12 @@ import net.woaf.jono.envoy.testing.Settled;
 import net.woaf.jono.envoy.testing.conformance.XdsConformanceTest;
 import net.woaf.jono.envoy.xds.AggregatedDiscoveryService;
 import net.woaf.jono.envoy.xds.XdsConfig;
+import net.woaf.jono.envoy.xds.api.ClientHandle;
+import net.woaf.jono.envoy.xds.api.XdsEventListener;
 import net.woaf.jono.envoy.xds.api.utils.MergingStateBacklog;
 import net.woaf.jono.envoy.xds.snapshot.Snapshot;
 import net.woaf.jono.envoy.xds.snapshot.SnapshotConfigBuilder;
 import net.woaf.jono.envoy.xds.snapshot.SnapshotSource;
-import org.junit.jupiter.api.Disabled;
-import org.junit.jupiter.api.Test;
 
 /**
  * Runs the xDS conformance suite against envoy-xds, through the snapshot module, on the oldest and newest Envoy we test.
@@ -28,6 +29,8 @@ import org.junit.jupiter.api.Test;
 abstract class EnvoyXdsConformanceTest extends XdsConformanceTest {
 
     private final SnapshotSource<String> source = new SnapshotSource<>();
+
+    private final List<ClientHandle> clients = Collections.synchronizedList(new ArrayList<>());
 
     private final List<DiscoveryServiceManagerEventListener> streams = Collections.synchronizedList(new ArrayList<>());
 
@@ -41,7 +44,16 @@ abstract class EnvoyXdsConformanceTest extends XdsConformanceTest {
             source,
             SnapshotConfigBuilder.forTypes(Cluster.class, ClusterLoadAssignment.class, RouteConfiguration.class),
             node -> XdsConfig.<String>builder().clientDetails(node.getId()).build(),
-            ImmutableList.of(),
+            ImmutableList.of(new XdsEventListener<>() {
+                @Override
+                public void onNewClient(ClientHandle clientHandle, Node node, XdsConfig<String> config) {
+                    clients.add(clientHandle);
+                }
+
+                @Override
+                public void onClientDisconnected(ClientHandle clientHandle, Node node) {
+                }
+            }),
             MergingStateBacklog.factory(),
             () -> {
                 DiscoveryServiceManagerEventListener listener = new DiscoveryServiceManagerEventListener();
@@ -67,9 +79,9 @@ abstract class EnvoyXdsConformanceTest extends XdsConformanceTest {
     }
 
     @Override
-    @Test
-    @Disabled("Known bug: after a NACK, SotW stops pushing to that Envoy and delta drops the stream")
-    public void recoversFromRejectedConfig() {
+    protected boolean resync() {
+        clients.get(clients.size() - 1).resync();
+        return true;
     }
 
     static class SotwOldestTest extends EnvoyXdsConformanceTest {
