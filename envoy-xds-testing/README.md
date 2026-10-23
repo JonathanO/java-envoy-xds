@@ -122,6 +122,35 @@ For delta xDS, use `DeltaConversationAssert` and set `api_type: DELTA_GRPC` in E
 For anything else, look at what Envoy has: `envoy.admin().configDump()` gives typed clusters, endpoints, listeners and
 routes, and `envoy.admin().stats()` the counters and gauges.
 
+### Matchers
+
+`XdsMatchers` are Hamcrest matchers for your own expectations: resources, recorded messages, the order things
+happened in, and what Envoy holds. They work the same for SotW and delta. Use them with Hamcrest's `assertThat`,
+AssertJ's `HamcrestCondition`, Awaitility's `until(supplier, matcher)` or Mockito's `argThat`.
+
+```java
+// Envoy ACKed routes that no longer use bar before bar's cluster was removed.
+assertThat(conversation, hasInOrder(
+    ackOf(response(ofType(XdsTypes.RDS), containing(routeConfig(not(routingTo("bar")))))),
+    response(ofType(XdsTypes.CDS), removing("bar"))));
+
+// Wait for Envoy to reject something.
+await().until(() -> conversation, hasMessage(nack(ofType(XdsTypes.CDS), withMessage(containsString("connect_timeout")))));
+
+// What Envoy holds.
+assertThat(envoy.admin().configDump(), activeClusterNames(containsInAnyOrder("foo", "baz")));
+assertThat(envoy.admin().configDump(), hasRouteConfig(routing("foo", "foo-v2")));
+assertThat(envoy.admin().stats(), hasStat("cluster.foo-v2.upstream_rq_total", greaterThan(0L)));
+```
+
+- Resources: `cluster(...)`, `routeConfig(...)`, `endpointAssignment(...)`, with `named`, `ofType`, `routingTo`,
+  `routing(virtualHost, cluster)` and `withEndpoint(address, port)`.
+- Messages: `response(...)`, `request(...)`, `nack(...)`, with `ofType`, `containing`, `removing`, `subscribingTo`,
+  `unsubscribingFrom` (delta only) and `withMessage`. For SotW, `removing` matches a wildcard (CDS, LDS) response
+  without the resource.
+- Conversations: `hasMessage`, and `hasInOrder` with `ackOf`, Envoy's ACK of a matching response.
+- Envoy: `hasActiveCluster`, `activeClusterNames` and `hasRouteConfig` on a config dump, and `hasStat` on `stats()`.
+
 ### Reconnects
 
 To test a reconnect, shut down your gRPC server and start a new one on the same port with the same service and

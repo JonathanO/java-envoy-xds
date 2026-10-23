@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.testing;
 
+import com.google.protobuf.Descriptors;
 import com.google.protobuf.Message;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
@@ -44,6 +45,21 @@ public final class XdsTypes {
      */
     public static boolean isWildcard(String typeUrl) {
         return WILDCARD.contains(typeUrl);
+    }
+
+    /**
+     * The name Envoy knows a resource by: its name field, or cluster_name for a ClusterLoadAssignment.
+     * @param resource an xDS resource
+     * @return its name, or null if it has neither field
+     */
+    public static String nameOf(Message resource) {
+        for (String field : new String[] {"name", "cluster_name"}) {
+            Descriptors.FieldDescriptor f = resource.getDescriptorForType().findFieldByName(field);
+            if (f != null && f.getJavaType() == Descriptors.FieldDescriptor.JavaType.STRING) {
+                return (String) resource.getField(f);
+            }
+        }
+        return null;
     }
 
     /**
