@@ -27,6 +27,7 @@ What's in it:
 - `EnvoyChecks`: checks on Envoy itself. It is connected, rejected nothing, has nothing warming, timed out no initial
   fetches, and logged no warnings or errors.
 - `Settled`: conditions to wait on until your control plane and Envoy have stopped talking.
+- `XdsMatchers`: Hamcrest matchers for resources, messages, the order things happened in, and what Envoy holds.
 - `XdsConformanceTest`: the conformance suite.
 
 ## Testing your control plane
