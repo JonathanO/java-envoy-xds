@@ -225,11 +225,12 @@ class MyLibraryConformanceTest extends XdsConformanceTest {
 The suite owns the matrix, so every library is tested the same way. It runs every scenario:
 - on both protocols, unless you override `protocols()` to support one;
 - on each of `ENVOY_IMAGES`, the oldest Envoy release upstream still supports (1.36) and the newest (1.40);
+- with Envoy getting listeners from the control plane (LDS) as well as its static listener, so serve LDS too;
 - normally, and with Envoy's requests to the control plane rate limited (`rate_limit_settings`). Envoy then queues
   them, and delta Envoy sends ACKs ahead of queued subscriptions, so after a reconnect requests arrive in a different
   order. The reconnect scenarios check the limit was actually hit.
 
-That's 48 tests and takes a few minutes, so run it in CI or before a release rather than on every build. Each test is
+That's 72 tests and takes several minutes, so run it in CI or before a release rather than on every build. Each test is
 named by its path, e.g. `sotw/v1.36/rate-limited/startsEmpty`.
 
 Implement `idleHook()` in your `ControlPlane` if your library can tell when a stream is idle, and `resync()` if it can
@@ -238,13 +239,20 @@ make Envoy reconnect. The scenarios:
 - `startsEmpty`: no config at first. Envoy gets an answer for every type it asks for, including a route config that
   doesn't exist yet, then takes the first service.
 - `addsAndRemovesServices`: a route, its cluster and its endpoints added in one change, then removed in one change.
+  It also adds a cluster with no endpoints, which still needs an empty assignment, or Envoy leaves it warming.
 - `movesRouteToNewCluster`: a route moved to a new cluster, and the old cluster removed, in one change.
+- `addsAndRemovesListener`: a listener, its route config, cluster and endpoints added in one change, then removed in
+  one change. The listener mustn't be left warming, and a route config mustn't go while a listener Envoy has uses it.
+- `churns`: twenty changes in quick succession, each moving a route to a new cluster. Envoy must end on the last, with
+  no stale clusters, make before break throughout.
 - `containsRejectedConfig`: Envoy NACKs a bad cluster. The library mustn't send it again, not even as part of a later
   change, nor drop Envoy into a reconnect loop, and Envoy must keep serving its last good config. If you override
   `resync()` to make Envoy reconnect, a fixed config must get through after it.
 - `changesWhileDisconnected`: a route moves to a new cluster, and the old cluster is removed, while Envoy is
   disconnected. Envoy keeps its config across the disconnect, so after it reconnects the move must be make before break
   from there.
+- `controlPlaneRestarts`: Envoy reconnects to a fresh control plane with different config. The new control plane never
+  sent what Envoy kept, so it can only go by what Envoy tells it.
 - `reconnects`: a service is removed while Envoy is disconnected. After it reconnects, traffic still flows and updates
   still work.
 
