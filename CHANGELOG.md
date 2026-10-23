@@ -5,13 +5,13 @@ All notable changes to this project will be documented in this file.
 ### Added
 * Experimental `envoy-xds-snapshot` module: snapshot-style config with automatic make-before-break ordering
 * `envoy-xds-testing` module: helpers for testing a control plane against a real Envoy, and an xDS library conformance suite
-* Rate limited Envoy option for the conformance suite (`XdsConformanceTest(image, protocol, true)`)
 * Make before break across a reconnect: `wasMakeBeforeBreak(fromMessage, before)`, `Checkpoint.assertSaneAfterReconnect(before)`, and the `changesWhileDisconnected` conformance scenario
 * `Checkpoint` and `EnvoyChecks.assertRoutedVia` in `envoy-xds-testing`: one call to check everything since a mark, and which cluster served a request
 * `XdsMatchers` in `envoy-xds-testing`: Hamcrest matchers for xDS resources, recorded messages, their order, and what Envoy holds
 * `XdsEventListener.onClientNack`, `ClientHandle.resync()`, and `ResyncAfterNack` to resync an Envoy that NACKed on a backoff
 
 ### Changed
+* **Breaking (unreleased API):** `XdsConformanceTest` runs its own matrix: every scenario on both protocols (or `protocols()`), on Envoy 1.17 and 1.40, with and without rate limiting. Libraries implement `newControlPlane()` once, instead of a subclass per variant, and record deviations with `knownDeviations()`.
 * **Breaking:** after Envoy NACKs, we stop sending it changes on that stream, for both SotW and delta. Envoy keeps its last good config until it reconnects. Previously delta dropped the stream (Envoy then reconnects in a tight loop), and SotW stalled without saying so while its backlog grew. `ClientNackException` is gone.
 * When Envoy reconnects, it re-subscribes to everything at once. Route and listener answers now wait until the clusters and endpoints they may use are ACKed. Stale resources Envoy kept (delta) are removed in remove order, once the types that may still use them have been answered and ACKed, without needing `delayUpdatesUntilAckOf`. `XdsConfig.subscribesTo` says which types a client gets from us, so its removals don't wait for types it never asks for; they wait at most 30 seconds anyway. On SotW, a cluster Envoy kept is still removed straight away: the CDS answer is the whole set.
 * **Breaking:** removed `XdsConfig.silentNacks`. Every NACK now freezes the stream, and is logged at warn; use `onClientNack` to act on it.

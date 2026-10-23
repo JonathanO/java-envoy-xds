@@ -2,8 +2,10 @@ package net.woaf.jono.envoy.testing.conformance;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Splitter;
 import com.google.protobuf.Duration;
 import com.google.protobuf.Message;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
@@ -34,6 +36,12 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.stream.Stream;
+import java.util.Set;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.EnumSet;
+import java.util.Collections;
 import java.util.Locale;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
@@ -49,8 +57,9 @@ import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
 import net.woaf.jono.envoy.testing.utils.EnvoyContainer;
 import net.woaf.jono.envoy.testing.matchers.XdsMatchers;
 import org.hamcrest.MatcherAssert;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.TestFactory;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.images.builder.Transferable;
@@ -59,9 +68,9 @@ import org.testcontainers.images.builder.Transferable;
  * Conformance tests for an xDS library: give it desired config, and check a real Envoy gets there safely.
  *
  * <p>This tests the layer that serves config to Envoy (ordering, ACKs and NACKs, subscriptions, reconnects), not how a
- * control plane decides what config to serve. Extend it once per Envoy version and protocol you support, implement
- * {@link #controlPlane()} and {@link #setConfig(Collection)}, and optionally {@link #idleHook()}. Fields of your
- * subclass are fresh for every test. Override a test with {@code @Disabled} to record a known deviation.
+ * control plane decides what config to serve. Extend it once and implement {@link #newControlPlane()}. The suite runs
+ * every scenario on each protocol in {@link #protocols()}, on each of {@link #ENVOY_IMAGES}, with and without rate
+ * limiting Envoy's requests. Record known deviations with {@link #knownDeviations()}.
  *
  * <p>Envoy connects to port 6566 on the host, so don't run these in parallel.
  */
@@ -70,39 +79,124 @@ public abstract class XdsConformanceTest {
     /** Which ADS flavour Envoy uses. */
     public enum Protocol { SOTW, DELTA }
 
-    private static final int ADS_PORT = 6566;
-    private static final int LISTENER_PORT = 10000;
-    private static final String ROUTES = "all_routes"; // Envoy's static listener asks for this
+    /** The Envoy versions conformance means: the oldest supported and the newest. */
+    public static final List<String> ENVOY_IMAGES = List.of("envoyproxy/envoy:v1.17-latest", "envoyproxy/envoy:v1.40-latest");
 
-    private final Protocol protocol;
-    private final boolean rateLimitedAds;
-    private final EnvoyContainer envoy;
-    private final ConversationLogger conversations = new ConversationLogger();
-    private BindableService service;
-    private Server server;
-    private Checkpoint checkpoint;
+    /**
+     * The library under test, set up afresh for each test.
+     */
+    public interface ControlPlane {
 
-    protected XdsConformanceTest(String envoyImage, Protocol protocol) {
-        this(envoyImage, protocol, false);
+        /**
+         * The control plane's ADS service. Called once per test; the same instance is served again after a reconnect.
+         * @return gRPC service serving SotW and delta ADS, or just the protocols in {@link #protocols()}
+         */
+        BindableService service();
+
+        /**
+         * Make these resources the whole desired config for every Envoy, replacing what was there before.
+         * @param resources Clusters, ClusterLoadAssignments and RouteConfigurations
+         */
+        void setConfig(Collection<? extends Message> resources);
+
+        /**
+         * Whether the control plane has nothing in flight or waiting to be sent on its latest stream. Without one, the
+         * suite waits for every response to be answered and a quiet period.
+         * @return hook, or null if the control plane can't tell
+         */
+        default Settled.Hook idleHook() {
+            return null;
+        }
+
+        /**
+         * Make Envoy drop its stream and sync from scratch, e.g. to get a fixed config to an Envoy that NACKed.
+         * @return false if the control plane can't, the default
+         */
+        default boolean resync() {
+            return false;
+        }
     }
 
     /**
-     * See class description.
-     * @param envoyImage Envoy image, e.g. "envoyproxy/envoy:v1.40-latest"
-     * @param protocol SotW or delta
-     * @param rateLimitedAds rate limit Envoy's requests to the control plane (rate_limit_settings), so it queues them.
-     *     Delta Envoy then sends ACKs ahead of its queued subscriptions, so requests arrive in another order.
+     * A fresh control plane, for one test.
+     * @return control plane
      */
-    protected XdsConformanceTest(String envoyImage, Protocol protocol, boolean rateLimitedAds) {
-        this.protocol = protocol;
-        this.rateLimitedAds = rateLimitedAds;
-        this.envoy = new EnvoyContainer(envoyImage)
-            .withCopyToContainer(Transferable.of(bootstrap(protocol, rateLimitedAds)), "/envoy.yaml")
-            .withCommand("-l", "debug", "-c", "/envoy.yaml")
-            .withExposedPorts(EnvoyContainer.ADMIN_PORT, LISTENER_PORT)
-            .withAccessToHost(true)
-            .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(XdsConformanceTest.class)));
+    protected abstract ControlPlane newControlPlane();
+
+    /**
+     * The protocols the library supports; conformance results should say if it's not both.
+     * @return protocols, by default both
+     */
+    protected Set<Protocol> protocols() {
+        return EnumSet.allOf(Protocol.class);
     }
+
+    /**
+     * Known deviations, which are skipped with their reason. A key is a test's path, or part of it: any of protocol
+     * ({@code sotw}, {@code delta}), Envoy version ({@code v1.17}), mode ({@code normal}, {@code rate-limited}) and
+     * scenario ({@code changesWhileDisconnected}), joined by {@code /}. {@code "sotw/changesWhileDisconnected"} skips
+     * that scenario on SotW everywhere.
+     * @return path to reason
+     */
+    protected Map<String, String> knownDeviations() {
+        return Map.of();
+    }
+
+    private static final Map<String, Scenario> SCENARIOS = scenarios();
+
+    @FunctionalInterface
+    private interface Scenario {
+        void run(Harness harness) throws Exception;
+    }
+
+    private static Map<String, Scenario> scenarios() {
+        Map<String, Scenario> scenarios = new LinkedHashMap<>();
+        scenarios.put("startsEmpty", Harness::startsEmpty);
+        scenarios.put("addsAndRemovesServices", Harness::addsAndRemovesServices);
+        scenarios.put("movesRouteToNewCluster", Harness::movesRouteToNewCluster);
+        scenarios.put("containsRejectedConfig", Harness::containsRejectedConfig);
+        scenarios.put("reconnects", Harness::reconnects);
+        scenarios.put("changesWhileDisconnected", Harness::changesWhileDisconnected);
+        return Collections.unmodifiableMap(scenarios);
+    }
+
+    /**
+     * Every scenario, for each protocol, Envoy version, and with and without rate limiting. Each test is named by its
+     * path, e.g. {@code sotw/v1.17/rate-limited/startsEmpty}, which is what {@link #knownDeviations()} matches.
+     * @return the tests
+     */
+    @TestFactory
+    public Stream<DynamicTest> conformance() {
+        return protocols().stream().flatMap(protocol -> ENVOY_IMAGES.stream().flatMap(image -> Stream.of(false, true).flatMap(rateLimited ->
+            SCENARIOS.entrySet().stream().map(scenario -> {
+                List<String> path = List.of(protocol.name().toLowerCase(Locale.ROOT), version(image), rateLimited ? "rate-limited" : "normal", scenario.getKey());
+                return dynamicTest(String.join("/", path), () -> run(path, protocol, image, rateLimited, scenario.getValue()));
+            }))));
+    }
+
+    private void run(List<String> path, Protocol protocol, String image, boolean rateLimited, Scenario scenario) throws Exception {
+        for (Map.Entry<String, String> deviation : knownDeviations().entrySet()) {
+            if (path.containsAll(Splitter.on('/').splitToList(deviation.getKey()))) {
+                Assumptions.abort(deviation.getValue());
+            }
+        }
+        Harness harness = new Harness(newControlPlane(), image, protocol, rateLimited);
+        try {
+            scenario.run(harness);
+        } finally {
+            harness.stop();
+        }
+    }
+
+    private static String version(String image) {
+        return image.substring(image.lastIndexOf(':') + 1).replace("-latest", "");
+    }
+
+
+
+    private static final int ADS_PORT = 6566;
+    private static final int LISTENER_PORT = 10000;
+    private static final String ROUTES = "all_routes"; // Envoy's static listener asks for this
 
     private static String bootstrap(Protocol protocol, boolean rateLimitedAds) {
         String resource = "net/woaf/jono/envoy/testing/conformance/envoy-" + protocol.name().toLowerCase(Locale.ROOT) + ".yaml";
@@ -120,162 +214,6 @@ public abstract class XdsConformanceTest {
             "    transport_api_version: V3\n    rate_limit_settings:\n      max_tokens: 1\n      fill_rate: 10\n    set_node_on_first_message_only");
         Preconditions.checkState(!limited.equals(yaml), "couldn't add rate_limit_settings to %s", resource);
         return limited;
-    }
-
-    /**
-     * The control plane's ADS service. Called once per test; the same instance is served again after a reconnect.
-     * @return gRPC service serving SotW or delta ADS, whichever this test uses
-     */
-    protected abstract BindableService controlPlane();
-
-    /**
-     * Make these resources the whole desired config for every Envoy, replacing what was there before.
-     * @param resources Clusters, ClusterLoadAssignments and RouteConfigurations
-     */
-    protected abstract void setConfig(Collection<? extends Message> resources);
-
-    /**
-     * Whether the control plane has nothing in flight or waiting to be sent on its latest stream. Without one, the suite
-     * waits for every response to be answered and a quiet period.
-     * @return hook, or null if the control plane can't tell
-     */
-    protected Settled.Hook idleHook() {
-        return null;
-    }
-
-    /**
-     * Make Envoy drop its stream and sync from scratch, e.g. to get a fixed config to an Envoy that NACKed.
-     * @return false if the control plane can't, the default
-     */
-    protected boolean resync() {
-        return false;
-    }
-
-    @AfterEach
-    public void stop() throws InterruptedException {
-        envoy.stop();
-        stopServer();
-    }
-
-    /** Starting with no config, Envoy gets an answer for every type, then takes the first service. */
-    @Test
-    public void startsEmpty() throws IOException {
-        setConfig(List.of());
-        start();
-        Conversation conversation = synced(1);
-        checkpoint.assertSane();
-
-        change(conversation, services("foo"));
-        checkpoint.assertSane();
-        assertStatus("foo", 200);
-    }
-
-    /** A route, its cluster and its endpoints added in one change, then removed in one change. */
-    @Test
-    public void addsAndRemovesServices() throws IOException {
-        setConfig(services("foo"));
-        start();
-        Conversation conversation = synced(1);
-
-        change(conversation, services("foo", "bar"));
-        checkpoint.assertSane();
-        assertStatus("bar", 200);
-
-        change(conversation, services("foo"));
-        // Envoy drops its EDS subscription for bar, which needs no response.
-        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> envoyAssert(conversation).unsubscribedFrom(XdsTypes.EDS, "bar"));
-        await().atMost(10, TimeUnit.SECONDS).until(settled(conversation));
-        checkpoint.assertSane();
-        assertStatus("bar", 404);
-        assertStatus("foo", 200);
-    }
-
-    /** A route moved to a new cluster, and its old cluster removed, in one change. */
-    @Test
-    public void movesRouteToNewCluster() throws IOException {
-        setConfig(service("foo", "foo-v1"));
-        start();
-        Conversation conversation = synced(1);
-        EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v1");
-
-        change(conversation, service("foo", "foo-v2"));
-        checkpoint.assertSane();
-        EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v2");
-    }
-
-    /**
-     * Envoy rejects a bad cluster, and the library contains it. It doesn't send the bad cluster again, not even as part
-     * of a later change, and doesn't drop Envoy into a reconnect loop: retrying is spam, and Envoy resets its reconnect
-     * backoff whenever it gets a response. Envoy keeps serving its last good config. Whether a later fix gets through on
-     * the same stream is up to the library, but if it can {@link #resync()}, the fix must get through after one.
-     */
-    @Test
-    public void containsRejectedConfig() throws IOException {
-        setConfig(services("foo"));
-        start();
-        synced(1);
-
-        setConfig(withBadCluster(services("foo")));
-        await().atMost(10, TimeUnit.SECONDS).until(this::envoyRejectedSomething);
-        Checkpoint afterNack = Checkpoint.take(envoy, conversations.getConversations().get(0));
-
-        setConfig(withBadCluster(services("foo", "bar"))); // still bad
-        assertContained(afterNack);
-        setConfig(services("foo", "bar")); // fixed
-        assertContained(afterNack);
-        assertStatus("foo", 200);
-        afterNack.assertEnvoyHealthy();
-
-        if (resync()) {
-            synced(2);
-            checkpoint.assertSaneAfterReconnect();
-            assertStatus("bar", 200);
-        }
-    }
-
-    /**
-     * A route moved to a new cluster, and the old cluster removed, while Envoy was away. Envoy keeps its config across
-     * the disconnect, so once it reconnects the move must be make before break from there.
-     */
-    @Test
-    public void changesWhileDisconnected() throws IOException, InterruptedException {
-        setConfig(service("foo", "foo-v1"));
-        start();
-        final Conversation before = synced(1);
-        EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v1");
-
-        stopServer();
-        setConfig(service("foo", "foo-v2"));
-        start();
-        synced(2);
-        assertRateLimitedIfAsked();
-        checkpoint.assertSaneAfterReconnect(before);
-        EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v2");
-        // and foo-v1 goes, once nothing uses it
-        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> MatcherAssert.assertThat(conversations.getConversations().get(1),
-            XdsMatchers.hasInOrder(XdsMatchers.ackOf(XdsMatchers.response(XdsMatchers.ofType(XdsTypes.CDS), XdsMatchers.removing("foo-v1"))))));
-    }
-
-    /** Envoy reconnects after a service was removed while it was away: traffic keeps flowing and updates still work. */
-    @Test
-    public void reconnects() throws IOException, InterruptedException {
-        setConfig(services("foo", "bar"));
-        start();
-        synced(1);
-        assertStatus("bar", 200);
-
-        stopServer();
-        setConfig(services("foo"));
-        start();
-        final Conversation conversation = synced(2); // Ignores Envoy's warnings about the disconnect.
-        assertRateLimitedIfAsked();
-        checkpoint.assertSaneAfterReconnect();
-        assertStatus("foo", 200);
-        assertStatus("bar", 404);
-
-        change(conversation, services("foo", "baz"));
-        checkpoint.assertSaneAfterReconnect();
-        assertStatus("baz", 200);
     }
 
     /** One service per name: a cluster and endpoints of that name, and a virtual host of that name routing to it. */
@@ -328,80 +266,227 @@ public abstract class XdsConformanceTest {
             .build();
     }
 
-    /** Start the control plane, then Envoy if it isn't running, so Envoy doesn't back off past its initial fetch timeout. */
-    private void start() throws IOException {
-        if (service == null) {
-            service = controlPlane();
-        }
-        server = ServerBuilder.forPort(ADS_PORT).addService(service).intercept(conversations).build();
-        server.start();
-        org.testcontainers.Testcontainers.exposeHostPorts(ADS_PORT);
-        if (!envoy.isRunning()) {
-            envoy.start();
-        }
-    }
-
-    private void stopServer() throws InterruptedException {
-        if (server != null) {
-            server.shutdownNow();
-            server.awaitTermination();
-            server = null;
-        }
-    }
-
     /**
-     * Wait for Envoy's nth stream to sync. Every type it asked for must be answered well inside its 15s initial fetch
-     * timeout. Later checks only look at what happens from here on.
+     * One test's Envoy, gRPC server and conversations, and the scenarios.
      */
-    private Conversation synced(int nth) {
-        await().atMost(60, TimeUnit.SECONDS).until(() -> conversations.getConversations().size() >= nth);
-        Conversation conversation = conversations.getConversations().get(nth - 1);
-        await().atMost(10, TimeUnit.SECONDS).untilAsserted(
-            () -> envoyAssert(conversation).hadConversationsWith(XdsTypes.CDS, XdsTypes.RDS).answeredEveryType());
-        await().atMost(30, TimeUnit.SECONDS).until(settled(conversation));
-        checkpoint = Checkpoint.take(envoy, conversation);
-        return conversation;
-    }
+    private static final class Harness {
 
-    private void change(Conversation conversation, Collection<? extends Message> config) {
-        int mark = conversation.size();
-        setConfig(config);
-        await().atMost(30, TimeUnit.SECONDS).until(Settled.settledAfter(conversation, mark, settled(conversation)));
-    }
+        private final ControlPlane controlPlane;
+        private final Protocol protocol;
+        private final boolean rateLimitedAds;
+        private final EnvoyContainer envoy;
+        private final ConversationLogger conversations = new ConversationLogger();
+        private BindableService service;
+        private Server server;
+        private Checkpoint checkpoint;
 
-    private Callable<Boolean> settled(Conversation conversation) {
-        Settled.Hook hook = idleHook();
-        return hook == null ? Settled.settled(conversation) : Settled.settled(conversation, hook);
-    }
-
-    private void assertStatus(String virtualHost, int status) {
-        // Envoy ACKs once its main thread has the config; workers get it a moment later.
-        await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> assertThat(envoy.httpStatus(LISTENER_PORT, virtualHost)).as(virtualHost).isEqualTo(status));
-    }
-
-    /** For a while: no more rejections, and no reconnects. */
-    private void assertContained(Checkpoint afterNack) {
-        await().during(2, TimeUnit.SECONDS).atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
-            assertThat(conversations.getConversations()).as("streams; dropping Envoy after a NACK makes it reconnect in a loop").hasSize(1);
-            assertThat(envoy.admin().stats().entrySet().stream()
-                .filter(e -> e.getKey().endsWith(".update_rejected") && !e.getValue().equals(afterNack.stats().getOrDefault(e.getKey(), 0L)))
-                .toList()).as("rejections since the first NACK; the bad cluster was sent again").isEmpty();
-        });
-    }
-
-    /** A rate limited Envoy's reconnect burst should have hit the limit, or the variant isn't testing anything. */
-    private void assertRateLimitedIfAsked() throws IOException {
-        if (rateLimitedAds) {
-            assertThat(envoy.admin().stats()).as("rate limited requests").hasEntrySatisfying("control_plane.rate_limit_enforced", n -> assertThat(n).isPositive());
+        Harness(ControlPlane controlPlane, String envoyImage, Protocol protocol, boolean rateLimitedAds) {
+            this.controlPlane = controlPlane;
+            this.protocol = protocol;
+            this.rateLimitedAds = rateLimitedAds;
+            this.envoy = new EnvoyContainer(envoyImage)
+                .withCopyToContainer(Transferable.of(bootstrap(protocol, rateLimitedAds)), "/envoy.yaml")
+                .withCommand("-l", "debug", "-c", "/envoy.yaml")
+                .withExposedPorts(EnvoyContainer.ADMIN_PORT, LISTENER_PORT)
+                .withAccessToHost(true)
+                .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(XdsConformanceTest.class)));
         }
-    }
 
-    private boolean envoyRejectedSomething() {
-        return conversations.getConversations().stream().flatMap(c -> c.getMessages().stream())
-            .anyMatch(m -> (m instanceof DiscoveryRequest r && r.hasErrorDetail()) || (m instanceof DeltaDiscoveryRequest d && d.hasErrorDetail()));
-    }
+        void stop() throws InterruptedException {
+            envoy.stop();
+            stopServer();
+        }
 
-    private EnvoyAssert<?> envoyAssert(Conversation conversation) {
-        return protocol == Protocol.DELTA ? DeltaConversationAssert.assertThat(conversation) : SotwConversationAssert.assertThat(conversation);
+        /** Starting with no config, Envoy gets an answer for every type, then takes the first service. */
+        void startsEmpty() throws IOException {
+            controlPlane.setConfig(List.of());
+            start();
+            Conversation conversation = synced(1);
+            checkpoint.assertSane();
+
+            change(conversation, services("foo"));
+            checkpoint.assertSane();
+            assertStatus("foo", 200);
+        }
+
+        /** A route, its cluster and its endpoints added in one change, then removed in one change. */
+        void addsAndRemovesServices() throws IOException {
+            controlPlane.setConfig(services("foo"));
+            start();
+            Conversation conversation = synced(1);
+
+            change(conversation, services("foo", "bar"));
+            checkpoint.assertSane();
+            assertStatus("bar", 200);
+
+            change(conversation, services("foo"));
+            // Envoy drops its EDS subscription for bar, which needs no response.
+            await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> envoyAssert(conversation).unsubscribedFrom(XdsTypes.EDS, "bar"));
+            await().atMost(10, TimeUnit.SECONDS).until(settled(conversation));
+            checkpoint.assertSane();
+            assertStatus("bar", 404);
+            assertStatus("foo", 200);
+        }
+
+        /** A route moved to a new cluster, and its old cluster removed, in one change. */
+        void movesRouteToNewCluster() throws IOException {
+            controlPlane.setConfig(service("foo", "foo-v1"));
+            start();
+            Conversation conversation = synced(1);
+            EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v1");
+
+            change(conversation, service("foo", "foo-v2"));
+            checkpoint.assertSane();
+            EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v2");
+        }
+
+        /**
+         * Envoy rejects a bad cluster, and the library contains it. It doesn't send the bad cluster again, not even as part
+         * of a later change, and doesn't drop Envoy into a reconnect loop: retrying is spam, and Envoy resets its reconnect
+         * backoff whenever it gets a response. Envoy keeps serving its last good config. Whether a later fix gets through on
+         * the same stream is up to the library, but if it can {@link ControlPlane#resync()}, the fix must get through after one.
+         */
+        void containsRejectedConfig() throws IOException {
+            controlPlane.setConfig(services("foo"));
+            start();
+            synced(1);
+
+            controlPlane.setConfig(withBadCluster(services("foo")));
+            await().atMost(10, TimeUnit.SECONDS).until(this::envoyRejectedSomething);
+            Checkpoint afterNack = Checkpoint.take(envoy, conversations.getConversations().get(0));
+
+            controlPlane.setConfig(withBadCluster(services("foo", "bar"))); // still bad
+            assertContained(afterNack);
+            controlPlane.setConfig(services("foo", "bar")); // fixed
+            assertContained(afterNack);
+            assertStatus("foo", 200);
+            afterNack.assertEnvoyHealthy();
+
+            if (controlPlane.resync()) {
+                synced(2);
+                checkpoint.assertSaneAfterReconnect();
+                assertStatus("bar", 200);
+            }
+        }
+
+        /**
+         * A route moved to a new cluster, and the old cluster removed, while Envoy was away. Envoy keeps its config across
+         * the disconnect, so once it reconnects the move must be make before break from there.
+         */
+        void changesWhileDisconnected() throws IOException, InterruptedException {
+            controlPlane.setConfig(service("foo", "foo-v1"));
+            start();
+            final Conversation before = synced(1);
+            EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v1");
+
+            stopServer();
+            controlPlane.setConfig(service("foo", "foo-v2"));
+            start();
+            synced(2);
+            assertRateLimitedIfAsked();
+            checkpoint.assertSaneAfterReconnect(before);
+            EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v2");
+            // and foo-v1 goes, once nothing uses it
+            await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> MatcherAssert.assertThat(conversations.getConversations().get(1),
+                XdsMatchers.hasInOrder(XdsMatchers.ackOf(XdsMatchers.response(XdsMatchers.ofType(XdsTypes.CDS), XdsMatchers.removing("foo-v1"))))));
+        }
+
+        /** Envoy reconnects after a service was removed while it was away: traffic keeps flowing and updates still work. */
+        void reconnects() throws IOException, InterruptedException {
+            controlPlane.setConfig(services("foo", "bar"));
+            start();
+            synced(1);
+            assertStatus("bar", 200);
+
+            stopServer();
+            controlPlane.setConfig(services("foo"));
+            start();
+            final Conversation conversation = synced(2); // Ignores Envoy's warnings about the disconnect.
+            assertRateLimitedIfAsked();
+            checkpoint.assertSaneAfterReconnect();
+            assertStatus("foo", 200);
+            assertStatus("bar", 404);
+
+            change(conversation, services("foo", "baz"));
+            checkpoint.assertSaneAfterReconnect();
+            assertStatus("baz", 200);
+        }
+
+        /** Start the control plane, then Envoy if it isn't running, so Envoy doesn't back off past its initial fetch timeout. */
+        private void start() throws IOException {
+            if (service == null) {
+                service = controlPlane.service();
+            }
+            server = ServerBuilder.forPort(ADS_PORT).addService(service).intercept(conversations).build();
+            server.start();
+            org.testcontainers.Testcontainers.exposeHostPorts(ADS_PORT);
+            if (!envoy.isRunning()) {
+                envoy.start();
+            }
+        }
+
+        private void stopServer() throws InterruptedException {
+            if (server != null) {
+                server.shutdownNow();
+                server.awaitTermination();
+                server = null;
+            }
+        }
+
+        /**
+         * Wait for Envoy's nth stream to sync. Every type it asked for must be answered well inside its 15s initial fetch
+         * timeout. Later checks only look at what happens from here on.
+         */
+        private Conversation synced(int nth) {
+            await().atMost(60, TimeUnit.SECONDS).until(() -> conversations.getConversations().size() >= nth);
+            Conversation conversation = conversations.getConversations().get(nth - 1);
+            await().atMost(10, TimeUnit.SECONDS).untilAsserted(
+                () -> envoyAssert(conversation).hadConversationsWith(XdsTypes.CDS, XdsTypes.RDS).answeredEveryType());
+            await().atMost(30, TimeUnit.SECONDS).until(settled(conversation));
+            checkpoint = Checkpoint.take(envoy, conversation);
+            return conversation;
+        }
+
+        private void change(Conversation conversation, Collection<? extends Message> config) {
+            int mark = conversation.size();
+            controlPlane.setConfig(config);
+            await().atMost(30, TimeUnit.SECONDS).until(Settled.settledAfter(conversation, mark, settled(conversation)));
+        }
+
+        private Callable<Boolean> settled(Conversation conversation) {
+            Settled.Hook hook = controlPlane.idleHook();
+            return hook == null ? Settled.settled(conversation) : Settled.settled(conversation, hook);
+        }
+
+        private void assertStatus(String virtualHost, int status) {
+            // Envoy ACKs once its main thread has the config; workers get it a moment later.
+            await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> assertThat(envoy.httpStatus(LISTENER_PORT, virtualHost)).as(virtualHost).isEqualTo(status));
+        }
+
+        /** For a while: no more rejections, and no reconnects. */
+        private void assertContained(Checkpoint afterNack) {
+            await().during(2, TimeUnit.SECONDS).atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
+                assertThat(conversations.getConversations()).as("streams; dropping Envoy after a NACK makes it reconnect in a loop").hasSize(1);
+                assertThat(envoy.admin().stats().entrySet().stream()
+                    .filter(e -> e.getKey().endsWith(".update_rejected") && !e.getValue().equals(afterNack.stats().getOrDefault(e.getKey(), 0L)))
+                    .toList()).as("rejections since the first NACK; the bad cluster was sent again").isEmpty();
+            });
+        }
+
+        /** A rate limited Envoy's reconnect burst should have hit the limit, or the variant isn't testing anything. */
+        private void assertRateLimitedIfAsked() throws IOException {
+            if (rateLimitedAds) {
+                assertThat(envoy.admin().stats()).as("rate limited requests").hasEntrySatisfying("control_plane.rate_limit_enforced", n -> assertThat(n).isPositive());
+            }
+        }
+
+        private boolean envoyRejectedSomething() {
+            return conversations.getConversations().stream().flatMap(c -> c.getMessages().stream())
+                .anyMatch(m -> (m instanceof DiscoveryRequest r && r.hasErrorDetail()) || (m instanceof DeltaDiscoveryRequest d && d.hasErrorDetail()));
+        }
+
+        private EnvoyAssert<?> envoyAssert(Conversation conversation) {
+            return protocol == Protocol.DELTA ? DeltaConversationAssert.assertThat(conversation) : SotwConversationAssert.assertThat(conversation);
+        }
     }
 }
