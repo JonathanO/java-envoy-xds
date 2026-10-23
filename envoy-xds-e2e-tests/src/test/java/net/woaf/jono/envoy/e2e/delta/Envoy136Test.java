@@ -1,10 +1,10 @@
 package net.woaf.jono.envoy.e2e.delta;
 
-public class Envoy117Test extends EnvoyIntTest {
+public class Envoy136Test extends EnvoyIntTest {
 
     @Override
     protected String getEnvoyImageName() {
-        return "envoyproxy/envoy:v1.17-latest";
+        return "envoyproxy/envoy:v1.36-latest";
     }
 
 }

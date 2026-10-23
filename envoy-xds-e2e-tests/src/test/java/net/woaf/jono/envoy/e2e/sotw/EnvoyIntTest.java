@@ -11,7 +11,7 @@ public abstract class EnvoyIntTest extends BaseEnvoyIntTest<SotwConversationAsse
 
     @Override
     protected String getEnvoyConfigFileName() {
-        return "envoy-sotw-1.17.yaml";
+        return "envoy-sotw.yaml";
     }
 
     @Override

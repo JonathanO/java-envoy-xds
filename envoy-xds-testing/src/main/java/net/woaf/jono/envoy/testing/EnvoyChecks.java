@@ -67,6 +67,8 @@ public final class EnvoyChecks {
      */
     public static void assertNoWarningsSince(EnvoyContainer envoy, int fromLine) {
         assertThat(envoy.logSince(fromLine)).as("Envoy warnings and errors")
-            .filteredOn(l -> l.matches(".*\\]\\[(warning|error|critical)\\]\\[.*")).isEmpty();
+            .filteredOn(l -> l.matches(".*\\]\\[(warning|error|critical)\\]\\[.*"))
+            .isEmpty();
     }
+
 }

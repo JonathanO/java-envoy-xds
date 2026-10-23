@@ -5,9 +5,11 @@ import static net.woaf.jono.envoy.testing.configdump.EnvoyAdminClient.sneakyUnpa
 import com.google.protobuf.Any;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
+import io.envoyproxy.envoy.config.listener.v3.Listener;
 import io.envoyproxy.envoy.config.route.v3.RouteAction;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
 import io.envoyproxy.envoy.config.route.v3.WeightedCluster.ClusterWeight;
+import io.envoyproxy.envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -26,10 +28,15 @@ final class AckedState {
     private final Set<String> edsClusters = new HashSet<>();
     private final Set<String> endpoints = new HashSet<>();
     private final Map<String, Set<String>> routes = new HashMap<>();
+    private final Map<String, Set<String>> listeners = new HashMap<>(); // route config names used, by listener
     private final List<String> problems = new ArrayList<>();
 
     Set<String> clusters() {
         return clusters;
+    }
+
+    Set<String> listeners() {
+        return listeners.keySet();
     }
 
     List<String> problems() {
@@ -53,6 +60,13 @@ final class AckedState {
                         problems.add("Route <" + route.getName() + "> sent using cluster <" + cluster + "> before Envoy ACKed its endpoints");
                     }
                 }
+            }
+            for (String route : removed) {
+                listeners.forEach((name, used) -> {
+                    if (used.contains(route)) {
+                        problems.add("Route config <" + route + "> removed while Envoy's ACKed listener <" + name + "> still uses it");
+                    }
+                });
             }
         } else if (typeUrl.equals(XdsTypes.CDS)) {
             for (String cluster : removed) {
@@ -93,7 +107,34 @@ final class AckedState {
                 routes.put(route.getName(), referencedClusters(route));
             });
             removed.forEach(routes::remove);
+        } else if (typeUrl.equals(XdsTypes.LDS)) {
+            resources.forEach(any -> {
+                Listener listener = sneakyUnpack(any, Listener.class);
+                listeners.put(listener.getName(), routeConfigsUsed(listener));
+            });
+            for (String gone : removed) {
+                // A removed listener drains for a while and keeps its route configs, but serves no new requests: route
+                // configs only it used are now unused.
+                Set<String> used = listeners.remove(gone);
+                if (used != null) {
+                    used.stream().filter(r -> listeners.values().stream().noneMatch(l -> l.contains(r))).forEach(routes::remove);
+                }
+            }
         }
+    }
+
+    /** Route configs a listener's HTTP connection managers get by RDS. */
+    private static Set<String> routeConfigsUsed(Listener listener) {
+        Set<String> used = new HashSet<>();
+        listener.getFilterChainsList().forEach(chain -> chain.getFiltersList().forEach(filter -> {
+            if (filter.getTypedConfig().is(HttpConnectionManager.class)) {
+                String name = sneakyUnpack(filter.getTypedConfig(), HttpConnectionManager.class).getRds().getRouteConfigName();
+                if (!name.isEmpty()) {
+                    used.add(name);
+                }
+            }
+        }));
+        return used;
     }
 
     private static Set<String> referencedClusters(RouteConfiguration route) {
