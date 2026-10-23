@@ -68,11 +68,12 @@ public class DiscoveryServiceManagerTest {
 
         InOrder inOrder = Mockito.inOrder(mockDiscoveryService);
         inOrder.verify(mockDiscoveryService).init(initUpdate);
-        inOrder.verify(mockDiscoveryService).setDeferInitialResourceVersionRemovals(false);
+        inOrder.verify(mockDiscoveryService).setDeferReconnectRemovals(any());
 
         var update = new DummyUpdate();
 
         dsm.pushUpdates(update);
+        inOrder.verify(mockDiscoveryService).hasDeferredReconnectRemovals(); // stale removals from a reconnect go first
         inOrder.verify(mockDiscoveryService).onNetworkUpdate(update);
         inOrder.verify(mockDiscoveryService).sendNetworkUpdatePre();
         inOrder.verify(mockDiscoveryService).awaitingAck();

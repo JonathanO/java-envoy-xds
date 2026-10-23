@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 * **Breaking:** after Envoy NACKs, we stop sending it changes on that stream, for both SotW and delta. Envoy keeps its last good config until it reconnects. Previously delta dropped the stream (Envoy then reconnects in a tight loop), and SotW stalled without saying so while its backlog grew. `ClientNackException` is gone.
+* When Envoy reconnects, it re-subscribes to everything at once. Route and listener answers now wait until the clusters and endpoints they may use are ACKed. Stale resources Envoy kept (delta) are removed in remove order, once the types that may still use them have been answered and ACKed, without needing `delayUpdatesUntilAckOf`. `XdsConfig.subscribesTo` says which types a client gets from us, so its removals don't wait for types it never asks for; they wait at most 30 seconds anyway. On SotW, a cluster Envoy kept is still removed straight away: the CDS answer is the whole set.
 * **Breaking:** removed `XdsConfig.silentNacks`. Every NACK now freezes the stream, and is logged at warn; use `onClientNack` to act on it.
 
 ## [2.0.0] - 2026-10-16

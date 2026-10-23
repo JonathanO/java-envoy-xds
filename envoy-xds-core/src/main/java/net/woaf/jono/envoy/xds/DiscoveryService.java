@@ -1,5 +1,7 @@
 package net.woaf.jono.envoy.xds;
 
+import java.util.function.BooleanSupplier;
+
 import com.google.protobuf.Message;
 
 /**
@@ -58,10 +60,25 @@ public interface DiscoveryService<RequestT extends Message, StateUpdT> {
     void sendNetworkUpdatePost();
 
     /**
-     * Controls whether removals discovered from a reconnecting delta client's initial_resource_versions
-     * should be delayed for manager-coordinated ADS remove ordering.
+     * Says whether removals discovered from a reconnecting delta client's initial_resource_versions must wait, for the
+     * manager to send in ADS remove order. Asked when Envoy subscribes; removals it holds are sent later with
+     * sendDeferredReconnectRemovals().
      */
-    default void setDeferInitialResourceVersionRemovals(boolean deferInitialResourceVersionRemovals) {
+    default void setDeferReconnectRemovals(BooleanSupplier deferReconnectRemovals) {
+    }
+
+    /**
+     * Whether we have config for this type, rather than standing in for a type nobody configured.
+     */
+    default boolean isServed() {
+        return true;
+    }
+
+    /**
+     * Whether this service has sent Envoy anything on this stream.
+     */
+    default boolean hasAnswered() {
+        return false;
     }
 
     /**

@@ -24,6 +24,8 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
 
     private boolean active = false;
 
+    private boolean answered = false;
+
     public AbstractDiscoveryService(TypeUrl myTypeUrl, IncrementalConfigBuilder<E, StateUpdT, DetailsT> configBuilder, NodeConfig<DetailsT> nodeConfig) {
         this.myTypeUrl = myTypeUrl;
         this.configBuilder = configBuilder;
@@ -44,6 +46,23 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
         }
         active = true;
         processRequest(value.getMessage());
+    }
+
+    /**
+     * Record that a response has gone to Envoy.
+     */
+    protected void markAnswered() {
+        answered = true;
+    }
+
+    @Override
+    public boolean isServed() {
+        return !(configBuilder instanceof NoOpConfigBuilder);
+    }
+
+    @Override
+    public boolean hasAnswered() {
+        return answered;
     }
 
     protected SubState getCurrentSubState() {

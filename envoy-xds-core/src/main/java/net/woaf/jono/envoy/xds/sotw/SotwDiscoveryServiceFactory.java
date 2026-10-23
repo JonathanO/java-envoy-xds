@@ -3,6 +3,7 @@ package net.woaf.jono.envoy.xds.sotw;
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.Message;
 import net.woaf.jono.envoy.xds.NodeConfig;
+import net.woaf.jono.envoy.xds.NoOpConfigBuilder;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder;
 import net.woaf.jono.envoy.xds.DiscoveryService;
 import net.woaf.jono.envoy.xds.DiscoveryServiceFactory;
@@ -11,7 +12,6 @@ import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import io.grpc.stub.StreamObserver;
 
-import java.util.function.Predicate;
 
 public class SotwDiscoveryServiceFactory<StateUpdT, DetailsT> implements DiscoveryServiceFactory<DiscoveryRequest, DiscoveryResponse, StateUpdT, DetailsT> {
 
@@ -42,40 +42,6 @@ public class SotwDiscoveryServiceFactory<StateUpdT, DetailsT> implements Discove
     @Override
     public DiscoveryService<DiscoveryRequest, StateUpdT> createDiscoveryService(StreamObserver<DiscoveryResponse> responseObserver, NodeConfig<DetailsT> nodeConfig, TypeUrl type) {
         return new SotwDiscoveryService<>(type, responseObserver, getSubmanagerForType(type), new VersionManager(), getConfigBuilderForType(type), nodeConfig);
-    }
-
-    private static class NoOpConfigBuilder<ResourceT extends Message, StateUpdT, DetailsT> implements IncrementalConfigBuilder<ResourceT, StateUpdT, DetailsT> {
-
-        private final Class<ResourceT> type;
-
-        private NoOpConfigBuilder(Class<ResourceT> type) {
-            this.type = type;
-        }
-
-        @Override
-        public Response<ResourceT> addOrder(StateUpdT diff, Predicate<String> resourceInSubListChange, DetailsT clientDetails) {
-            return Response.<ResourceT>builder().build();
-        }
-
-        @Override
-        public Response<ResourceT> removeOrder(StateUpdT diff, Predicate<String> resourceInSubListChange, DetailsT clientDetails) {
-            return Response.<ResourceT>builder().build();
-        }
-
-        @Override
-        public Resources<ResourceT> getResourcesAddOrder(StateUpdT services, Predicate<String> resourceInSubListChange, DetailsT clientDetails) {
-            return Resources.<ResourceT>builder().build();
-        }
-
-        @Override
-        public Resources<ResourceT> getResourcesRemoveOrder(StateUpdT services, Predicate<String> resourceInSubListChange, DetailsT clientDetails) {
-            return Resources.<ResourceT>builder().build();
-        }
-
-        @Override
-        public Class<ResourceT> handlesType() {
-            return type;
-        }
     }
 
 }
