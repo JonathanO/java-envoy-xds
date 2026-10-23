@@ -4,7 +4,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.protobuf.Message;
 import net.woaf.jono.envoy.xds.AbstractDiscoveryService;
-import net.woaf.jono.envoy.xds.ClientNackException;
 import net.woaf.jono.envoy.xds.NodeConfig;
 import net.woaf.jono.envoy.xds.TypeUrl;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder;
@@ -41,13 +40,10 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
     protected void processRequest(DeltaDiscoveryRequest value) {
         boolean isAck = !Strings.isNullOrEmpty(value.getResponseNonce());
         if (isAck) {
-            // Envoy is trying to ACK something.
-            if (value.hasErrorDetail()) {
-                throw new ClientNackException(value.getResponseNonce(), value.getErrorDetail());
-            }
+            // Envoy is answering something: an ACK, or a NACK if it has error detail.
             if (value.getResponseNonce().equals(lastNonce)) {
-                log.debug("{} ACKed {}", getTypeUrl().name(), lastNonce);
-                lastNonce = null; // acked!
+                log.debug("{} {} {}", getTypeUrl().name(), value.hasErrorDetail() ? "NACKed" : "ACKed", lastNonce);
+                lastNonce = null; // answered. The DiscoveryServiceManager stops sending changes after a NACK.
             }
         }
         ImmutableSet<String> subscribeSet = ImmutableSet.copyOf(value.getResourceNamesSubscribeList());

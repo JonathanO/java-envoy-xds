@@ -123,16 +123,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
                 discoveryServiceManager.init(clusterManager.subscribe(this), delayUpdatesUntilAckOf);
             }
 
-            try {
-                discoveryServiceManager.processUpdate(value);
-            } catch (ClientNackException nack) {
-                if (xdsConfig.getXdsConfig().isSilentNacks()) {
-                    log.info("Client rejected update", nack);
-                    // Just ignore the response. It'll make them hang around, and not go into a tight retry loop.
-                    return;
-                }
-                throw nack;
-            }
+            discoveryServiceManager.processUpdate(value);
         } catch (Throwable t) {
             this.onError(t); // Despite docs on interface, upstream is not calling onError :-(
             throw t;

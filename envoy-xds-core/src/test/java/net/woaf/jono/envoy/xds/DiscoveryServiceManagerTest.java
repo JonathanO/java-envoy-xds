@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -284,6 +285,32 @@ public class DiscoveryServiceManagerTest {
         inOrder.verify(mockDiscoveryServiceB).sendNetworkUpdatePost();
         dsm.processUpdate(rdsRequest); // ACK RDS
         inOrder.verify(mockDiscoveryServiceA).sendNetworkUpdatePost();
+    }
+
+    @Test
+    public void testNackFreezesTheStream(@Mock DiscoveryServiceManagerMetrics metrics) {
+        DiscoveryService<Message, DummyUpdate> mockDiscoveryService = spy(StateAwareFakeDiscoveryService.class);
+        QueueBacklog backlog = new QueueBacklog();
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(Map.of(TypeUrl.EDS, mockDiscoveryService), List.of(TypeUrl.EDS), List.of(TypeUrl.EDS), backlog, metrics);
+        dsm.init(new DummyUpdate());
+        final var update = new DummyUpdate();
+        final var queued = new DummyUpdate();
+        final var later = new DummyUpdate();
+
+        dsm.pushUpdates(update);
+        dsm.pushUpdates(queued); // waits behind update
+        dsm.processUpdate(CommonDiscoveryRequest.builder()
+            .typeUrl(TypeUrl.EDS.getTypeUrl())
+            .errorDetail(com.google.rpc.Status.newBuilder().setMessage("rejected").build())
+            .build());
+        dsm.pushUpdates(later);
+
+        assertThat(dsm.isFrozen()).isTrue();
+        assertThat(backlog.isEmpty()).as("backlog dropped").isTrue();
+        verify(mockDiscoveryService, never()).sendNetworkUpdatePost();
+        verify(mockDiscoveryService, never()).onNetworkUpdate(queued);
+        verify(mockDiscoveryService, never()).onNetworkUpdate(later);
+        verify(metrics).onPushComplete(); // the abandoned push ended, so the stream looks idle
     }
 
     public static class StateAwareFakeDiscoveryService implements DiscoveryService<Message, DummyUpdate> {

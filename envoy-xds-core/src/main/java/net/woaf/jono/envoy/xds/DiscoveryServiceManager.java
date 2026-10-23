@@ -61,6 +61,11 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     private boolean closed = false;
     private boolean initialized = false;
 
+    /**
+     * Envoy rejected something we sent, so we've stopped sending changes on this stream. See freeze().
+     */
+    private boolean frozen = false;
+
     private TypeUrl delayUpdatesUntilAckOf = null;
 
     /**
@@ -122,6 +127,9 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
         TypeUrl typeUrl = TypeUrl.of(value.getTypeUrl());
         DiscoveryService<RequestT, StateUpdT> discoveryService = discoveryServices.get(typeUrl);
         discoveryService.processUpdate(value);
+        if (value.getErrorDetail() != null) {
+            freeze();
+        }
 
         if (discoveryService.awaitingAck()) {
             if (outstandingAcks.add(discoveryService)) {
@@ -136,12 +144,44 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
             }
         }
 
+        if (frozen) {
+            return;
+        }
         if (currentChange != null) {
             // Continue attempting to push the current change as this might have been an ack the current push was waiting for.
             continuePush();
         } else if (isPushAllowed()) {
             pushWaitingChangeIfAny();
         }
+    }
+
+    /**
+     * Stop sending changes on this stream, for good. Envoy keeps serving its last good config until it reconnects.
+     *
+     * <p>A rejected change won't fix itself: resending it, or any later change that includes it, gets rejected again.
+     * Envoy may also have applied part of it, so we no longer know what it has, and diffing from what we think it has
+     * would make things worse. Dropping the stream instead would have Envoy reconnect straight away, be sent the same
+     * config, and loop. Subscription requests are still answered, from our own state.
+     */
+    private void freeze() {
+        if (frozen) {
+            return;
+        }
+        frozen = true;
+        if (currentChange != null) {
+            currentChange = null;
+            waitingOn = null;
+            current = null;
+            sendMode = DiscoveryService.SubState.COMPLETED;
+            metrics.onPushComplete();
+        }
+        while (waitingStateBacklog.take() != null) {
+            // Drop it. Nothing more will be sent.
+        }
+    }
+
+    boolean isFrozen() {
+        return frozen;
     }
 
     private boolean isPushAllowed() {
@@ -181,6 +221,9 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     public void pushUpdates(StateUpdT diff) {
         assertPostInitState();
 
+        if (frozen) {
+            return;
+        }
         if (currentChange == null && isPushAllowed()) {
             // Nothing currently being applied, start applying this change immediately.
             currentChange = diff;
