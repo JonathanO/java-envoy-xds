@@ -98,6 +98,17 @@ public final class Checkpoint {
     }
 
     /**
+     * As {@link #assertSaneAfterReconnect()}, but also make before break from the start of this conversation, starting
+     * from what Envoy last ACKed on the one before: it keeps its config across a disconnect.
+     * @param before the previous conversation with this Envoy
+     */
+    public void assertSaneAfterReconnect(Conversation before) {
+        EnvoyAssert.of(conversation).nothingSentUnasked(envoyMinorVersion() < 19).allWereAcked().sentNoEmptyResponses(message)
+            .wasMakeBeforeBreak(0, before);
+        assertEnvoyHealthy();
+    }
+
+    /**
      * Envoy is connected, has nothing warming, and since this checkpoint rejected nothing, timed out no initial fetches
      * and logged no warnings or errors. See {@link EnvoyChecks}.
      */

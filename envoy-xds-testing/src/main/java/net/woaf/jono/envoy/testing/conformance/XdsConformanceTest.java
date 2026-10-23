@@ -196,6 +196,25 @@ public abstract class XdsConformanceTest {
         }
     }
 
+    /**
+     * A route moved to a new cluster, and the old cluster removed, while Envoy was away. Envoy keeps its config across
+     * the disconnect, so once it reconnects the move must be make before break from there.
+     */
+    @Test
+    public void changesWhileDisconnected() throws IOException, InterruptedException {
+        setConfig(service("foo", "foo-v1"));
+        start();
+        final Conversation before = synced(1);
+        EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v1");
+
+        stopServer();
+        setConfig(service("foo", "foo-v2"));
+        start();
+        synced(2);
+        checkpoint.assertSaneAfterReconnect(before);
+        EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v2");
+    }
+
     /** Envoy reconnects after a service was removed while it was away: traffic keeps flowing and updates still work. */
     @Test
     public void reconnects() throws IOException, InterruptedException {

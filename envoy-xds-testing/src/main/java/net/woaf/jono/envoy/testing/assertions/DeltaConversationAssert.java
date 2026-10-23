@@ -157,14 +157,31 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
     @Override
     @CanIgnoreReturnValue
     public DeltaConversationAssert wasMakeBeforeBreak(int fromMessage) {
+        return wasMakeBeforeBreak(fromMessage, null);
+    }
+
+    @Override
+    @CanIgnoreReturnValue
+    public DeltaConversationAssert wasMakeBeforeBreak(int fromMessage, Conversation before) {
         isNotNull();
         AckedState state = new AckedState();
+        if (before != null) {
+            replay(state, before.getMessages(), Integer.MAX_VALUE);
+        }
+        replay(state, actual.getMessages(), fromMessage);
+        if (!state.problems().isEmpty()) {
+            failWithMessage("Not make before break: <%s>", state.problems());
+        }
+        return this;
+    }
+
+    // Track what Envoy ACKs, checking responses from checkFrom on.
+    private static void replay(AckedState state, List<Object> messages, int checkFrom) {
         Map<String, DeltaDiscoveryResponse> pending = new HashMap<>();
-        List<Object> messages = actual.getMessages();
         for (int i = 0; i < messages.size(); i++) {
             Object message = messages.get(i);
             if (message instanceof DeltaDiscoveryResponse r) {
-                if (i >= fromMessage) {
+                if (i >= checkFrom) {
                     state.checkResponse(r.getTypeUrl(), resources(r), r.getRemovedResourcesList());
                 }
                 pending.put(r.getNonce(), r);
@@ -175,10 +192,6 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
                 }
             }
         }
-        if (!state.problems().isEmpty()) {
-            failWithMessage("Not make before break: <%s>", state.problems());
-        }
-        return this;
     }
 
     private static List<Any> resources(DeltaDiscoveryResponse response) {

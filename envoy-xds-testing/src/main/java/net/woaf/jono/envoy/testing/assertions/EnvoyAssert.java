@@ -57,6 +57,17 @@ public abstract class EnvoyAssert<SelfT extends EnvoyAssert<SelfT>> extends Abst
     public abstract SelfT wasMakeBeforeBreak(int fromMessage);
 
     /**
+     * As {@link #wasMakeBeforeBreak(int)}, for a conversation Envoy started by reconnecting. Envoy keeps its config
+     * across a disconnect, so it starts from what it last ACKed on the previous stream, and the answers to its first
+     * requests on this one are checked too.
+     * @param fromMessage index in this conversation to start checking from, usually 0
+     * @param before the previous conversation with this Envoy, or null to start from nothing
+     * @return this
+     */
+    @CanIgnoreReturnValue
+    public abstract SelfT wasMakeBeforeBreak(int fromMessage, Conversation before);
+
+    /**
      * Every type Envoy asked for got at least one response. Without one Envoy waits out its initial fetch timeout, or
      * forever if that is disabled.
      * @return this
