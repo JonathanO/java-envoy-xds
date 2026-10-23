@@ -24,11 +24,4 @@ public class XdsConfig<DetailsT> {
      * This is useful, for example, to work around bugs like https://github.com/envoyproxy/envoy/issues/16035 (we set this option to RDS in our own control plane for this reason.)
      */
     TypeUrl delayUpdatesUntilAckOf;
-
-    /**
-     * Set to true to log NACKs from this client at info rather than error, e.g. for developer laptops that may run out of
-     * date Envoy versions. Either way we stop sending changes to a client once it has NACKed: retrying is spam, and
-     * dropping the stream makes Envoy reconnect in a tight loop.
-     */
-    boolean silentNacks;
 }

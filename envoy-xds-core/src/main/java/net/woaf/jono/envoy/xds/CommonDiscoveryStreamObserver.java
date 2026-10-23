@@ -106,11 +106,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             }
 
             if (value.getErrorDetail() != null) {
-                if (xdsConfig.getXdsConfig().isSilentNacks() && value.getErrorDetail().getCode() == Status.Code.INTERNAL.value()) {
-                    log.info("Client {} reports error: {}", nodeId, value.getErrorDetail());
-                } else {
-                    log.error("Client {} reports error: {}", nodeId, value.getErrorDetail());
-                }
+                log.warn("Client {} rejected {}, so we'll send it no more changes on this stream: {}", nodeId, value.getTypeUrl(), value.getErrorDetail());
             }
 
             TypeUrl typeUrl = TypeUrl.of(value.getTypeUrl());
