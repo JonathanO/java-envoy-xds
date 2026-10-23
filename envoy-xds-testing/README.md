@@ -198,32 +198,42 @@ The envoy-xds e2e tests (`envoy-xds-e2e-tests`) use all of this, with envoy-xds'
 safely? It doesn't test how a control plane decides what to serve. For that, write your own scenarios with the helpers
 above.
 
-Extend it once per Envoy version and protocol. Give it your ADS service and a way to set the whole desired config:
+Extend it once, and give it a fresh control plane for each test: your ADS service, and a way to set the whole desired
+config.
 
 ```java
-class MyLibrarySotwTest extends XdsConformanceTest {
-    private final MyCache cache = new MyCache(); // fields are fresh for each test
-
-    MyLibrarySotwTest() {
-        super("envoyproxy/envoy:v1.40-latest", Protocol.SOTW);
-    }
+class MyLibraryConformanceTest extends XdsConformanceTest {
 
     @Override
-    protected BindableService controlPlane() {
-        return new MyAdsService(cache);
-    }
+    protected ControlPlane newControlPlane() {
+        MyCache cache = new MyCache();
+        return new ControlPlane() {
+            @Override
+            public BindableService service() {
+                return new MyAdsService(cache);
+            }
 
-    @Override
-    protected void setConfig(Collection<? extends Message> resources) {
-        cache.replaceAll(resources); // Clusters, ClusterLoadAssignments and RouteConfigurations
+            @Override
+            public void setConfig(Collection<? extends Message> resources) {
+                cache.replaceAll(resources); // Clusters, ClusterLoadAssignments and RouteConfigurations
+            }
+        };
     }
 }
 ```
 
-Override `idleHook()` too if your library can tell when a stream is idle, and `resync()` if it can make Envoy reconnect.
-Pass `true` as a third constructor argument to rate limit Envoy's requests to the control plane (`rate_limit_settings`).
-Envoy then queues them, and delta Envoy sends ACKs ahead of queued subscriptions, so after a reconnect requests arrive in
-a different order. That's worth one extra run per protocol. The reconnect scenarios check the limit was actually hit. The scenarios:
+The suite owns the matrix, so every library is tested the same way. It runs every scenario:
+- on both protocols, unless you override `protocols()` to support one;
+- on each of `ENVOY_IMAGES`, the oldest supported Envoy (1.17) and the newest;
+- normally, and with Envoy's requests to the control plane rate limited (`rate_limit_settings`). Envoy then queues
+  them, and delta Envoy sends ACKs ahead of queued subscriptions, so after a reconnect requests arrive in a different
+  order. The reconnect scenarios check the limit was actually hit.
+
+That's 48 tests and takes a few minutes, so run it in CI or before a release rather than on every build. Each test is
+named by its path, e.g. `sotw/v1.17/rate-limited/startsEmpty`.
+
+Implement `idleHook()` in your `ControlPlane` if your library can tell when a stream is idle, and `resync()` if it can
+make Envoy reconnect. The scenarios:
 
 - `startsEmpty`: no config at first. Envoy gets an answer for every type it asks for, including a route config that
   doesn't exist yet, then takes the first service.
@@ -240,7 +250,8 @@ a different order. That's worth one extra run per protocol. The reconnect scenar
 
 After each change, the suite checks that the conversation stayed sane. Every response was ACKed, nothing was sent
 unasked, there were no empty responses, and changes were make before break. It also checks that Envoy is healthy and
-logged no warnings. To record a known deviation, override the test with `@Test @Disabled("why")`.
+logged no warnings. To record a known deviation, override `knownDeviations()`. Keys are parts of a test's path, so
+`Map.of("sotw/changesWhileDisconnected", "why")` skips that scenario on SotW, on every version and mode.
 
 Envoy connects to port 6566 on the host, so run these one at a time. `EnvoyXdsConformanceTest` in
 `envoy-xds-e2e-tests` runs the suite against envoy-xds.
