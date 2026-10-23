@@ -90,6 +90,8 @@ version specific.
 
 Users of the library can depend on any version of com.transferwise.envoy:envoy-api appropriate for the Envoy version used.
 The upstream io.envoyproxy.controlplane:api protos should also work, as the generated packages are the same.
+
+The e2e tests run against Envoy 1.17 to 1.24 and 1.37 to 1.40, over both SotW and delta ADS.
 See Envoy's deprecation rules for specifics of what version you should choose.
 
 In the future it's possible this library will support new API versions, or that the v3 API will change in some way that breaks
