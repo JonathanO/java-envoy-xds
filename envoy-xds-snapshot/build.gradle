@@ -10,7 +10,7 @@ apply from: "${rootDir}/publishing.gradle"
 
 dependencies {
     api project(':envoy-xds-core')
-    implementation 'com.google.protobuf:protobuf-java:3.25.9'
+    implementation 'com.google.protobuf:protobuf-java:4.36.2'
     implementation "com.google.guava:guava:33.7.2-jre"
     implementation 'com.github.spotbugs:spotbugs-annotations:4.10.5'
     compileOnly 'com.transferwise.envoy:envoy-api:1.17.0' // Users are expected to provide a compatible envoy api
