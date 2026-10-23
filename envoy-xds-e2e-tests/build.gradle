@@ -14,7 +14,7 @@ dependencies {
     implementation 'com.github.spotbugs:spotbugs-annotations:4.10.5'
     implementation 'com.google.protobuf:protobuf-java:3.25.9'
     implementation 'com.google.protobuf:protobuf-java-util:3.25.9'
-    implementation 'io.grpc:grpc-stub:1.85.0'
+    implementation 'io.grpc:grpc-stub:1.85.1'
     implementation project(':envoy-xds-core')
     implementation project(':envoy-xds-snapshot')
     implementation project(':envoy-xds-example')
