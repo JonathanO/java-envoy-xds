@@ -3,6 +3,7 @@ package net.woaf.jono.envoy.testing.conformance;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import com.google.common.base.Preconditions;
 import com.google.protobuf.Duration;
 import com.google.protobuf.Message;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
@@ -26,6 +27,10 @@ import io.grpc.BindableService;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import java.io.IOException;
+import java.util.Objects;
+import java.nio.charset.StandardCharsets;
+import java.io.UncheckedIOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -48,7 +53,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
-import org.testcontainers.utility.MountableFile;
+import org.testcontainers.images.builder.Transferable;
 
 /**
  * Conformance tests for an xDS library: give it desired config, and check a real Envoy gets there safely.
@@ -70,6 +75,7 @@ public abstract class XdsConformanceTest {
     private static final String ROUTES = "all_routes"; // Envoy's static listener asks for this
 
     private final Protocol protocol;
+    private final boolean rateLimitedAds;
     private final EnvoyContainer envoy;
     private final ConversationLogger conversations = new ConversationLogger();
     private BindableService service;
@@ -77,14 +83,43 @@ public abstract class XdsConformanceTest {
     private Checkpoint checkpoint;
 
     protected XdsConformanceTest(String envoyImage, Protocol protocol) {
+        this(envoyImage, protocol, false);
+    }
+
+    /**
+     * See class description.
+     * @param envoyImage Envoy image, e.g. "envoyproxy/envoy:v1.40-latest"
+     * @param protocol SotW or delta
+     * @param rateLimitedAds rate limit Envoy's requests to the control plane (rate_limit_settings), so it queues them.
+     *     Delta Envoy then sends ACKs ahead of its queued subscriptions, so requests arrive in another order.
+     */
+    protected XdsConformanceTest(String envoyImage, Protocol protocol, boolean rateLimitedAds) {
         this.protocol = protocol;
+        this.rateLimitedAds = rateLimitedAds;
         this.envoy = new EnvoyContainer(envoyImage)
-            .withCopyFileToContainer(MountableFile.forClasspathResource(
-                "net/woaf/jono/envoy/testing/conformance/envoy-" + protocol.name().toLowerCase(Locale.ROOT) + ".yaml"), "/envoy.yaml")
+            .withCopyToContainer(Transferable.of(bootstrap(protocol, rateLimitedAds)), "/envoy.yaml")
             .withCommand("-l", "debug", "-c", "/envoy.yaml")
             .withExposedPorts(EnvoyContainer.ADMIN_PORT, LISTENER_PORT)
             .withAccessToHost(true)
             .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(XdsConformanceTest.class)));
+    }
+
+    private static String bootstrap(Protocol protocol, boolean rateLimitedAds) {
+        String resource = "net/woaf/jono/envoy/testing/conformance/envoy-" + protocol.name().toLowerCase(Locale.ROOT) + ".yaml";
+        String yaml;
+        try (InputStream in = Objects.requireNonNull(XdsConformanceTest.class.getClassLoader().getResourceAsStream(resource), resource)) {
+            yaml = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        if (!rateLimitedAds) {
+            return yaml;
+        }
+        // One request at a time, ten a second: enough to queue Envoy's reconnect burst behind the answers to it.
+        String limited = yaml.replace("    transport_api_version: V3\n    set_node_on_first_message_only",
+            "    transport_api_version: V3\n    rate_limit_settings:\n      max_tokens: 1\n      fill_rate: 10\n    set_node_on_first_message_only");
+        Preconditions.checkState(!limited.equals(yaml), "couldn't add rate_limit_settings to %s", resource);
+        return limited;
     }
 
     /**
@@ -213,6 +248,7 @@ public abstract class XdsConformanceTest {
         setConfig(service("foo", "foo-v2"));
         start();
         synced(2);
+        assertRateLimitedIfAsked();
         checkpoint.assertSaneAfterReconnect(before);
         EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v2");
         // and foo-v1 goes, once nothing uses it
@@ -232,6 +268,7 @@ public abstract class XdsConformanceTest {
         setConfig(services("foo"));
         start();
         final Conversation conversation = synced(2); // Ignores Envoy's warnings about the disconnect.
+        assertRateLimitedIfAsked();
         checkpoint.assertSaneAfterReconnect();
         assertStatus("foo", 200);
         assertStatus("bar", 404);
@@ -350,6 +387,13 @@ public abstract class XdsConformanceTest {
                 .filter(e -> e.getKey().endsWith(".update_rejected") && !e.getValue().equals(afterNack.stats().getOrDefault(e.getKey(), 0L)))
                 .toList()).as("rejections since the first NACK; the bad cluster was sent again").isEmpty();
         });
+    }
+
+    /** A rate limited Envoy's reconnect burst should have hit the limit, or the variant isn't testing anything. */
+    private void assertRateLimitedIfAsked() throws IOException {
+        if (rateLimitedAds) {
+            assertThat(envoy.admin().stats()).as("rate limited requests").hasEntrySatisfying("control_plane.rate_limit_enforced", n -> assertThat(n).isPositive());
+        }
     }
 
     private boolean envoyRejectedSomething() {

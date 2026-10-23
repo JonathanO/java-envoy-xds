@@ -40,6 +40,10 @@ abstract class EnvoyXdsConformanceTest extends XdsConformanceTest {
         super(envoyImage, protocol);
     }
 
+    EnvoyXdsConformanceTest(String envoyImage, Protocol protocol, boolean rateLimitedAds) {
+        super(envoyImage, protocol, rateLimitedAds);
+    }
+
     @Override
     protected BindableService controlPlane() {
         return new AggregatedDiscoveryService<>(
@@ -125,6 +129,24 @@ abstract class EnvoyXdsConformanceTest extends XdsConformanceTest {
     static class DeltaNewestTest extends EnvoyXdsConformanceTest {
         DeltaNewestTest() {
             super("envoyproxy/envoy:v1.40-latest", Protocol.DELTA);
+        }
+    }
+
+    static class SotwRateLimitedTest extends EnvoyXdsConformanceTest {
+        SotwRateLimitedTest() {
+            super("envoyproxy/envoy:v1.40-latest", Protocol.SOTW, true);
+        }
+
+        @Override
+        @Test
+        @Disabled(SOTW_RECONNECT)
+        public void changesWhileDisconnected() {
+        }
+    }
+
+    static class DeltaRateLimitedTest extends EnvoyXdsConformanceTest {
+        DeltaRateLimitedTest() {
+            super("envoyproxy/envoy:v1.40-latest", Protocol.DELTA, true);
         }
     }
 }
