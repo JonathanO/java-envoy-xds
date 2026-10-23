@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 * Experimental `envoy-xds-snapshot` module: snapshot-style config with automatic make-before-break ordering
 * `envoy-xds-testing` module: helpers for testing a control plane against a real Envoy, and an xDS library conformance suite
+* `Checkpoint` and `EnvoyChecks.assertRoutedVia` in `envoy-xds-testing`: one call to check everything since a mark, and which cluster served a request
 * `XdsMatchers` in `envoy-xds-testing`: Hamcrest matchers for xDS resources, recorded messages, their order, and what Envoy holds
 * `XdsEventListener.onClientNack`, `ClientHandle.resync()`, and `ResyncAfterNack` to resync an Envoy that NACKed on a backoff
 

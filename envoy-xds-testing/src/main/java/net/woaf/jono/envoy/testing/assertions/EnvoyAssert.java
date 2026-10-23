@@ -1,6 +1,8 @@
 package net.woaf.jono.envoy.testing.assertions;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
+import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
 import org.assertj.core.api.AbstractAssert;
 
@@ -8,6 +10,16 @@ public abstract class EnvoyAssert<SelfT extends EnvoyAssert<SelfT>> extends Abst
 
     protected EnvoyAssert(Conversation conversation, Class<SelfT> selfType) {
         super(conversation, selfType);
+    }
+
+    /**
+     * Checks for a conversation, SotW or delta, whichever it is.
+     * @param conversation recorded stream
+     * @return SotwConversationAssert or DeltaConversationAssert
+     */
+    public static EnvoyAssert<?> of(Conversation conversation) {
+        boolean delta = conversation.getMessages().stream().anyMatch(m -> m instanceof DeltaDiscoveryRequest || m instanceof DeltaDiscoveryResponse);
+        return delta ? DeltaConversationAssert.assertThat(conversation) : SotwConversationAssert.assertThat(conversation);
     }
 
     @CanIgnoreReturnValue

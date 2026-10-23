@@ -11,7 +11,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.net.HostAndPort;
 import net.woaf.jono.envoy.testing.assertions.EnvoyAssert;
-import net.woaf.jono.envoy.testing.EnvoyChecks;
+import net.woaf.jono.envoy.testing.Checkpoint;
 import net.woaf.jono.envoy.testing.Settled;
 import net.woaf.jono.envoy.testing.configdump.EnvoyAdminClient;
 import net.woaf.jono.envoy.testing.configdump.TypedEnvoyConfigDump;
@@ -63,14 +63,11 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(BaseEnvoyIntTest.class)));
     Server server = null;
     EnvoyAdminClient adminClient = null;
-    private volatile int logMark = 0;
-    private volatile int messageMark = 0;
+    private volatile Checkpoint checkpoint;
 
     protected abstract String getEnvoyImageName();
 
     protected abstract String getEnvoyConfigFileName();
-
-    protected abstract boolean hasBrokenWildcardReconnect();
 
     protected abstract InstanceOfAssertFactory<Conversation, AsserterT> assertFactory();
 
@@ -115,27 +112,19 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
      */
     protected void startChecking(Conversation conversation) {
         await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> envoyAssertThat(conversation).answeredEveryType());
-        logMark = envoy.logSize();
-        messageMark = conversation.size();
+        checkpoint = Checkpoint.take(envoy, conversation);
     }
 
     /**
-     * Everything we expect once Envoy has settled after a change: a sane conversation, nothing rejected, nothing stuck
-     * warming or waiting on an initial fetch, still connected, and no warnings or errors logged since startChecking().
-     * @param conversation the current conversation
-     * @param reconnected true if Envoy reconnected to start this conversation. We can't know what config it kept, so
-     *     make before break can't be checked, and old Envoys may wrongly resend resource names for wildcard types.
+     * Everything we expect once Envoy has settled after a change since startChecking(). See Checkpoint.
+     * @param reconnected true if Envoy reconnected to start this conversation
      */
-    protected void assertSettled(Conversation conversation, boolean reconnected) {
-        AsserterT asserter = envoyAssertThat(conversation)
-            .nothingSentUnasked(reconnected && hasBrokenWildcardReconnect())
-            .allWereAcked()
-            .sentNoEmptyResponses(messageMark);
-        if (!reconnected) {
-            asserter.wasMakeBeforeBreak(messageMark);
+    protected void assertSettled(boolean reconnected) {
+        if (reconnected) {
+            checkpoint.assertSaneAfterReconnect();
+        } else {
+            checkpoint.assertSane();
         }
-        EnvoyChecks.assertHealthy(envoy);
-        EnvoyChecks.assertNoWarningsSince(envoy, logMark);
     }
 
     /**
@@ -212,7 +201,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         assertThat(conversations).hasSize(1);
         assertThat(conversationInterceptor.getConversations()).hasSize(1);
 
-        assertSettled(conversationInterceptor.getConversations().get(0), false);
+        assertSettled(false);
 
         TypedEnvoyConfigDump dump = adminClient.configDump();
 
@@ -255,7 +244,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
             assertThat(conversations).hasSize(1);
             assertThat(conversationInterceptor.getConversations()).hasSize(1);
 
-            assertSettled(conversationInterceptor.getConversations().get(0), false);
+            assertSettled(false);
 
             TypedEnvoyConfigDump dump = adminClient.configDump();
             assertThat(dump.getRoutesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
@@ -291,7 +280,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         {
             await().atMost(30, TimeUnit.SECONDS).until(() -> conversations.get(1).getPushed() > 0 && conversations.get(1).isIdle());
 
-            assertSettled(conversationInterceptor.getConversations().get(1), true);
+            assertSettled(true);
 
             TypedEnvoyConfigDump dump = adminClient.configDump();
             MatcherAssert.assertThat(dump, activeClusterNames(containsInAnyOrder("foo", "baz")));
@@ -320,7 +309,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         final DiscoveryServiceManagerEventListener listener = conversations.get(0);
         final Conversation conversation = conversationInterceptor.getConversations().get(0);
         startChecking(conversation);
-        assertSettled(conversation, false);
+        assertSettled(false);
         assertThat(httpStatus("foo")).isEqualTo(200);
         assertThat(httpStatus("bar")).isEqualTo(200);
 
@@ -328,7 +317,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         int mark = conversation.size();
         clusterManager.setEndpoints("foo", HostAndPort.fromString("127.0.0.3:9901"), HostAndPort.fromString("127.0.0.4:9901"));
         awaitChange(conversation, mark, listener);
-        assertSettled(conversation, false);
+        assertSettled(false);
         assertThat(httpStatus("foo")).isEqualTo(200);
 
         // Remove a service. Envoy drops its EDS subscription, which needs no response.
@@ -337,7 +326,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         awaitChange(conversation, mark, listener);
         await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> envoyAssertThat(conversation).unsubscribedFrom(TypeUrl.EDS.getTypeUrl(), "bar"));
         await().atMost(30, TimeUnit.SECONDS).until(listener::isIdle);
-        assertSettled(conversation, false);
+        assertSettled(false);
         assertThat(httpStatus("bar")).isEqualTo(404);
         assertThat(httpStatus("foo")).isEqualTo(200);
 
@@ -345,7 +334,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         mark = conversation.size();
         clusterManager.setEndpoints("baz", HostAndPort.fromString("127.0.0.5:9901"));
         awaitChange(conversation, mark, listener);
-        assertSettled(conversation, false);
+        assertSettled(false);
         MatcherAssert.assertThat(adminClient.configDump(), activeClusterNames(containsInAnyOrder("foo", "baz")));
         assertThat(httpStatus("baz")).isEqualTo(200);
 
