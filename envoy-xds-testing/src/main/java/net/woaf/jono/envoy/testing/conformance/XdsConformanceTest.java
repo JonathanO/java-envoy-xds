@@ -115,6 +115,14 @@ public abstract class XdsConformanceTest {
         return null;
     }
 
+    /**
+     * Make Envoy drop its stream and sync from scratch, e.g. to get a fixed config to an Envoy that NACKed.
+     * @return false if the control plane can't, the default
+     */
+    protected boolean resync() {
+        return false;
+    }
+
     @AfterEach
     public void stop() throws InterruptedException {
         envoy.stop();
@@ -167,26 +175,36 @@ public abstract class XdsConformanceTest {
         assertStatus("foo", 200);
     }
 
-    /** Envoy rejects a bad cluster; the next good config still gets through on the same stream. */
+    /**
+     * Envoy rejects a bad cluster, and the library contains it. It doesn't send the bad cluster again, not even as part
+     * of a later change, and doesn't drop Envoy into a reconnect loop: retrying is spam, and Envoy resets its reconnect
+     * backoff whenever it gets a response. Envoy keeps serving its last good config. Whether a later fix gets through on
+     * the same stream is up to the library, but if it can {@link #resync()}, the fix must get through after one.
+     */
     @Test
-    public void recoversFromRejectedConfig() throws IOException {
+    public void containsRejectedConfig() throws IOException {
         setConfig(services("foo"));
         start();
         synced(1);
 
-        List<Message> bad = new ArrayList<>(services("foo"));
-        bad.add(cluster("bad").toBuilder().setConnectTimeout(Duration.newBuilder().setSeconds(-1)).build());
-        setConfig(bad);
+        setConfig(withBadCluster(services("foo")));
         await().atMost(10, TimeUnit.SECONDS).until(this::envoyRejectedSomething);
         logMark = envoy.logSize();
         statsMark = envoy.admin().stats();
 
-        setConfig(services("foo", "bar"));
-        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> assertThat(envoy.httpStatus(LISTENER_PORT, "bar")).isEqualTo(200));
-        assertThat(conversations.getConversations()).as("streams; the control plane shouldn't drop Envoy for a NACK").hasSize(1);
-        await().atMost(10, TimeUnit.SECONDS).until(settled(conversations.getConversations().get(0)));
+        setConfig(withBadCluster(services("foo", "bar"))); // still bad
+        assertContained();
+        setConfig(services("foo", "bar")); // fixed
+        assertContained();
+        assertStatus("foo", 200);
         EnvoyChecks.assertHealthy(envoy, statsMark);
         EnvoyChecks.assertNoWarningsSince(envoy, logMark);
+
+        if (resync()) {
+            Conversation conversation = synced(2);
+            assertSettled(conversation, true);
+            assertStatus("bar", 200);
+        }
     }
 
     /** Envoy reconnects after a service was removed while it was away: traffic keeps flowing and updates still work. */
@@ -221,6 +239,12 @@ public abstract class XdsConformanceTest {
         }
         config.add(routes.build());
         return config;
+    }
+
+    private static List<Message> withBadCluster(List<Message> config) {
+        List<Message> bad = new ArrayList<>(config);
+        bad.add(cluster("bad").toBuilder().setConnectTimeout(Duration.newBuilder().setSeconds(-1)).build());
+        return bad;
     }
 
     /** A single virtual host routing to a cluster of a different name. */
@@ -321,6 +345,16 @@ public abstract class XdsConformanceTest {
     private void assertStatus(String virtualHost, int status) {
         // Envoy ACKs once its main thread has the config; workers get it a moment later.
         await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> assertThat(envoy.httpStatus(LISTENER_PORT, virtualHost)).as(virtualHost).isEqualTo(status));
+    }
+
+    /** For a while: no more rejections, and no reconnects. */
+    private void assertContained() {
+        await().during(2, TimeUnit.SECONDS).atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
+            assertThat(conversations.getConversations()).as("streams; dropping Envoy after a NACK makes it reconnect in a loop").hasSize(1);
+            assertThat(envoy.admin().stats().entrySet().stream()
+                .filter(e -> e.getKey().endsWith(".update_rejected") && !e.getValue().equals(statsMark.getOrDefault(e.getKey(), 0L)))
+                .toList()).as("rejections since the first NACK; the bad cluster was sent again").isEmpty();
+        });
     }
 
     private boolean envoyRejectedSomething() {

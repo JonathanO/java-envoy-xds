@@ -106,11 +106,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             }
 
             if (value.getErrorDetail() != null) {
-                if (xdsConfig.getXdsConfig().isSilentNacks() && value.getErrorDetail().getCode() == Status.Code.INTERNAL.value()) {
-                    log.info("Client {} reports error: {}", nodeId, value.getErrorDetail());
-                } else {
-                    log.error("Client {} reports error: {}", nodeId, value.getErrorDetail());
-                }
+                log.warn("Client {} rejected {}, so we'll send it no more changes on this stream: {}", nodeId, value.getTypeUrl(), value.getErrorDetail());
             }
 
             TypeUrl typeUrl = TypeUrl.of(value.getTypeUrl());
@@ -118,6 +114,9 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
                 throw new RuntimeException("Client " + nodeId + " in cluster " + clusterId + " asked for unknown type URL " + value.getTypeUrl());
             }
             log.debug("DiscoveryRequest T={}", value.getTypeUrl());
+            if (value.getErrorDetail() != null) {
+                notifyClientNack(typeUrl, value.getErrorDetail());
+            }
             if (discoveryServiceManager == null) {
                 discoveryServiceManager = discoveryServiceManagerFactory.build(responseObserver, xdsConfig, metrics);
                 discoveryServiceManager.init(clusterManager.subscribe(this), delayUpdatesUntilAckOf);
@@ -200,6 +199,27 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             for (XdsEventListener<DetailsT> listener: listeners) {
                 runner.exec(() -> listener.onNewClient(this, node, config));
             }
+        }
+    }
+
+    @GuardedBy("this")
+    private void notifyClientNack(TypeUrl typeUrl, com.google.rpc.Status errorDetail) {
+        try (RunWithExceptions runner = new RunWithExceptions("notifying XdsEventListeners of a NACK")) {
+            for (XdsEventListener<DetailsT> listener: listeners) {
+                runner.exec(() -> listener.onClientNack(this, node, typeUrl, errorDetail));
+            }
+        }
+    }
+
+    @Override
+    public synchronized void resync() {
+        if (isDead) {
+            return;
+        }
+        log.info("Closing stream to {} so it resyncs", nodeId);
+        try (RunWithExceptions runner = new RunWithExceptions("closing stream to resync")) {
+            cleanupOnDisconnect(runner);
+            runner.exec(responseObserver::onCompleted);
         }
     }
 

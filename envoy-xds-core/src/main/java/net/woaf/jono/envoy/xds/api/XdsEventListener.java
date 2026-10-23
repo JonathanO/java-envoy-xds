@@ -1,5 +1,7 @@
 package net.woaf.jono.envoy.xds.api;
 
+import com.google.rpc.Status;
+import net.woaf.jono.envoy.xds.TypeUrl;
 import net.woaf.jono.envoy.xds.XdsConfig;
 import io.envoyproxy.envoy.config.core.v3.Node;
 
@@ -27,5 +29,17 @@ public interface XdsEventListener<DetailsT> {
      * @param node The Node provided in the first Request message from envoy.
      */
     void onClientDisconnected(ClientHandle clientHandle, Node node);
+
+    /**
+     * Called when a client rejects config we sent it. From then on we send it no more changes on this stream: it keeps
+     * serving its last good config, which goes stale. Alert on this, and call {@link ClientHandle#resync()} once the
+     * config is fixed, or use {@link net.woaf.jono.envoy.xds.api.utils.ResyncAfterNack} to retry on a backoff.
+     * @param clientHandle the client's stream
+     * @param node The Node provided in the first Request message from envoy.
+     * @param typeUrl the type it rejected
+     * @param errorDetail why, from Envoy
+     */
+    default void onClientNack(ClientHandle clientHandle, Node node, TypeUrl typeUrl, Status errorDetail) {
+    }
 
 }
