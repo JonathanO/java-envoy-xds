@@ -62,6 +62,20 @@ and is computed once per snapshot for each distinct `clientDetails` value.
 
 `SnapshotExample` in [envoy-xds-example](envoy-xds-example/README.md) is a runnable version of the toy example built this way.
 
+### When Envoy rejects config
+
+Once an Envoy NACKs, we stop sending it changes on that stream. It keeps serving its last good config, which goes
+stale. Retrying would only be rejected again, and dropping the stream makes Envoy reconnect straight into the same
+config, in a loop. `XdsEventListener.onClientNack` tells you it happened, so alert on it. `ClientHandle.resync()` closes
+the stream, so Envoy reconnects and syncs from scratch. Call it once the config is fixed, or add `ResyncAfterNack` to
+your listeners to retry on a backoff:
+
+```java
+new ResyncAfterNack<>(scheduler, Duration.ofMinutes(1), Duration.ofMinutes(30))
+```
+
+Pick the longest delay you're willing to have an Envoy serve stale endpoints for.
+
 ### Testing against a real Envoy
 
 `envoy-xds-testing` runs your control plane against a real Envoy in Docker. It records the xDS conversation and
