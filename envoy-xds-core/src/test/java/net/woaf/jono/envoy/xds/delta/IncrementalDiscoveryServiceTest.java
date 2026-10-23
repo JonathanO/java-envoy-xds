@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import net.woaf.jono.envoy.xds.CommonDiscoveryRequest;
 import net.woaf.jono.envoy.xds.DiscoveryService;
 import net.woaf.jono.envoy.xds.DiscoveryServiceManager;
+import net.woaf.jono.envoy.xds.NoOpConfigBuilder;
 import net.woaf.jono.envoy.xds.NodeConfig;
 import net.woaf.jono.envoy.xds.TypeUrl;
 import net.woaf.jono.envoy.xds.XdsConfig;
@@ -28,6 +29,8 @@ import io.envoyproxy.envoy.service.discovery.v3.Resource;
 import io.grpc.stub.StreamObserver;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -585,78 +588,147 @@ public class IncrementalDiscoveryServiceTest {
         assertNoAdditionalResponsesSent(responseObserver, 1);
     }
 
-    @Test
-    public void testEarlyConfiguredDelayCanSendRemovalsBeforeLaterSubscriptionsButStillProgresses(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
-        @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder,
-        @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
-
-        final DummyUpdate initState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder()
-            .xdsConfig(XdsConfig.builder().clientDetails(new Object()).build())
-            .build();
-
-        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any()))
-            .thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
-        when(routeConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any()))
-            .thenReturn(IncrementalConfigBuilder.Resources.<RouteConfiguration>builder().build());
-
-        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> cds = new IncrementalDiscoveryService<>(
-            TypeUrl.CDS,
-            responseObserver,
-            clusterConfigBuilder,
-            nodeConfig,
-            new WildcardSubManager(nodeConfig)
-        );
-        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> rds = new IncrementalDiscoveryService<>(
-            TypeUrl.RDS,
-            responseObserver,
-            routeConfigBuilder,
-            nodeConfig,
-            new SubListSubManager(nodeConfig)
-        );
-        DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> discoveryServiceManager = new DiscoveryServiceManager<>(
-            Map.of(TypeUrl.CDS, cds, TypeUrl.RDS, rds),
-            List.of(TypeUrl.CDS, TypeUrl.RDS),
-            List.of(TypeUrl.RDS, TypeUrl.CDS),
+    /** Builds CDS, EDS and RDS services over one stream, and a manager for them. */
+    private DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> cdsEdsRds(StreamObserver<DeltaDiscoveryResponse> responseObserver,
+        IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusters, IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpoints,
+        IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routes) {
+        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        return new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.CDS, new IncrementalDiscoveryService<>(TypeUrl.CDS, responseObserver, clusters, nodeConfig, new WildcardSubManager(nodeConfig)),
+                TypeUrl.EDS, new IncrementalDiscoveryService<>(TypeUrl.EDS, responseObserver, endpoints, nodeConfig, new SubListSubManager(nodeConfig)),
+                TypeUrl.RDS, new IncrementalDiscoveryService<>(TypeUrl.RDS, responseObserver, routes, nodeConfig, new SubListSubManager(nodeConfig))),
+            TypeUrl.ADD_ORDER,
+            TypeUrl.REMOVE_ORDER,
             QueueingStateBacklog.<DummyUpdate>factory().build(),
             DiscoveryServiceManagerMetrics.NOOP_METRICS
         );
+    }
 
-        discoveryServiceManager.init(initState, TypeUrl.CDS);
+    private CommonDiscoveryRequest<DeltaDiscoveryRequest> reconnectSubscription(TypeUrl typeUrl, String subscribe, String kept) {
+        DeltaDiscoveryRequest.Builder request = DeltaDiscoveryRequest.newBuilder().setTypeUrl(typeUrl.getTypeUrl()).addResourceNamesSubscribe(subscribe);
+        if (kept != null) {
+            request.putInitialResourceVersions(kept, "1");
+        }
+        return deltaRequest(typeUrl, request.build());
+    }
+
+    @Test
+    public void testStaleClusterRemovalWaitsForRoutes(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
+        @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder,
+        @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpointConfigBuilder,
+        @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
+        final DummyUpdate initState = new DummyUpdate();
+        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
+        when(routeConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<RouteConfiguration>builder().build());
+        DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(responseObserver, clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
+        dsm.init(initState);
         InOrder inOrder = inOrder(responseObserver);
 
-        discoveryServiceManager.processUpdate(deltaRequest(TypeUrl.CDS, DeltaDiscoveryRequest.newBuilder()
-            .setTypeUrl(TypeUrl.CDS.getTypeUrl())
-            .addResourceNamesSubscribe("*")
-            .putInitialResourceVersions("cluster-stale", "1")
-            .build()));
+        dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-stale"));
         DeltaDiscoveryResponse cdsReconnectResponse = nextResponse(inOrder, responseObserver);
-        assertThat(cdsReconnectResponse.getTypeUrl()).isEqualTo(TypeUrl.CDS.getTypeUrl());
-        assertThat(cdsReconnectResponse.getRemovedResourcesList()).isEmpty();
+        assertThat(cdsReconnectResponse.getRemovedResourcesList()).as("routes may still use it").isEmpty();
+        dsm.processUpdate(ackRequest(TypeUrl.CDS, cdsReconnectResponse.getNonce()));
+        assertNoAdditionalResponsesSent(responseObserver, 1);
 
-        discoveryServiceManager.processUpdate(ackRequest(TypeUrl.CDS, cdsReconnectResponse.getNonce()));
+        dsm.processUpdate(reconnectSubscription(TypeUrl.RDS, "route-stale", "route-stale"));
+        DeltaDiscoveryResponse rdsReconnectResponse = nextResponse(inOrder, responseObserver);
+        assertThat(rdsReconnectResponse.getRemovedResourcesList()).containsExactly("route-stale");
+        dsm.processUpdate(ackRequest(TypeUrl.RDS, rdsReconnectResponse.getNonce()));
 
         DeltaDiscoveryResponse cdsRemovalResponse = nextResponse(inOrder, responseObserver);
         assertThat(cdsRemovalResponse.getTypeUrl()).isEqualTo(TypeUrl.CDS.getTypeUrl());
         assertThat(cdsRemovalResponse.getRemovedResourcesList()).containsExactly("cluster-stale");
+    }
 
-        discoveryServiceManager.processUpdate(ackRequest(TypeUrl.CDS, cdsRemovalResponse.getNonce()));
+    @Test
+    public void testStaleClusterRemovalDoesNotWaitForTypesTheClientDoesNotUse(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
+        @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder,
+        @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpointConfigBuilder,
+        @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
+        final DummyUpdate initState = new DummyUpdate();
+        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
+        DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(responseObserver, clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
+        dsm.init(initState, null, Set.of(TypeUrl.CDS, TypeUrl.EDS)); // static routes
+
+        dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-stale"));
+        assertThat(nextResponse(inOrder(responseObserver), responseObserver).getRemovedResourcesList()).containsExactly("cluster-stale");
+    }
+
+    @Test
+    public void testStaleClusterRemovalDoesNotWaitForTypesWeDoNotServe(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
+        @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder) {
+        final DummyUpdate initState = new DummyUpdate();
+        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
+        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        // As the factory builds it: every type has a service, with a NoOpConfigBuilder for those nobody configured.
+        DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.CDS, new IncrementalDiscoveryService<>(TypeUrl.CDS, responseObserver, clusterConfigBuilder, nodeConfig, new WildcardSubManager(nodeConfig)),
+                TypeUrl.RDS, new IncrementalDiscoveryService<>(TypeUrl.RDS, responseObserver, new NoOpConfigBuilder<RouteConfiguration, DummyUpdate, Object>(RouteConfiguration.class),
+                    nodeConfig, new SubListSubManager(nodeConfig))),
+            TypeUrl.ADD_ORDER,
+            TypeUrl.REMOVE_ORDER,
+            QueueingStateBacklog.<DummyUpdate>factory().build(),
+            DiscoveryServiceManagerMetrics.NOOP_METRICS
+        );
+        dsm.init(initState);
+
+        dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-stale"));
+        assertThat(nextResponse(inOrder(responseObserver), responseObserver).getRemovedResourcesList()).containsExactly("cluster-stale");
+    }
+
+    @Test
+    public void testStaleRemovalsGoAfterTheTimeoutAtTheNextEvent(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
+        @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder,
+        @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpointConfigBuilder,
+        @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
+        final DummyUpdate initState = new DummyUpdate();
+        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
+        DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(responseObserver, clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
+        AtomicLong now = new AtomicLong();
+        dsm.setClock(now::get);
+        dsm.init(initState);
+        InOrder inOrder = inOrder(responseObserver);
+
+        dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-stale"));
+        DeltaDiscoveryResponse cdsReconnectResponse = nextResponse(inOrder, responseObserver);
+        assertThat(cdsReconnectResponse.getRemovedResourcesList()).isEmpty();
+
+        now.addAndGet(DiscoveryServiceManager.RECONNECT_REMOVAL_TIMEOUT_NANOS); // RDS never subscribes
+        dsm.processUpdate(ackRequest(TypeUrl.CDS, cdsReconnectResponse.getNonce()));
+        assertThat(nextResponse(inOrder, responseObserver).getRemovedResourcesList()).containsExactly("cluster-stale");
+    }
+
+    @Test
+    public void testRoutesWaitForTheClustersAndEndpointsTheyMayUse(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
+        @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder,
+        @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpointConfigBuilder,
+        @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
+        final DummyUpdate initState = new DummyUpdate();
+        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder()
+            .resource(IncrementalConfigBuilder.NamedMessage.of(Cluster.newBuilder().setName("new").build())).build());
+        when(endpointConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<ClusterLoadAssignment>builder()
+            .resource(IncrementalConfigBuilder.NamedMessage.of(ClusterLoadAssignment.newBuilder().setClusterName("new").build())).build());
+        when(routeConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<RouteConfiguration>builder()
+            .resource(IncrementalConfigBuilder.NamedMessage.of(RouteConfiguration.newBuilder().setName("routes").build())).build());
+        DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(responseObserver, clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
+        dsm.init(initState);
+        InOrder inOrder = inOrder(responseObserver);
+
+        // Envoy's reconnect burst: everything at once.
+        dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", null));
+        final DeltaDiscoveryResponse cds = nextResponse(inOrder, responseObserver);
+        dsm.processUpdate(reconnectSubscription(TypeUrl.RDS, "routes", "routes"));
+        assertNoAdditionalResponsesSent(responseObserver, 1); // held: the clusters it may use aren't ACKed
+        dsm.processUpdate(reconnectSubscription(TypeUrl.EDS, "new", null));
+        DeltaDiscoveryResponse eds = nextResponse(inOrder, responseObserver);
+        assertThat(eds.getTypeUrl()).as("EDS is never held: Envoy's CDS ACK waits for it").isEqualTo(TypeUrl.EDS.getTypeUrl());
+
+        dsm.processUpdate(ackRequest(TypeUrl.CDS, cds.getNonce()));
         assertNoAdditionalResponsesSent(responseObserver, 2);
-
-        discoveryServiceManager.processUpdate(deltaRequest(TypeUrl.RDS, DeltaDiscoveryRequest.newBuilder()
-            .setTypeUrl(TypeUrl.RDS.getTypeUrl())
-            .addResourceNamesSubscribe("route-stale")
-            .putInitialResourceVersions("route-stale", "1")
-            .build()));
-        DeltaDiscoveryResponse rdsReconnectResponse = nextResponse(inOrder, responseObserver);
-        assertThat(rdsReconnectResponse.getTypeUrl()).isEqualTo(TypeUrl.RDS.getTypeUrl());
-        assertThat(rdsReconnectResponse.getRemovedResourcesList()).isEmpty();
-
-        discoveryServiceManager.processUpdate(ackRequest(TypeUrl.RDS, rdsReconnectResponse.getNonce()));
-
-        DeltaDiscoveryResponse rdsRemovalResponse = nextResponse(inOrder, responseObserver);
-        assertThat(rdsRemovalResponse.getTypeUrl()).isEqualTo(TypeUrl.RDS.getTypeUrl());
-        assertThat(rdsRemovalResponse.getRemovedResourcesList()).containsExactly("route-stale");
+        dsm.processUpdate(ackRequest(TypeUrl.EDS, eds.getNonce()));
+        DeltaDiscoveryResponse rds = nextResponse(inOrder, responseObserver);
+        assertThat(rds.getTypeUrl()).isEqualTo(TypeUrl.RDS.getTypeUrl());
+        assertThat(rds.getResourcesList()).hasSize(1).first().extracting(Resource::getName).isEqualTo("routes");
     }
 
     @Test
@@ -838,29 +910,20 @@ public class IncrementalDiscoveryServiceTest {
         DeltaDiscoveryResponse rdsReconnectResponse = nextResponse(inOrder, responseObserver);
         assertThat(rdsReconnectResponse.getTypeUrl()).isEqualTo(TypeUrl.RDS.getTypeUrl());
         assertThat(rdsReconnectResponse.getResourcesList()).hasSize(1).first().extracting(Resource::getName).isEqualTo("route-current");
-        assertThat(rdsReconnectResponse.getRemovedResourcesList()).isEmpty();
+        // Nothing before RDS in remove order is served, so its stale route config goes straight away.
+        assertThat(rdsReconnectResponse.getRemovedResourcesList()).containsExactly("route-stale");
+        assertNoAdditionalResponsesSent(responseObserver, 3);
 
         discoveryServiceManager.processUpdate(ackRequest(TypeUrl.RDS, rdsReconnectResponse.getNonce()));
-
-        DeltaDiscoveryResponse rdsRemovalResponse = nextResponse(inOrder, responseObserver);
-        assertThat(rdsRemovalResponse.getTypeUrl()).isEqualTo(TypeUrl.RDS.getTypeUrl());
-        assertThat(rdsRemovalResponse.getResourcesList()).isEmpty();
-        assertThat(rdsRemovalResponse.getRemovedResourcesList()).containsExactly("route-stale");
-        assertNoAdditionalResponsesSent(responseObserver, 4);
-
-        discoveryServiceManager.processUpdate(nonAckRequest(TypeUrl.RDS));
-        assertNoAdditionalResponsesSent(responseObserver, 4);
-
-        discoveryServiceManager.processUpdate(ackRequest(TypeUrl.RDS, rdsRemovalResponse.getNonce()));
 
         DeltaDiscoveryResponse cdsRemovalResponse = nextResponse(inOrder, responseObserver);
         assertThat(cdsRemovalResponse.getTypeUrl()).isEqualTo(TypeUrl.CDS.getTypeUrl());
         assertThat(cdsRemovalResponse.getResourcesList()).isEmpty();
         assertThat(cdsRemovalResponse.getRemovedResourcesList()).containsExactly("cluster-stale");
-        assertNoAdditionalResponsesSent(responseObserver, 5);
+        assertNoAdditionalResponsesSent(responseObserver, 4);
 
         discoveryServiceManager.processUpdate(nonAckRequest(TypeUrl.CDS));
-        assertNoAdditionalResponsesSent(responseObserver, 5);
+        assertNoAdditionalResponsesSent(responseObserver, 4);
 
         discoveryServiceManager.processUpdate(ackRequest(TypeUrl.CDS, cdsRemovalResponse.getNonce()));
 

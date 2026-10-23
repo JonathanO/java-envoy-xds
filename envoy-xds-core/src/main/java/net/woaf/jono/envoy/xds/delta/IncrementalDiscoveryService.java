@@ -15,6 +15,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +33,7 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
 
     private final HashSet<String> deferredReconnectRemovals = new HashSet<>();
 
-    private boolean deferInitialResourceVersionRemovals = false;
+    private BooleanSupplier deferReconnectRemovals = () -> false;
 
     IncrementalDiscoveryService(TypeUrl myTypeUrl, StreamObserver<DeltaDiscoveryResponse> responseObserver, IncrementalConfigBuilder<E, StateUpdT, DetailsT> configBuilder, NodeConfig<DetailsT> nodeConfig,
                                 SubManager subManager) {
@@ -97,7 +98,7 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
             deferredReconnectRemovals.remove(msg.getName());
         }
 
-        if (deferInitialResourceVersionRemovals) {
+        if (deferReconnectRemovals.getAsBoolean()) {
             deferredReconnectRemovals.addAll(reconnectRemovals);
         } else {
             removed.addAll(reconnectRemovals);
@@ -111,8 +112,8 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
     }
 
     @Override
-    public void setDeferInitialResourceVersionRemovals(boolean deferInitialResourceVersionRemovals) {
-        this.deferInitialResourceVersionRemovals = deferInitialResourceVersionRemovals;
+    public void setDeferReconnectRemovals(BooleanSupplier deferReconnectRemovals) {
+        this.deferReconnectRemovals = deferReconnectRemovals;
     }
 
     @Override
@@ -172,6 +173,7 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
             log.debug("{} Pushing update {} change - added: {} removed: {}", getTypeUrl().name(), lastNonce, resources.stream().map(IncrementalConfigBuilder.NamedMessage::getName).collect(Collectors.toList()), removals);
         }
 
+        markAnswered();
         responseObserver.onNext(discoveryResponse);
     }
 

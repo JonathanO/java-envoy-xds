@@ -62,6 +62,15 @@ and is computed once per snapshot for each distinct `clientDetails` value.
 
 `SnapshotExample` in [envoy-xds-example](envoy-xds-example/README.md) is a runnable version of the toy example built this way.
 
+### When Envoy reconnects
+
+Envoy keeps its config while it's disconnected, and re-subscribes to everything at once when it reconnects. We answer
+route and listener subscriptions only once the clusters and endpoints they may use are ACKed. With delta, we remove
+what Envoy kept that no longer exists in remove order, once the types that may still use it have been answered and
+ACKed. If a client doesn't get every type from us, say so with `XdsConfig.subscribesTo`, e.g. `Set.of(TypeUrl.CDS,
+TypeUrl.EDS)` for an Envoy with static routes, or its removals wait up to 30 seconds for types it never asks for.
+SotW can't do the same for clusters: its CDS answer is the whole set, so a cluster Envoy kept goes at once. Prefer delta.
+
 ### When Envoy rejects config
 
 Once an Envoy NACKs, we stop sending it changes on that stream. It keeps serving its last good config, which goes

@@ -42,6 +42,8 @@ import net.woaf.jono.envoy.testing.assertions.SotwConversationAssert;
 import net.woaf.jono.envoy.testing.utils.ConversationLogger;
 import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
 import net.woaf.jono.envoy.testing.utils.EnvoyContainer;
+import net.woaf.jono.envoy.testing.matchers.XdsMatchers;
+import org.hamcrest.MatcherAssert;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -213,6 +215,9 @@ public abstract class XdsConformanceTest {
         synced(2);
         checkpoint.assertSaneAfterReconnect(before);
         EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v2");
+        // and foo-v1 goes, once nothing uses it
+        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> MatcherAssert.assertThat(conversations.getConversations().get(1),
+            XdsMatchers.hasInOrder(XdsMatchers.ackOf(XdsMatchers.response(XdsMatchers.ofType(XdsTypes.CDS), XdsMatchers.removing("foo-v1"))))));
     }
 
     /** Envoy reconnects after a service was removed while it was away: traffic keeps flowing and updates still work. */

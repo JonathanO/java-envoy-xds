@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds;
 
+import java.util.Set;
 import lombok.Builder;
 import lombok.Value;
 
@@ -24,4 +25,12 @@ public class XdsConfig<DetailsT> {
      * This is useful, for example, to work around bugs like https://github.com/envoyproxy/envoy/issues/16035 (we set this option to RDS in our own control plane for this reason.)
      */
     TypeUrl delayUpdatesUntilAckOf;
+
+    /**
+     * The types this client gets from us, or null (the default) for every type we serve. After a reconnect, we only
+     * remove a resource Envoy kept once the types that may still refer to it have been answered and ACKed, e.g. a
+     * cluster after the route configs. Leave out types this client doesn't subscribe to, e.g. RDS for an Envoy with
+     * static routes, or its stale removals wait for them, up to 30 seconds.
+     */
+    Set<TypeUrl> subscribesTo;
 }

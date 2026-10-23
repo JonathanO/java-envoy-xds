@@ -121,6 +121,7 @@ class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends Abstr
         log.debug("DiscoveryResponse: V={},R={},N={},T={}", discoveryResponse.getVersionInfo(), names, discoveryResponse.getNonce(), discoveryResponse.getTypeUrl());
 
         awaitingVersion = version;
+        markAnswered();
         responseObserver.onNext(discoveryResponse);
     }
 

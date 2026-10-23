@@ -6,10 +6,16 @@ import com.google.protobuf.Message;
 import net.woaf.jono.envoy.xds.api.StateBacklog;
 import net.woaf.jono.envoy.xds.api.DiscoveryServiceManagerMetrics;
 
+import com.google.common.annotations.VisibleForTesting;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
+import java.util.stream.Stream;
 
 /**
  * Co-ordinates ordering of messages between discovery services.
@@ -69,6 +75,30 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     private TypeUrl delayUpdatesUntilAckOf = null;
 
     /**
+     * Types that refer to clusters. Envoy re-subscribes to everything at once when it reconnects, so their answers wait
+     * until the clusters and endpoints they may use are ACKed. CDS and EDS answers never wait: Envoy holds its CDS ACK
+     * until new clusters have warmed, which takes the EDS answer.
+     */
+    private static final Set<TypeUrl> USE_CLUSTERS = Set.of(TypeUrl.LDS, TypeUrl.RDS, TypeUrl.SRDS, TypeUrl.VHDS);
+
+    /**
+     * Longest we hold stale removals after a reconnect, waiting for types this client may never subscribe to. Holding
+     * a removal only leaves an unused resource in Envoy, so this can be generous. Checked when something happens.
+     */
+    public static final long RECONNECT_REMOVAL_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(30);
+
+    private final Deque<CommonDiscoveryRequest<RequestT>> heldRequests = new ArrayDeque<>();
+
+    /**
+     * Types this client gets from us, or null for all we serve. See XdsConfig.subscribesTo.
+     */
+    private Set<TypeUrl> subscribesTo = null;
+
+    private LongSupplier clock = System::nanoTime;
+
+    private long startedNanos;
+
+    /**
      * Checks that conditions hold, assuming init() was already called.
      */
     private void assertPostInitState() {
@@ -95,8 +125,7 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
 
 
     public void init(StateUpdT initialStateChange, TypeUrl delayUpdatesUntilAckOf) {
-        this.delayUpdatesUntilAckOf = delayUpdatesUntilAckOf;
-        init(initialStateChange, delayUpdatesUntilAckOf != null);
+        init(initialStateChange, delayUpdatesUntilAckOf, null);
     }
 
     /**
@@ -104,15 +133,30 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      * All changes provided to pushUpdates are expected to apply sequentially from this initial state.
      */
     public void init(StateUpdT initialStateChange) {
-        init(initialStateChange, false);
+        init(initialStateChange, null, null);
     }
 
-    private void init(StateUpdT initialStateChange, boolean deferInitialResourceVersionRemovals) {
+    /**
+     * Populate the initial state of the manager.
+     * @param initialStateChange state that all changes provided to pushUpdates apply sequentially from
+     * @param delayUpdatesUntilAckOf see XdsConfig, or null
+     * @param subscribesTo see XdsConfig, or null for every type we serve
+     */
+    public void init(StateUpdT initialStateChange, TypeUrl delayUpdatesUntilAckOf, Set<TypeUrl> subscribesTo) {
+        this.delayUpdatesUntilAckOf = delayUpdatesUntilAckOf;
+        this.subscribesTo = subscribesTo;
+        this.startedNanos = clock.getAsLong();
         discoveryServices.forEach((t, s) -> {
             s.init(initialStateChange);
-            s.setDeferInitialResourceVersionRemovals(deferInitialResourceVersionRemovals);
+            s.setDeferReconnectRemovals(() -> !mayRemove(t));
         });
         initialized = true;
+    }
+
+    @VisibleForTesting
+    public void setClock(LongSupplier clock) {
+        this.clock = clock;
+        this.startedNanos = clock.getAsLong();
     }
 
     public void close() {
@@ -133,21 +177,55 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
 
         TypeUrl typeUrl = TypeUrl.of(value.getTypeUrl());
         DiscoveryService<RequestT, StateUpdT> discoveryService = discoveryServices.get(typeUrl);
+        if (USE_CLUSTERS.contains(typeUrl) && value.getErrorDetail() == null && !discoveryService.awaitingAck() && clustersAwaitingAck()) {
+            // Answer later, in add order: see USE_CLUSTERS. Never hold an ACK this service is waiting for.
+            heldRequests.add(value);
+            return;
+        }
         discoveryService.processUpdate(value);
         if (value.getErrorDetail() != null) {
             freeze();
         }
         updateOutstandingAckState(typeUrl, discoveryService);
 
-        if (frozen) {
-            return;
+        if (!frozen) {
+            if (currentChange != null) {
+                // Continue attempting to push the current change as this might have been an ack the current push was waiting for.
+                continuePush();
+            } else {
+                pushAllowedWorkIfAny();
+            }
         }
-        if (currentChange != null) {
-            // Continue attempting to push the current change as this might have been an ack the current push was waiting for.
-            continuePush();
-        } else {
-            pushAllowedWorkIfAny();
+        while (!heldRequests.isEmpty() && !clustersAwaitingAck()) {
+            processUpdate(heldRequests.poll());
         }
+    }
+
+    private boolean clustersAwaitingAck() {
+        return Stream.of(TypeUrl.CDS, TypeUrl.EDS).map(discoveryServices::get).anyMatch(s -> s != null && s.awaitingAck());
+    }
+
+    /**
+     * Whether stale resources of this type, found when Envoy reconnected, may be removed now: every type before it in
+     * remove order that we serve and this client gets has been answered and ACKed, or we've waited long enough.
+     */
+    private boolean mayRemove(TypeUrl typeUrl) {
+        if (clock.getAsLong() - startedNanos >= RECONNECT_REMOVAL_TIMEOUT_NANOS) {
+            return true;
+        }
+        for (DiscoveryService<RequestT, StateUpdT> earlier : postOrder) {
+            if (earlier == null) {
+                continue;
+            }
+            if (earlier.getTypeUrl() == typeUrl) {
+                return true;
+            }
+            boolean used = earlier.isServed() && (subscribesTo == null || subscribesTo.contains(earlier.getTypeUrl()));
+            if (used && (!earlier.hasAnswered() || earlier.awaitingAck())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void updateOutstandingAckState(TypeUrl typeUrl, DiscoveryService<RequestT, StateUpdT> discoveryService) {
@@ -199,13 +277,15 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     }
 
     private void pushAllowedWorkIfAny() {
-        if (!isPushAllowed()) {
+        if (!outstandingAcks.isEmpty()) {
             return;
         }
         if (pushDeferredReconnectRemovalsIfAny()) {
             return;
         }
-        pushWaitingChangeIfAny();
+        if (isPushAllowed()) {
+            pushWaitingChangeIfAny();
+        }
     }
 
     private void beginPush() {
@@ -244,12 +324,10 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
         if (frozen) {
             return;
         }
-        if (currentChange == null && isPushAllowed()) {
-            // Nothing currently being applied, start applying this change immediately.
-            currentChange = diff;
-            beginPush();
-        } else {
-            enqueueChange(diff);
+        enqueueChange(diff);
+        if (currentChange == null) {
+            // Nothing currently being applied: stale removals go first, then this change.
+            pushAllowedWorkIfAny();
         }
     }
 
@@ -297,6 +375,9 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
                 continue;
             }
             if (discoveryService.hasDeferredReconnectRemovals()) {
+                if (!mayRemove(discoveryService.getTypeUrl())) {
+                    return false; // and not a later type's: removals go in remove order
+                }
                 discoveryService.sendDeferredReconnectRemovals();
                 if (discoveryService.awaitingAck()) {
                     if (outstandingAcks.add(discoveryService)) {

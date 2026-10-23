@@ -86,22 +86,33 @@ abstract class EnvoyXdsConformanceTest extends XdsConformanceTest {
         return true;
     }
 
-    @Override
-    @Test
-    @Disabled("Known bugs: after a reconnect we answer RDS before Envoy has ACKed the clusters it uses, on both protocols."
-        + " SotW also removes a cluster Envoy's kept route still uses; delta does too, unless delayUpdatesUntilAckOf is set.")
-    public void changesWhileDisconnected() {
-    }
+    /**
+     * SotW's CDS answer is the whole set, so on a reconnect it removes a cluster Envoy kept and its kept routes still use.
+     * We no longer have that cluster's config to send again.
+     */
+    static final String SOTW_RECONNECT = "Known limit: after a SotW reconnect, a cluster Envoy kept is removed while its kept routes still use it";
 
     static class SotwOldestTest extends EnvoyXdsConformanceTest {
         SotwOldestTest() {
             super("envoyproxy/envoy:v1.17-latest", Protocol.SOTW);
+        }
+
+        @Override
+        @Test
+        @Disabled(SOTW_RECONNECT)
+        public void changesWhileDisconnected() {
         }
     }
 
     static class SotwNewestTest extends EnvoyXdsConformanceTest {
         SotwNewestTest() {
             super("envoyproxy/envoy:v1.40-latest", Protocol.SOTW);
+        }
+
+        @Override
+        @Test
+        @Disabled(SOTW_RECONNECT)
+        public void changesWhileDisconnected() {
         }
     }
 
