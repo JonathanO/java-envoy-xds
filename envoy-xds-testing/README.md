@@ -184,14 +184,15 @@ class MyLibrarySotwTest extends XdsConformanceTest {
 }
 ```
 
-Override `idleHook()` too if your library can tell when a stream is idle. The scenarios:
+Override `idleHook()` too if your library can tell when a stream is idle, and `resync()` if it can make Envoy reconnect. The scenarios:
 
 - `startsEmpty`: no config at first. Envoy gets an answer for every type it asks for, including a route config that
   doesn't exist yet, then takes the first service.
 - `addsAndRemovesServices`: a route, its cluster and its endpoints added in one change, then removed in one change.
 - `movesRouteToNewCluster`: a route moved to a new cluster, and the old cluster removed, in one change.
-- `recoversFromRejectedConfig`: Envoy NACKs a bad cluster, and the next good config still gets through on the same
-  stream.
+- `containsRejectedConfig`: Envoy NACKs a bad cluster. The library mustn't send it again, not even as part of a later
+  change, nor drop Envoy into a reconnect loop, and Envoy must keep serving its last good config. If you override
+  `resync()` to make Envoy reconnect, a fixed config must get through after it.
 - `reconnects`: a service is removed while Envoy is disconnected. After it reconnects, traffic still flows and updates
   still work.
 
