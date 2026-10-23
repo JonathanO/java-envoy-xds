@@ -12,7 +12,7 @@ as generating envoy configs that are useful for your environment!
 ## Example
 
 Run XdsExample, it'll start up and accept commands via the console.
-Start Envoy using the provided envoy-delta-1.17.yaml config (or some variation of it appropriate to a newer envoy version.) This
+Start Envoy using the provided envoy-delta.yaml config. This
 will listen for http requests on port 10000.
 
 Issue the following commands via the XdsExample console (TODO: more useful example endpoints (sorry Cloudflare)):

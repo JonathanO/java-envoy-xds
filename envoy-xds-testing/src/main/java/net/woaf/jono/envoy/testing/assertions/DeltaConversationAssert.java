@@ -146,8 +146,15 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
     @CanIgnoreReturnValue
     public DeltaConversationAssert sentNoEmptyResponses(int fromMessage) {
         isNotNull();
-        for (Object message : actual.getMessages().subList(fromMessage, actual.getMessages().size())) {
-            if (message instanceof DeltaDiscoveryResponse r && r.getResourcesCount() == 0 && r.getRemovedResourcesCount() == 0) {
+        List<Object> messages = actual.getMessages();
+        Set<String> answered = new HashSet<>();
+        for (int i = 0; i < messages.size(); i++) {
+            if (!(messages.get(i) instanceof DeltaDiscoveryResponse r)) {
+                continue;
+            }
+            // A type's first answer may be empty: it tells Envoy there's nothing yet.
+            boolean first = answered.add(r.getTypeUrl());
+            if (!first && i >= fromMessage && r.getResourcesCount() == 0 && r.getRemovedResourcesCount() == 0) {
                 failWithMessage("Sent empty response <%s> for type <%s>", r.getNonce(), r.getTypeUrl());
             }
         }
@@ -190,6 +197,8 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
                 if (ackedResponse != null) {
                     state.acked(ackedResponse.getTypeUrl(), resources(ackedResponse), ackedResponse.getRemovedResourcesList());
                 }
+                // Envoy drops what it unsubscribes from, e.g. a route config once no listener uses it.
+                state.acked(r.getTypeUrl(), List.of(), r.getResourceNamesUnsubscribeList());
             }
         }
     }

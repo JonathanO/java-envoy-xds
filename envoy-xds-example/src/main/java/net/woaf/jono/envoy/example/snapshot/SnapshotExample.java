@@ -47,7 +47,7 @@ import net.woaf.jono.envoy.xds.snapshot.SnapshotUpdate;
  */
 public class SnapshotExample {
 
-    // The route config name the http connection manager in envoy-delta-1.17.yaml asks for.
+    // The route config name the http connection manager in envoy-delta.yaml asks for.
     private static final String ROUTE_NAME = "all_routes";
 
     private static final Splitter argSplitter = Splitter.on(' ').trimResults().omitEmptyStrings();

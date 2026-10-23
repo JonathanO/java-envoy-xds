@@ -6,6 +6,16 @@ import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.protobuf.Any;
+import io.envoyproxy.envoy.config.listener.v3.Filter;
+import io.envoyproxy.envoy.config.listener.v3.FilterChain;
+import io.envoyproxy.envoy.config.listener.v3.Listener;
+import io.envoyproxy.envoy.extensions.filters.http.router.v3.Router;
+import io.envoyproxy.envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager;
+import io.envoyproxy.envoy.extensions.filters.network.http_connection_manager.v3.HttpFilter;
+import io.envoyproxy.envoy.extensions.filters.network.http_connection_manager.v3.Rds;
+import java.util.function.Supplier;
+import org.hamcrest.Matchers;
 import com.google.protobuf.Duration;
 import com.google.protobuf.Message;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
@@ -79,8 +89,8 @@ public abstract class XdsConformanceTest {
     /** Which ADS flavour Envoy uses. */
     public enum Protocol { SOTW, DELTA }
 
-    /** The Envoy versions conformance means: the oldest supported and the newest. */
-    public static final List<String> ENVOY_IMAGES = List.of("envoyproxy/envoy:v1.17-latest", "envoyproxy/envoy:v1.40-latest");
+    /** The Envoy versions conformance means: the oldest Envoy release upstream still supports, and the newest. */
+    public static final List<String> ENVOY_IMAGES = List.of("envoyproxy/envoy:v1.36-latest", "envoyproxy/envoy:v1.40-latest");
 
     /**
      * The library under test, set up afresh for each test.
@@ -133,7 +143,7 @@ public abstract class XdsConformanceTest {
 
     /**
      * Known deviations, which are skipped with their reason. A key is a test's path, or part of it: any of protocol
-     * ({@code sotw}, {@code delta}), Envoy version ({@code v1.17}), mode ({@code normal}, {@code rate-limited}) and
+     * ({@code sotw}, {@code delta}), Envoy version ({@code v1.36}), mode ({@code normal}, {@code rate-limited}) and
      * scenario ({@code changesWhileDisconnected}), joined by {@code /}. {@code "sotw/changesWhileDisconnected"} skips
      * that scenario on SotW everywhere.
      * @return path to reason
@@ -154,15 +164,18 @@ public abstract class XdsConformanceTest {
         scenarios.put("startsEmpty", Harness::startsEmpty);
         scenarios.put("addsAndRemovesServices", Harness::addsAndRemovesServices);
         scenarios.put("movesRouteToNewCluster", Harness::movesRouteToNewCluster);
+        scenarios.put("addsAndRemovesListener", Harness::addsAndRemovesListener);
+        scenarios.put("churns", Harness::churns);
         scenarios.put("containsRejectedConfig", Harness::containsRejectedConfig);
         scenarios.put("reconnects", Harness::reconnects);
         scenarios.put("changesWhileDisconnected", Harness::changesWhileDisconnected);
+        scenarios.put("controlPlaneRestarts", Harness::controlPlaneRestarts);
         return Collections.unmodifiableMap(scenarios);
     }
 
     /**
      * Every scenario, for each protocol, Envoy version, and with and without rate limiting. Each test is named by its
-     * path, e.g. {@code sotw/v1.17/rate-limited/startsEmpty}, which is what {@link #knownDeviations()} matches.
+     * path, e.g. {@code sotw/v1.36/rate-limited/startsEmpty}, which is what {@link #knownDeviations()} matches.
      * @return the tests
      */
     @TestFactory
@@ -180,7 +193,7 @@ public abstract class XdsConformanceTest {
                 Assumptions.abort(deviation.getValue());
             }
         }
-        Harness harness = new Harness(newControlPlane(), image, protocol, rateLimited);
+        Harness harness = new Harness(this::newControlPlane, image, protocol, rateLimited);
         try {
             scenario.run(harness);
         } finally {
@@ -196,6 +209,7 @@ public abstract class XdsConformanceTest {
 
     private static final int ADS_PORT = 6566;
     private static final int LISTENER_PORT = 10000;
+    private static final int DYNAMIC_LISTENER_PORT = 10001; // the listener addsAndRemovesListener adds
     private static final String ROUTES = "all_routes"; // Envoy's static listener asks for this
 
     private static String bootstrap(Protocol protocol, boolean rateLimitedAds) {
@@ -227,6 +241,42 @@ public abstract class XdsConformanceTest {
         }
         config.add(routes.build());
         return config;
+    }
+
+    /** Adds cluster empty, with no endpoints, and a virtual host empty routing to it. */
+    private static List<Message> withEmptyCluster(List<Message> config) {
+        List<Message> withEmpty = new ArrayList<>();
+        for (Message m : config) {
+            withEmpty.add(m instanceof RouteConfiguration r && r.getName().equals(ROUTES) ? r.toBuilder().addVirtualHosts(virtualHost("empty", "empty")).build() : m);
+        }
+        withEmpty.add(cluster("empty"));
+        withEmpty.add(ClusterLoadAssignment.newBuilder().setClusterName("empty").build());
+        return withEmpty;
+    }
+
+    /**
+     * Adds listener dynamic on port 10001, getting route config dynamic by RDS, whose virtual host dynamic routes to
+     * cluster dynamic.
+     */
+    private static List<Message> withListener(List<Message> config) {
+        HttpConnectionManager hcm = HttpConnectionManager.newBuilder()
+            .setStatPrefix("dynamic")
+            .setRds(Rds.newBuilder().setRouteConfigName("dynamic")
+                .setConfigSource(ConfigSource.newBuilder().setResourceApiVersion(ApiVersion.V3).setAds(AggregatedConfigSource.getDefaultInstance())))
+            .addHttpFilters(HttpFilter.newBuilder().setName("envoy.filters.http.router").setTypedConfig(Any.pack(Router.getDefaultInstance())))
+            .build();
+        Listener listener = Listener.newBuilder()
+            .setName("dynamic")
+            .setAddress(Address.newBuilder().setSocketAddress(SocketAddress.newBuilder().setAddress("0.0.0.0").setPortValue(DYNAMIC_LISTENER_PORT)))
+            .addFilterChains(FilterChain.newBuilder().addFilters(Filter.newBuilder()
+                .setName("envoy.filters.network.http_connection_manager").setTypedConfig(Any.pack(hcm))))
+            .build();
+        List<Message> withListener = new ArrayList<>(config);
+        withListener.add(listener);
+        withListener.add(RouteConfiguration.newBuilder().setName("dynamic").addVirtualHosts(virtualHost("dynamic", "dynamic")).build());
+        withListener.add(cluster("dynamic"));
+        withListener.add(endpoints("dynamic"));
+        return withListener;
     }
 
     private static List<Message> withBadCluster(List<Message> config) {
@@ -271,7 +321,8 @@ public abstract class XdsConformanceTest {
      */
     private static final class Harness {
 
-        private final ControlPlane controlPlane;
+        private final Supplier<ControlPlane> newControlPlane;
+        private ControlPlane controlPlane;
         private final Protocol protocol;
         private final boolean rateLimitedAds;
         private final EnvoyContainer envoy;
@@ -280,14 +331,15 @@ public abstract class XdsConformanceTest {
         private Server server;
         private Checkpoint checkpoint;
 
-        Harness(ControlPlane controlPlane, String envoyImage, Protocol protocol, boolean rateLimitedAds) {
-            this.controlPlane = controlPlane;
+        Harness(Supplier<ControlPlane> newControlPlane, String envoyImage, Protocol protocol, boolean rateLimitedAds) {
+            this.newControlPlane = newControlPlane;
+            this.controlPlane = newControlPlane.get();
             this.protocol = protocol;
             this.rateLimitedAds = rateLimitedAds;
             this.envoy = new EnvoyContainer(envoyImage)
                 .withCopyToContainer(Transferable.of(bootstrap(protocol, rateLimitedAds)), "/envoy.yaml")
                 .withCommand("-l", "debug", "-c", "/envoy.yaml")
-                .withExposedPorts(EnvoyContainer.ADMIN_PORT, LISTENER_PORT)
+                .withExposedPorts(EnvoyContainer.ADMIN_PORT, LISTENER_PORT, DYNAMIC_LISTENER_PORT)
                 .withAccessToHost(true)
                 .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(XdsConformanceTest.class)));
         }
@@ -315,9 +367,11 @@ public abstract class XdsConformanceTest {
             start();
             Conversation conversation = synced(1);
 
-            change(conversation, services("foo", "bar"));
+            // empty has no endpoints: it still needs an answer, an empty assignment, or Envoy leaves it warming
+            change(conversation, withEmptyCluster(services("foo", "bar")));
             checkpoint.assertSane();
             assertStatus("bar", 200);
+            assertStatus("empty", 503);
 
             change(conversation, services("foo"));
             // Envoy drops its EDS subscription for bar, which needs no response.
@@ -391,6 +445,70 @@ public abstract class XdsConformanceTest {
                 XdsMatchers.hasInOrder(XdsMatchers.ackOf(XdsMatchers.response(XdsMatchers.ofType(XdsTypes.CDS), XdsMatchers.removing("foo-v1"))))));
         }
 
+        /**
+         * A listener, its route config, cluster and endpoints added in one change, then removed in one change. The
+         * listener mustn't be left warming, and a route config mustn't go while a listener Envoy has still uses it.
+         */
+        void addsAndRemovesListener() throws IOException {
+            controlPlane.setConfig(services("foo"));
+            start();
+            Conversation conversation = synced(1);
+
+            change(conversation, withListener(services("foo")));
+            checkpoint.assertSane();
+            EnvoyChecks.assertRoutedVia(envoy, DYNAMIC_LISTENER_PORT, "dynamic", "dynamic");
+
+            change(conversation, services("foo"));
+            await().atMost(10, TimeUnit.SECONDS).until(settled(conversation));
+            checkpoint.assertSane();
+            await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> assertThat(envoy.admin().stats())
+                .as("listeners").containsEntry("listener_manager.total_listeners_active", 1L)); // just the static one
+            assertStatus("foo", 200);
+        }
+
+        /** Twenty changes in quick succession, each moving foo to a new cluster: Envoy ends on the last, safely. */
+        void churns() throws IOException, InterruptedException {
+            controlPlane.setConfig(service("foo", "foo-v0"));
+            start();
+            Conversation conversation = synced(1);
+
+            for (int i = 1; i <= 20; i++) {
+                controlPlane.setConfig(service("foo", "foo-v" + i));
+                Thread.sleep(25); // so some changes arrive while others are on their way
+            }
+            await().atMost(60, TimeUnit.SECONDS).until(Settled.settledAfter(conversation, checkpoint.message(), settled(conversation)));
+            checkpoint.assertSane();
+            EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v20");
+            await().atMost(60, TimeUnit.SECONDS).untilAsserted(() -> MatcherAssert.assertThat("no stale clusters left",
+                envoy.admin().configDump(), XdsMatchers.activeClusterNames(Matchers.contains("foo-v20"))));
+        }
+
+        /**
+         * Envoy reconnects to a control plane that restarted, with different config. Envoy kept its config, which the new
+         * control plane never sent, so it can only go by what Envoy tells it. Traffic keeps flowing, and bar goes once
+         * nothing uses it.
+         */
+        void controlPlaneRestarts() throws IOException, InterruptedException {
+            controlPlane.setConfig(services("foo", "bar"));
+            start();
+            final Conversation before = synced(1);
+            assertStatus("bar", 200);
+
+            stopServer();
+            controlPlane = newControlPlane.get();
+            service = null;
+            controlPlane.setConfig(services("foo", "baz"));
+            start();
+            synced(2);
+            assertRateLimitedIfAsked();
+            checkpoint.assertSaneAfterReconnect(before);
+            assertStatus("foo", 200);
+            assertStatus("baz", 200);
+            assertStatus("bar", 404);
+            await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> MatcherAssert.assertThat(conversations.getConversations().get(1),
+                XdsMatchers.hasInOrder(XdsMatchers.ackOf(XdsMatchers.response(XdsMatchers.ofType(XdsTypes.CDS), XdsMatchers.removing("bar"))))));
+        }
+
         /** Envoy reconnects after a service was removed while it was away: traffic keeps flowing and updates still work. */
         void reconnects() throws IOException, InterruptedException {
             controlPlane.setConfig(services("foo", "bar"));
@@ -441,7 +559,7 @@ public abstract class XdsConformanceTest {
             await().atMost(60, TimeUnit.SECONDS).until(() -> conversations.getConversations().size() >= nth);
             Conversation conversation = conversations.getConversations().get(nth - 1);
             await().atMost(10, TimeUnit.SECONDS).untilAsserted(
-                () -> envoyAssert(conversation).hadConversationsWith(XdsTypes.CDS, XdsTypes.RDS).answeredEveryType());
+                () -> envoyAssert(conversation).hadConversationsWith(XdsTypes.CDS, XdsTypes.LDS, XdsTypes.RDS).answeredEveryType());
             await().atMost(30, TimeUnit.SECONDS).until(settled(conversation));
             checkpoint = Checkpoint.take(envoy, conversation);
             return conversation;

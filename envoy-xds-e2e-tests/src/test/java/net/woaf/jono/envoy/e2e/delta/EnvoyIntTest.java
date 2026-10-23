@@ -40,7 +40,7 @@ public abstract class EnvoyIntTest extends BaseEnvoyIntTest<DeltaConversationAss
 
     @Override
     protected String getEnvoyConfigFileName() {
-        return "envoy-delta-1.17.yaml";
+        return "envoy-delta.yaml";
     }
 
     @Override

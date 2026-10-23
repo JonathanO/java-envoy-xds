@@ -224,13 +224,13 @@ class MyLibraryConformanceTest extends XdsConformanceTest {
 
 The suite owns the matrix, so every library is tested the same way. It runs every scenario:
 - on both protocols, unless you override `protocols()` to support one;
-- on each of `ENVOY_IMAGES`, the oldest supported Envoy (1.17) and the newest;
+- on each of `ENVOY_IMAGES`, the oldest Envoy release upstream still supports (1.36) and the newest (1.40);
 - normally, and with Envoy's requests to the control plane rate limited (`rate_limit_settings`). Envoy then queues
   them, and delta Envoy sends ACKs ahead of queued subscriptions, so after a reconnect requests arrive in a different
   order. The reconnect scenarios check the limit was actually hit.
 
 That's 48 tests and takes a few minutes, so run it in CI or before a release rather than on every build. Each test is
-named by its path, e.g. `sotw/v1.17/rate-limited/startsEmpty`.
+named by its path, e.g. `sotw/v1.36/rate-limited/startsEmpty`.
 
 Implement `idleHook()` in your `ControlPlane` if your library can tell when a stream is idle, and `resync()` if it can
 make Envoy reconnect. The scenarios:

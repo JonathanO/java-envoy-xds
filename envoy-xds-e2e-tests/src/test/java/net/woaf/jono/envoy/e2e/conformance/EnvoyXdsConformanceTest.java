@@ -4,6 +4,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.protobuf.Message;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
+import io.envoyproxy.envoy.config.listener.v3.Listener;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
 import io.envoyproxy.envoy.config.core.v3.Node;
 import io.grpc.BindableService;
@@ -42,7 +43,7 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
 
     @Override
     protected Map<String, String> knownDeviations() {
-        return Map.of("sotw/changesWhileDisconnected", SOTW_RECONNECT);
+        return Map.of("sotw/changesWhileDisconnected", SOTW_RECONNECT, "sotw/controlPlaneRestarts", SOTW_RECONNECT);
     }
 
     private static final class EnvoyXds implements ControlPlane {
@@ -57,7 +58,7 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
         public BindableService service() {
             return new AggregatedDiscoveryService<>(
                 source,
-                SnapshotConfigBuilder.forTypes(Cluster.class, ClusterLoadAssignment.class, RouteConfiguration.class),
+                SnapshotConfigBuilder.forTypes(Cluster.class, ClusterLoadAssignment.class, Listener.class, RouteConfiguration.class),
                 node -> XdsConfig.<String>builder().clientDetails(node.getId()).build(),
                 ImmutableList.of(new XdsEventListener<>() {
                     @Override

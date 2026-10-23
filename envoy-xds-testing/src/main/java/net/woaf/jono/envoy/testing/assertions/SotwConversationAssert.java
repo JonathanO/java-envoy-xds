@@ -184,9 +184,16 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
     @CanIgnoreReturnValue
     public SotwConversationAssert sentNoEmptyResponses(int fromMessage) {
         isNotNull();
-        for (Object message : actual.getMessages().subList(fromMessage, actual.getMessages().size())) {
+        List<Object> messages = actual.getMessages();
+        Set<String> answered = new HashSet<>();
+        for (int i = 0; i < messages.size(); i++) {
+            if (!(messages.get(i) instanceof DiscoveryResponse r)) {
+                continue;
+            }
+            // A type's first answer may be empty: it tells Envoy there's nothing yet.
+            boolean first = answered.add(r.getTypeUrl());
             // An empty response is meaningful for wildcard types: it removes everything.
-            if (message instanceof DiscoveryResponse r && r.getResourcesCount() == 0 && !XdsTypes.isWildcard(r.getTypeUrl())) {
+            if (!first && i >= fromMessage && r.getResourcesCount() == 0 && !XdsTypes.isWildcard(r.getTypeUrl())) {
                 failWithMessage("Sent empty response <%s> for type <%s>", r.getNonce(), r.getTypeUrl());
             }
         }
@@ -218,13 +225,14 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
     private void replay(AckedState state, List<Object> messages, int checkFrom) {
         Map<String, DiscoveryResponse> pending = new HashMap<>();
         Map<String, Set<String>> pendingRemovals = new HashMap<>();
+        Map<String, Set<String>> subscribed = new HashMap<>(); // names, by non-wildcard type
         for (int i = 0; i < messages.size(); i++) {
             Object message = messages.get(i);
             if (message instanceof DiscoveryResponse r) {
-                // CDS is a wildcard type: each response is the full set, so anything Envoy has that's missing is removed.
+                // CDS and LDS are wildcard types: each response is the full set, so anything Envoy has that's missing is removed.
                 Set<String> removed = new HashSet<>();
-                if (r.getTypeUrl().equals(XdsTypes.CDS)) {
-                    removed.addAll(state.clusters());
+                if (r.getTypeUrl().equals(XdsTypes.CDS) || r.getTypeUrl().equals(XdsTypes.LDS)) {
+                    removed.addAll(r.getTypeUrl().equals(XdsTypes.CDS) ? state.clusters() : state.listeners());
                     r.getResourcesList().forEach(any -> removed.remove(getNameForResource(any)));
                 }
                 if (i >= checkFrom) {
@@ -236,6 +244,14 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
                 DiscoveryResponse ackedResponse = pending.remove(r.getResponseNonce());
                 if (ackedResponse != null) {
                     state.acked(ackedResponse.getTypeUrl(), ackedResponse.getResourcesList(), pendingRemovals.remove(r.getResponseNonce()));
+                }
+                if (!XdsTypes.isWildcard(r.getTypeUrl())) {
+                    // Envoy drops what it stops asking for, e.g. a route config once no listener uses it.
+                    Set<String> names = new HashSet<>(r.getResourceNamesList());
+                    Set<String> dropped = new HashSet<>(subscribed.getOrDefault(r.getTypeUrl(), Set.of()));
+                    dropped.removeAll(names);
+                    subscribed.put(r.getTypeUrl(), names);
+                    state.acked(r.getTypeUrl(), List.of(), dropped);
                 }
             }
         }
