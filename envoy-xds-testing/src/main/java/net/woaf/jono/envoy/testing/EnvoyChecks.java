@@ -44,6 +44,23 @@ public final class EnvoyChecks {
     }
 
     /**
+     * A GET through one of Envoy's listeners to this virtual host answers 200, and went to this cluster: its
+     * upstream_rq_total went up. Retries for a few seconds, while Envoy's workers catch up with an ACKed change.
+     * @param envoy the running Envoy
+     * @param listenerPort the listener's port in the container
+     * @param virtualHost Host header to send
+     * @param cluster cluster the request should go to
+     */
+    public static void assertRoutedVia(EnvoyContainer envoy, int listenerPort, String virtualHost, String cluster) {
+        String requests = "cluster." + cluster + ".upstream_rq_total";
+        await().atMost(5, TimeUnit.SECONDS).ignoreExceptions().untilAsserted(() -> {
+            long before = envoy.admin().stats().getOrDefault(requests, 0L);
+            assertThat(envoy.httpStatus(listenerPort, virtualHost)).as("status for " + virtualHost).isEqualTo(200);
+            assertThat(envoy.admin().stats().getOrDefault(requests, 0L)).as(requests).isGreaterThan(before);
+        });
+    }
+
+    /**
      * Envoy logged no warnings or errors from fromLine on.
      * @param envoy the Envoy
      * @param fromLine e.g. {@link EnvoyContainer#logSize()} once Envoy has synced, to skip startup noise

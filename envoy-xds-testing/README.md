@@ -82,28 +82,30 @@ class MyControlPlaneTest {
             .hadConversationsWith(XdsTypes.CDS, XdsTypes.RDS)
             .answeredEveryType());
         await().atMost(30, SECONDS).until(Settled.settled(conversation));
-        int messageMark = conversation.size();
-        int logMark = envoy.logSize();
+        Checkpoint checkpoint = Checkpoint.take(envoy, conversation);
 
         // Make a change the way your users would, and wait for it to settle.
         controlPlane.register("foo", "127.0.0.1:9901");
-        await().atMost(30, SECONDS).until(Settled.settledAfter(conversation, messageMark, Settled.settled(conversation)));
+        await().atMost(30, SECONDS).until(Settled.settledAfter(conversation, checkpoint.message(), Settled.settled(conversation)));
 
-        SotwConversationAssert.assertThat(conversation)
-            .nothingSentUnasked()
-            .allWereAcked()
-            .sentNoEmptyResponses(messageMark)
-            .wasMakeBeforeBreak(messageMark);
-        EnvoyChecks.assertHealthy(envoy);
-        EnvoyChecks.assertNoWarningsSince(envoy, logMark);
-        assertThat(envoy.httpStatus(10000, "foo")).isEqualTo(200);
+        checkpoint.assertSane(); // the conversation, and Envoy's health and log, since the checkpoint
+        EnvoyChecks.assertRoutedVia(envoy, 10000, "foo", "foo");
     }
 }
 ```
 
-For delta xDS, use `DeltaConversationAssert` and set `api_type: DELTA_GRPC` in Envoy's config.
+For delta xDS, use `DeltaConversationAssert` and set `api_type: DELTA_GRPC` in Envoy's config. `Checkpoint` and
+`EnvoyAssert.of(conversation)` work out which protocol a conversation uses.
 
 ### What the checks mean
+
+- `Checkpoint.take(envoy, conversation)`: marks the conversation, Envoy's log and its stats, so later checks only look
+  at what happened since. Take one once Envoy has synced, and again after anything you did on purpose that Envoy warns
+  about, like a disconnect or a NACK.
+  - `assertSane()`: all of the conversation checks below from the checkpoint on, then `assertEnvoyHealthy()`.
+  - `assertSaneAfterReconnect()`: the same without make before break, for a conversation Envoy started by
+    reconnecting. It allows Envoy before 1.19 resending wildcard names.
+  - `assertEnvoyHealthy()`: `EnvoyChecks.assertHealthy` and `assertNoWarningsSince`, both since the checkpoint.
 
 - `nothingSentUnasked()`: every response is for a type, and resource names, that Envoy subscribed to.
 - `allWereAcked()`: Envoy ACKed every response, and NACKed none.
@@ -119,6 +121,8 @@ For delta xDS, use `DeltaConversationAssert` and set `api_type: DELTA_GRPC` in E
   initial fetches. After a deliberate NACK, pass a `stats()` baseline taken after it.
 - `EnvoyChecks.assertNoWarningsSince(envoy, mark)`: no warnings or errors in Envoy's log since the mark. Take the mark
   after startup, and again after anything you did on purpose that Envoy warns about, like a disconnect.
+- `EnvoyChecks.assertRoutedVia(envoy, listenerPort, virtualHost, cluster)`: a request to the virtual host answers 200
+  and went to that cluster, going by its `upstream_rq_total`. A 200 alone doesn't say which cluster answered.
 
 For anything else, look at what Envoy has: `envoy.admin().configDump()` gives typed clusters, endpoints, listeners and
 routes, and `envoy.admin().stats()` the counters and gauges.

@@ -30,11 +30,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import net.woaf.jono.envoy.testing.Checkpoint;
 import net.woaf.jono.envoy.testing.EnvoyChecks;
 import net.woaf.jono.envoy.testing.Settled;
 import net.woaf.jono.envoy.testing.XdsTypes;
@@ -68,23 +66,16 @@ public abstract class XdsConformanceTest {
     private static final int ADS_PORT = 6566;
     private static final int LISTENER_PORT = 10000;
     private static final String ROUTES = "all_routes"; // Envoy's static listener asks for this
-    private static final Pattern MINOR_VERSION = Pattern.compile(":v1\\.(\\d+)");
 
     private final Protocol protocol;
-    private final boolean brokenWildcardReconnect;
     private final EnvoyContainer envoy;
     private final ConversationLogger conversations = new ConversationLogger();
     private BindableService service;
     private Server server;
-    private int logMark;
-    private int messageMark;
-    private Map<String, Long> statsMark = Map.of();
+    private Checkpoint checkpoint;
 
     protected XdsConformanceTest(String envoyImage, Protocol protocol) {
         this.protocol = protocol;
-        Matcher minor = MINOR_VERSION.matcher(envoyImage);
-        // Before 1.19 Envoy resent resource names for wildcard types on reconnect.
-        this.brokenWildcardReconnect = minor.find() && Integer.parseInt(minor.group(1)) < 19;
         this.envoy = new EnvoyContainer(envoyImage)
             .withCopyFileToContainer(MountableFile.forClasspathResource(
                 "net/woaf/jono/envoy/testing/conformance/envoy-" + protocol.name().toLowerCase(Locale.ROOT) + ".yaml"), "/envoy.yaml")
@@ -135,10 +126,10 @@ public abstract class XdsConformanceTest {
         setConfig(List.of());
         start();
         Conversation conversation = synced(1);
-        assertSettled(conversation, false);
+        checkpoint.assertSane();
 
         change(conversation, services("foo"));
-        assertSettled(conversation, false);
+        checkpoint.assertSane();
         assertStatus("foo", 200);
     }
 
@@ -150,14 +141,14 @@ public abstract class XdsConformanceTest {
         Conversation conversation = synced(1);
 
         change(conversation, services("foo", "bar"));
-        assertSettled(conversation, false);
+        checkpoint.assertSane();
         assertStatus("bar", 200);
 
         change(conversation, services("foo"));
         // Envoy drops its EDS subscription for bar, which needs no response.
         await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> envoyAssert(conversation).unsubscribedFrom(XdsTypes.EDS, "bar"));
         await().atMost(10, TimeUnit.SECONDS).until(settled(conversation));
-        assertSettled(conversation, false);
+        checkpoint.assertSane();
         assertStatus("bar", 404);
         assertStatus("foo", 200);
     }
@@ -168,11 +159,11 @@ public abstract class XdsConformanceTest {
         setConfig(service("foo", "foo-v1"));
         start();
         Conversation conversation = synced(1);
-        assertStatus("foo", 200);
+        EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v1");
 
         change(conversation, service("foo", "foo-v2"));
-        assertSettled(conversation, false);
-        assertStatus("foo", 200);
+        checkpoint.assertSane();
+        EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v2");
     }
 
     /**
@@ -189,20 +180,18 @@ public abstract class XdsConformanceTest {
 
         setConfig(withBadCluster(services("foo")));
         await().atMost(10, TimeUnit.SECONDS).until(this::envoyRejectedSomething);
-        logMark = envoy.logSize();
-        statsMark = envoy.admin().stats();
+        Checkpoint afterNack = Checkpoint.take(envoy, conversations.getConversations().get(0));
 
         setConfig(withBadCluster(services("foo", "bar"))); // still bad
-        assertContained();
+        assertContained(afterNack);
         setConfig(services("foo", "bar")); // fixed
-        assertContained();
+        assertContained(afterNack);
         assertStatus("foo", 200);
-        EnvoyChecks.assertHealthy(envoy, statsMark);
-        EnvoyChecks.assertNoWarningsSince(envoy, logMark);
+        afterNack.assertEnvoyHealthy();
 
         if (resync()) {
-            Conversation conversation = synced(2);
-            assertSettled(conversation, true);
+            synced(2);
+            checkpoint.assertSaneAfterReconnect();
             assertStatus("bar", 200);
         }
     }
@@ -218,13 +207,13 @@ public abstract class XdsConformanceTest {
         stopServer();
         setConfig(services("foo"));
         start();
-        Conversation conversation = synced(2); // Ignores Envoy's warnings about the disconnect.
-        assertSettled(conversation, true);
+        final Conversation conversation = synced(2); // Ignores Envoy's warnings about the disconnect.
+        checkpoint.assertSaneAfterReconnect();
         assertStatus("foo", 200);
         assertStatus("bar", 404);
 
         change(conversation, services("foo", "baz"));
-        assertSettled(conversation, true);
+        checkpoint.assertSaneAfterReconnect();
         assertStatus("baz", 200);
     }
 
@@ -309,8 +298,7 @@ public abstract class XdsConformanceTest {
         await().atMost(10, TimeUnit.SECONDS).untilAsserted(
             () -> envoyAssert(conversation).hadConversationsWith(XdsTypes.CDS, XdsTypes.RDS).answeredEveryType());
         await().atMost(30, TimeUnit.SECONDS).until(settled(conversation));
-        logMark = envoy.logSize();
-        messageMark = conversation.size();
+        checkpoint = Checkpoint.take(envoy, conversation);
         return conversation;
     }
 
@@ -325,34 +313,17 @@ public abstract class XdsConformanceTest {
         return hook == null ? Settled.settled(conversation) : Settled.settled(conversation, hook);
     }
 
-    /**
-     * Everything we expect once settled: a sane conversation, and a healthy Envoy that logged no warnings since synced().
-     * @param reconnected Envoy reconnected to start this conversation, so we don't know what config it kept and can't
-     *     check make before break
-     */
-    private void assertSettled(Conversation conversation, boolean reconnected) {
-        EnvoyAssert<?> asserter = envoyAssert(conversation)
-            .nothingSentUnasked(reconnected && brokenWildcardReconnect)
-            .allWereAcked()
-            .sentNoEmptyResponses(messageMark);
-        if (!reconnected) {
-            asserter.wasMakeBeforeBreak(messageMark);
-        }
-        EnvoyChecks.assertHealthy(envoy, statsMark);
-        EnvoyChecks.assertNoWarningsSince(envoy, logMark);
-    }
-
     private void assertStatus(String virtualHost, int status) {
         // Envoy ACKs once its main thread has the config; workers get it a moment later.
         await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> assertThat(envoy.httpStatus(LISTENER_PORT, virtualHost)).as(virtualHost).isEqualTo(status));
     }
 
     /** For a while: no more rejections, and no reconnects. */
-    private void assertContained() {
+    private void assertContained(Checkpoint afterNack) {
         await().during(2, TimeUnit.SECONDS).atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
             assertThat(conversations.getConversations()).as("streams; dropping Envoy after a NACK makes it reconnect in a loop").hasSize(1);
             assertThat(envoy.admin().stats().entrySet().stream()
-                .filter(e -> e.getKey().endsWith(".update_rejected") && !e.getValue().equals(statsMark.getOrDefault(e.getKey(), 0L)))
+                .filter(e -> e.getKey().endsWith(".update_rejected") && !e.getValue().equals(afterNack.stats().getOrDefault(e.getKey(), 0L)))
                 .toList()).as("rejections since the first NACK; the bad cluster was sent again").isEmpty();
         });
     }

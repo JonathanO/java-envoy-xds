@@ -7,9 +7,4 @@ public class Envoy119Test extends EnvoyIntTest {
         return "envoyproxy/envoy:v1.19-latest";
     }
 
-    @Override
-    protected boolean hasBrokenWildcardReconnect() {
-        return false;
-    }
-
 }
