@@ -43,6 +43,7 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
         isNotNull();
         SetMultimap<String, String> sentNonces = HashMultimap.create();
         SetMultimap<String, String> unackedNonces = HashMultimap.create();
+        Map<String, String> staleNonces = new HashMap<>(); // by type: a nonce Envoy echoed from its previous stream
 
         for (Object message : actual.getMessages()) {
             if (message instanceof DiscoveryRequest r) {
@@ -52,6 +53,7 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
                     if (!sentNonces.containsKey(r.getTypeUrl())) {
                         // If envoy is reconnecting it may reuse nonces from its previous connection.
                         sentNonces.put(r.getTypeUrl(), r.getResponseNonce());
+                        staleNonces.put(r.getTypeUrl(), r.getResponseNonce());
                     } else {
                         if (!sentNonces.containsEntry(r.getTypeUrl(), r.getResponseNonce())) {
                             failWithMessage("Found unexpected response nonce <%s> for <%s>, expected one of <%s>", r.getResponseNonce(), r.getTypeUrl(), sentNonces.get(r.getTypeUrl()));
@@ -63,6 +65,10 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
                     failWithMessage("Envoy sent error <%s>", r.getErrorDetail().getMessage());
                 }
             } else if (message instanceof DiscoveryResponse r) {
+                if (r.getNonce().equals(staleNonces.get(r.getTypeUrl()))) {
+                    failWithMessage("Sent nonce <%s> for <%s>, which Envoy had echoed from its previous stream: its requests can't be told"
+                        + " from ACKs of this response. Make nonces unique across streams", r.getNonce(), r.getTypeUrl());
+                }
                 if (!sentNonces.put(r.getTypeUrl(), r.getNonce())) {
                     failWithMessage("Sent nonce <%s> for <%s> multiple times", r.getNonce(), r.getTypeUrl());
                 }
