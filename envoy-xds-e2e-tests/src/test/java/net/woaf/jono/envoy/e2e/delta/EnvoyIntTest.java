@@ -62,7 +62,8 @@ public abstract class EnvoyIntTest extends BaseEnvoyIntTest<DeltaConversationAss
             "foo", ImmutableList.of(HostAndPort.fromString("127.0.0.1:9901")),
             "bar", ImmutableList.of(HostAndPort.fromString("127.0.0.2:9901"))
         ));
-        await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> assertThat(httpStatus("bar")).isEqualTo(200));
+        // The listener resets connections until its routes arrive.
+        await().atMost(30, TimeUnit.SECONDS).ignoreExceptions().untilAsserted(() -> assertThat(httpStatus("bar")).isEqualTo(200));
 
         stopAds();
         clusterManager.removeService("bar");
