@@ -19,6 +19,7 @@ import net.woaf.jono.envoy.testing.utils.EnvoyContainer;
 import net.woaf.jono.envoy.testing.utils.GrpcXdsV3ProtocolLoggingInterceptor;
 import net.woaf.jono.envoy.xds.AggregatedDiscoveryService;
 import net.woaf.jono.envoy.xds.TypeUrl;
+import net.woaf.jono.envoy.xds.XdsConfig;
 import net.woaf.jono.envoy.xds.api.utils.MergingStateBacklog;
 import net.woaf.jono.envoy.example.ClusterManager;
 import net.woaf.jono.envoy.example.config.ClientConfig;
@@ -93,6 +94,14 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         }
     }
 
+    /**
+     * Stop our ADS but leave Envoy running, so startServer() makes it reconnect.
+     */
+    protected void stopAds() throws InterruptedException {
+        server.shutdownNow();
+        server.awaitTermination();
+    }
+
     protected abstract AsserterT envoyAssertThat(Conversation conversation);
 
     /**
@@ -140,6 +149,11 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
     }
 
     protected AggregatedDiscoveryService<SimpleUpdate, ClientConfig> configureAds(ClusterManager clusterManager, List<DiscoveryServiceManagerEventListener> conversations) {
+        return configureAds(clusterManager, conversations, null);
+    }
+
+    protected AggregatedDiscoveryService<SimpleUpdate, ClientConfig> configureAds(ClusterManager clusterManager, List<DiscoveryServiceManagerEventListener> conversations, TypeUrl delayUpdatesUntilAckOf) {
+        StaticClientConfigSource staticClientConfigSource = new StaticClientConfigSource();
         return new AggregatedDiscoveryService<>(
             clusterManager, // Cluster managers track the network state and tell us when it changes
             ImmutableList.of(// ConfigBuilders generate envoy configuration (xDS messages) based on network state changes and the client config
@@ -147,7 +161,13 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
                 new ClusterLoadAssignmentConfigBuilder(),
                 new RouteConfigurationConfigBuilder()
             ),
-            new StaticClientConfigSource(), // ClientConfigProviders provide per-client configuration to the config builders
+            node -> {
+                XdsConfig<ClientConfig> staticConfig = staticClientConfigSource.lookup(node);
+                return XdsConfig.<ClientConfig>builder()
+                    .clientDetails(staticConfig.getClientDetails())
+                    .delayUpdatesUntilAckOf(delayUpdatesUntilAckOf)
+                    .build();
+            }, // ClientConfigProviders provide per-client configuration to the config builders
             ImmutableList.of(), // Our example has no event listeners, but you can use these for things like tracking connected clients
             MergingStateBacklog.factory(), // Strategy for handling a backlog of network state updates.
             () -> {
@@ -240,8 +260,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
 
         // Restart the grpc service, keeping the cluster manager, etc, intact.
         // This forces envoy to reconnect to us.
-        server.shutdownNow();
-        server.awaitTermination();
+        stopAds();
 
         // While envoy's definitely not connected, remove a service entirely.
         // When envoy reconnects and sends us the list of stuff it knew about, we should immediately tell it remove the lost service.
