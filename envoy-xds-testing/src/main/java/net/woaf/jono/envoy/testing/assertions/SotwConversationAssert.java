@@ -190,11 +190,28 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
     @Override
     @CanIgnoreReturnValue
     public SotwConversationAssert wasMakeBeforeBreak(int fromMessage) {
+        return wasMakeBeforeBreak(fromMessage, null);
+    }
+
+    @Override
+    @CanIgnoreReturnValue
+    public SotwConversationAssert wasMakeBeforeBreak(int fromMessage, Conversation before) {
         isNotNull();
         AckedState state = new AckedState();
+        if (before != null) {
+            replay(state, before.getMessages(), Integer.MAX_VALUE);
+        }
+        replay(state, actual.getMessages(), fromMessage);
+        if (!state.problems().isEmpty()) {
+            failWithMessage("Not make before break: <%s>", state.problems());
+        }
+        return this;
+    }
+
+    // Track what Envoy ACKs, checking responses from checkFrom on.
+    private void replay(AckedState state, List<Object> messages, int checkFrom) {
         Map<String, DiscoveryResponse> pending = new HashMap<>();
         Map<String, Set<String>> pendingRemovals = new HashMap<>();
-        List<Object> messages = actual.getMessages();
         for (int i = 0; i < messages.size(); i++) {
             Object message = messages.get(i);
             if (message instanceof DiscoveryResponse r) {
@@ -204,7 +221,7 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
                     removed.addAll(state.clusters());
                     r.getResourcesList().forEach(any -> removed.remove(getNameForResource(any)));
                 }
-                if (i >= fromMessage) {
+                if (i >= checkFrom) {
                     state.checkResponse(r.getTypeUrl(), r.getResourcesList(), removed);
                 }
                 pending.put(r.getNonce(), r);
@@ -216,10 +233,6 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
                 }
             }
         }
-        if (!state.problems().isEmpty()) {
-            failWithMessage("Not make before break: <%s>", state.problems());
-        }
-        return this;
     }
 
     @Override

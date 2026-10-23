@@ -105,6 +105,8 @@ For delta xDS, use `DeltaConversationAssert` and set `api_type: DELTA_GRPC` in E
   - `assertSane()`: all of the conversation checks below from the checkpoint on, then `assertEnvoyHealthy()`.
   - `assertSaneAfterReconnect()`: the same without make before break, for a conversation Envoy started by
     reconnecting. It allows Envoy before 1.19 resending wildcard names.
+  - `assertSaneAfterReconnect(before)`: the same, plus make before break from the start of this conversation, starting
+    from what Envoy last ACKed on `before`, the conversation before it.
   - `assertEnvoyHealthy()`: `EnvoyChecks.assertHealthy` and `assertNoWarningsSince`, both since the checkpoint.
 
 - `nothingSentUnasked()`: every response is for a type, and resource names, that Envoy subscribed to.
@@ -227,6 +229,9 @@ Override `idleHook()` too if your library can tell when a stream is idle, and `r
 - `containsRejectedConfig`: Envoy NACKs a bad cluster. The library mustn't send it again, not even as part of a later
   change, nor drop Envoy into a reconnect loop, and Envoy must keep serving its last good config. If you override
   `resync()` to make Envoy reconnect, a fixed config must get through after it.
+- `changesWhileDisconnected`: a route moves to a new cluster, and the old cluster is removed, while Envoy is
+  disconnected. Envoy keeps its config across the disconnect, so after it reconnects the move must be make before break
+  from there.
 - `reconnects`: a service is removed while Envoy is disconnected. After it reconnects, traffic still flows and updates
   still work.
 
