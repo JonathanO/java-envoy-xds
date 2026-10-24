@@ -20,6 +20,14 @@ All notable changes to this project will be documented in this file.
 * `TypedEnvoyConfigDump` sections Envoy left out of the dump are empty instead of null
 * **Breaking:** removed `XdsConfig.silentNacks`. Every NACK now freezes the stream, and is logged at warn; use `onClientNack` to act on it.
 
+### Fixed
+* Delta: names subscribed explicitly while subscribed to `*` are answered, with `removed_resources` for names that don't exist
+* SotW: an explicit `*` subscription, alone or with names, no longer closes the stream, and names sent alongside `*` stay subscribed after leaving wildcard
+* SotW: a NACK whose `version_info` isn't numeric no longer fails the stream
+* A request for an xDS type we don't serve (e.g. ECDS) is logged and left unanswered, instead of closing the stream
+* Normal client disconnects (`CANCELLED`) are no longer logged as warnings
+* Each resource is packed into an `Any` once, instead of once per client
+
 ## [2.0.0] - 2026-10-16
 ### Changed
 * Forked from [transferwise/wise-envoy-xds](https://github.com/transferwise/wise-envoy-xds)
