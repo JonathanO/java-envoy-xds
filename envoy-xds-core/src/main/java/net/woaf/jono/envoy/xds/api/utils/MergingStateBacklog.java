@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.api.utils;
 
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 import org.jspecify.annotations.Nullable;
 import net.woaf.jono.envoy.xds.api.Mergeable;
 import net.woaf.jono.envoy.xds.api.StateBacklog;
@@ -11,6 +12,7 @@ import net.woaf.jono.envoy.xds.api.StateBacklogFactory;
  */
 public class MergingStateBacklog<StateUpdT extends Mergeable<StateUpdT>> implements StateBacklog<StateUpdT> {
 
+    @GuardedBy("this")
     private @Nullable StateUpdT backlog = null;
 
     private MergingStateBacklog() {
