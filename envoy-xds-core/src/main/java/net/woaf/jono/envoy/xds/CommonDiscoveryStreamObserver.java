@@ -240,7 +240,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             log.warn("onError called on already dead CDSO. Maybe upstream fixed the bug where onError wasn't getting called?");
             return;
         }
-        if (!(t instanceof StatusRuntimeException r) || Status.Code.CANCELLED.equals(r.getStatus().getCode())) {
+        if (!(t instanceof StatusRuntimeException r) || !Status.Code.CANCELLED.equals(r.getStatus().getCode())) {
             log.warn("Error streaming to an ADS client", t);
         }
 
