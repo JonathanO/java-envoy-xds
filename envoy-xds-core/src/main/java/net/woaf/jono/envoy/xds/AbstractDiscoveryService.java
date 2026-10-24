@@ -1,6 +1,9 @@
 package net.woaf.jono.envoy.xds;
 
 import com.google.common.base.Preconditions;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.protobuf.Any;
 import com.google.protobuf.Message;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder;
@@ -11,6 +14,11 @@ import java.util.function.Predicate;
 
 @Slf4j
 public abstract class AbstractDiscoveryService<T extends Message, E extends Message, StateUpdT, DetailsT> implements DiscoveryService<T, StateUpdT> {
+
+    // SotW re-sends every unchanged resource on each push, and builders that share messages (e.g. snapshots) send one
+    // instance to every client, so serialise each instance once. Weak keys compare by identity and drop the entry once
+    // nothing holds the message.
+    private static final LoadingCache<Message, Any> PACKED = CacheBuilder.newBuilder().weakKeys().build(CacheLoader.from(Any::pack));
 
     private final TypeUrl myTypeUrl;
 
@@ -179,7 +187,7 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
     }
 
     protected Any pack(Message o) {
-        return Any.pack(o);
+        return PACKED.getUnchecked(o);
     }
 
     @Override
