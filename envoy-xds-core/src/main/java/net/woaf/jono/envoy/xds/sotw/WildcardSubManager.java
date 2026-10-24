@@ -3,16 +3,23 @@ package net.woaf.jono.envoy.xds.sotw;
 import com.google.common.annotations.VisibleForTesting;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 @Slf4j
 class WildcardSubManager implements SubManager {
 
+    private static final String WILDCARD = "*";
+
     private boolean subscribed = false;
+    private boolean sentNames = false;
+
+    // The spec allows wildcard types to be used with explicit names too, so they're tracked as a sublist for when the
+    // client leaves wildcard mode.
+    private final SubListSubManager subListSubManager = new SubListSubManager();
 
     @VisibleForTesting
     boolean isSubscribed() {
@@ -21,30 +28,37 @@ class WildcardSubManager implements SubManager {
 
     @Override
     public Optional<Predicate<String>> processResourceListChange(List<String> resourceNames) {
+        // An empty list is a (legacy) wildcard subscription, unless the client has ever sent names: then it means
+        // unsubscribe from everything.
+        boolean wildcard = resourceNames.contains(WILDCARD) || (resourceNames.isEmpty() && !sentNames);
+        sentNames |= !resourceNames.isEmpty();
+        Optional<Predicate<String>> subListChange = subListSubManager.processResourceListChange(
+            resourceNames.stream().filter(n -> !n.equals(WILDCARD)).collect(Collectors.toList()));
 
-        if (resourceNames.size() != 0) {
-            throw new RuntimeException("Client had non empty resource names list");
-        }
-        if (!subscribed) {
+        boolean wasSubscribed = subscribed;
+        subscribed = wildcard;
+        if (subscribed && !wasSubscribed) {
             log.debug("Subscribed to *");
-            subscribed = true;
             return Optional.of(name -> true);
         }
-        return Optional.empty();
+        if (wasSubscribed && !subscribed) {
+            log.debug("Unsubscribed from *");
+            // The caller drops everything no longer subscribed to; the remaining names are already known.
+            return Optional.of(subListChange.orElse(name -> false));
+        }
+        return subListChange;
     }
 
     @Override
     public <X> Map<String, X> filterSubs(Map<String, X> things) {
         if (!subscribed) {
-            return Collections.emptyMap();
+            return subListSubManager.filterSubs(things);
         }
         return things;
     }
 
     @Override
     public boolean isSubscribedTo(String resourceName) {
-        return subscribed;
+        return subscribed || subListSubManager.isSubscribedTo(resourceName);
     }
-
-
 }
