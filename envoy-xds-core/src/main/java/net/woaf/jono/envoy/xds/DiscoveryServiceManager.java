@@ -16,6 +16,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 import java.util.stream.Stream;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Co-ordinates ordering of messages between discovery services.
@@ -23,6 +24,7 @@ import java.util.stream.Stream;
  *
  * @param <RequestT> The discovery Request type (DeltaDiscoveryRequest or DiscoveryRequest)
  */
+@Slf4j
 public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
 
     private final List<DiscoveryService<RequestT, StateUpdT>> preOrder;
@@ -82,10 +84,10 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     private static final Set<TypeUrl> USE_CLUSTERS = Set.of(TypeUrl.LDS, TypeUrl.RDS, TypeUrl.SRDS, TypeUrl.VHDS);
 
     /**
-     * Longest we hold stale removals after a reconnect, waiting for types this client may never subscribe to. Holding
-     * a removal only leaves an unused resource in Envoy, so this can be generous. Checked when something happens.
+     * Longest we wait for an ACK of a type this client may never subscribe to: before removing stale resources after a
+     * reconnect, and for delayUpdatesUntilAckOf. Checked when something happens.
      */
-    public static final long RECONNECT_REMOVAL_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(30);
+    public static final long WAIT_FOR_ACK_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(30);
 
     private final Deque<CommonDiscoveryRequest<RequestT>> heldRequests = new ArrayDeque<>();
 
@@ -145,6 +147,10 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     public void init(StateUpdT initialStateChange, TypeUrl delayUpdatesUntilAckOf, Set<TypeUrl> subscribesTo) {
         this.delayUpdatesUntilAckOf = delayUpdatesUntilAckOf;
         this.subscribesTo = subscribesTo;
+        if (delayUpdatesUntilAckOf != null && subscribesTo != null && !subscribesTo.contains(delayUpdatesUntilAckOf)) {
+            log.warn("delayUpdatesUntilAckOf {}, but this client doesn't subscribe to it, so not delaying updates", delayUpdatesUntilAckOf);
+            this.delayUpdatesUntilAckOf = null;
+        }
         this.startedNanos = clock.getAsLong();
         discoveryServices.forEach((t, s) -> {
             s.init(initialStateChange);
@@ -210,7 +216,7 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      * remove order that we serve and this client gets has been answered and ACKed, or we've waited long enough.
      */
     private boolean mayRemove(TypeUrl typeUrl) {
-        if (clock.getAsLong() - startedNanos >= RECONNECT_REMOVAL_TIMEOUT_NANOS) {
+        if (waitedTooLong()) {
             return true;
         }
         for (DiscoveryService<RequestT, StateUpdT> earlier : postOrder) {
@@ -273,7 +279,16 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     }
 
     private boolean isPushAllowed() {
+        if (delayUpdatesUntilAckOf != null && waitedTooLong()) {
+            log.warn("No ACK of {} after {}s, so sending updates anyway: does this client subscribe to it? See delayUpdatesUntilAckOf and"
+                + " subscribesTo in its XdsConfig", delayUpdatesUntilAckOf, TimeUnit.NANOSECONDS.toSeconds(WAIT_FOR_ACK_TIMEOUT_NANOS));
+            delayUpdatesUntilAckOf = null;
+        }
         return outstandingAcks.isEmpty() && delayUpdatesUntilAckOf == null;
+    }
+
+    private boolean waitedTooLong() {
+        return clock.getAsLong() - startedNanos >= WAIT_FOR_ACK_TIMEOUT_NANOS;
     }
 
     private void pushAllowedWorkIfAny() {

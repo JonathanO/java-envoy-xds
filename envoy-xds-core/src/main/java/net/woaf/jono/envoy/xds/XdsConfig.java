@@ -23,6 +23,8 @@ public class XdsConfig<DetailsT> {
      * initialised.)
      * If null then we don't delay the updates.
      * This is useful, for example, to work around bugs like https://github.com/envoyproxy/envoy/issues/16035 (we set this option to RDS in our own control plane for this reason.)
+     * Only set it to a type this client subscribes to. If subscribesTo leaves the type out, it's ignored; otherwise, with no
+     * ACK of it after 30 seconds, updates go anyway, with a warning, at the next message or change.
      */
     TypeUrl delayUpdatesUntilAckOf;
 

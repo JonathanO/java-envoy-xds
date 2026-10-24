@@ -693,7 +693,7 @@ public class IncrementalDiscoveryServiceTest {
         DeltaDiscoveryResponse cdsReconnectResponse = nextResponse(inOrder, responseObserver);
         assertThat(cdsReconnectResponse.getRemovedResourcesList()).isEmpty();
 
-        now.addAndGet(DiscoveryServiceManager.RECONNECT_REMOVAL_TIMEOUT_NANOS); // RDS never subscribes
+        now.addAndGet(DiscoveryServiceManager.WAIT_FOR_ACK_TIMEOUT_NANOS); // RDS never subscribes
         dsm.processUpdate(ackRequest(TypeUrl.CDS, cdsReconnectResponse.getNonce()));
         assertThat(nextResponse(inOrder, responseObserver).getRemovedResourcesList()).containsExactly("cluster-stale");
     }

@@ -20,6 +20,8 @@ import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -346,6 +348,38 @@ public class DiscoveryServiceManagerTest {
 
         verify(mockDiscoveryServiceA, never()).sendNetworkUpdatePre();
         verify(mockDiscoveryServiceB, never()).sendNetworkUpdatePre();
+    }
+
+    @Test
+    public void testConfiguredDelayGivesUpWithoutAnAck() {
+        final DiscoveryService<Message, DummyUpdate> cds = spy(StateAwareFakeDiscoveryService.class);
+        final DiscoveryService<Message, DummyUpdate> rds = spy(StateAwareFakeDiscoveryService.class);
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.CDS, cds, TypeUrl.RDS, rds), List.of(TypeUrl.CDS, TypeUrl.RDS), List.of(TypeUrl.RDS, TypeUrl.CDS),
+            new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS);
+        AtomicLong now = new AtomicLong();
+        dsm.setClock(now::get);
+        dsm.init(new DummyUpdate(), TypeUrl.RDS); // but this client never subscribes to RDS
+        final var update = new DummyUpdate();
+
+        dsm.pushUpdates(update);
+        verify(cds, never()).onNetworkUpdate(update);
+
+        now.addAndGet(DiscoveryServiceManager.WAIT_FOR_ACK_TIMEOUT_NANOS);
+        dsm.pushUpdates(new DummyUpdate()); // the next change
+        verify(cds).onNetworkUpdate(update);
+    }
+
+    @Test
+    public void testConfiguredDelayIgnoredForATypeTheClientDoesNotUse() {
+        final DiscoveryService<Message, DummyUpdate> cds = spy(StateAwareFakeDiscoveryService.class);
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.CDS, cds), List.of(TypeUrl.CDS), List.of(TypeUrl.CDS), new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS);
+        dsm.init(new DummyUpdate(), TypeUrl.RDS, Set.of(TypeUrl.CDS, TypeUrl.EDS));
+        final var update = new DummyUpdate();
+
+        dsm.pushUpdates(update);
+        verify(cds).onNetworkUpdate(update);
     }
 
     public static class StateAwareFakeDiscoveryService implements DiscoveryService<Message, DummyUpdate> {
