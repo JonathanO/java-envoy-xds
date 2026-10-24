@@ -65,7 +65,7 @@ class VersionManager {
                     acceptedVersion = sentVersion;
                 }
             }
-        } else if (Strings.isNullOrEmpty(responseNonce)) {
+        } else if (!Strings.isNullOrEmpty(responseNonce)) {
             log.debug("Client sent nonce {} when we expected null. Probably this is a reconnect. Continuing!", responseNonce);
         }
         return true;
