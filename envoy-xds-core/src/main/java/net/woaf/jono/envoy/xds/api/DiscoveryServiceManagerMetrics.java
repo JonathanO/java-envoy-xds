@@ -14,7 +14,9 @@ import java.util.function.Supplier;
  */
 public interface DiscoveryServiceManagerMetrics {
 
-    DiscoveryServiceManagerMetrics NOOP_METRICS = new NoopMetrics();
+    // Anonymous rather than a nested class: a subclass referenced from the interface's own initialiser can deadlock
+    // class init if another thread initialises the subclass first.
+    DiscoveryServiceManagerMetrics NOOP_METRICS = new DiscoveryServiceManagerMetrics() { };
     Supplier<DiscoveryServiceManagerMetrics> METRICS_DISABLED = () -> NOOP_METRICS;
 
     default void close() {
@@ -49,9 +51,6 @@ public interface DiscoveryServiceManagerMetrics {
      */
     default void onMessageAcked() {
 
-    }
-
-    class NoopMetrics implements DiscoveryServiceManagerMetrics {
     }
 
 }
