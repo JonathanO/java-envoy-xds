@@ -5,10 +5,10 @@ import net.woaf.jono.envoy.xds.sotw.WildcardSubManager;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SuppressWarnings("Duplicates")
 public class WildcardSubManagerSpec {
@@ -44,17 +44,43 @@ public class WildcardSubManagerSpec {
     }
 
     @Test
-    public void testSubscribeToNonWildcardNotPermitted() {
+    public void testSubscribeToStarIsWildcard() {
         WildcardSubManager subManager = new WildcardSubManager();
-        assertThatThrownBy(() -> subManager.processResourceListChange(Collections.singletonList("foo"))).isInstanceOf(RuntimeException.class);
+        assertThat(subManager.processResourceListChange(List.of("*"))).isPresent();
+        assertThat(subManager.isSubscribedTo("foo")).isTrue();
     }
 
     @Test
-    public void testReSubscribeToNonWildcardNotPermitted() {
+    public void testNamesWithoutStarAreASublist() {
         WildcardSubManager subManager = new WildcardSubManager();
-        assertThat(subManager.processResourceListChange(Collections.emptyList())).isPresent();
-        assertThatThrownBy(() -> subManager.processResourceListChange(Collections.singletonList("foo"))).isInstanceOf(RuntimeException.class);
+        assertThat(subManager.processResourceListChange(List.of("foo")).orElseThrow()).accepts("foo").rejects("bar");
+        assertThat(subManager.isSubscribedTo("foo")).isTrue();
+        assertThat(subManager.isSubscribedTo("bar")).isFalse();
     }
 
+    @Test
+    public void testExplicitNamesInWildcardModeAreAnswered() {
+        WildcardSubManager subManager = new WildcardSubManager();
+        assertThat(subManager.processResourceListChange(List.of("*"))).isPresent();
+        assertThat(subManager.processResourceListChange(List.of("*", "foo")).orElseThrow()).accepts("foo");
+        assertThat(subManager.processResourceListChange(List.of("*", "foo"))).isNotPresent();
+    }
+
+    @Test
+    public void testLeavingWildcardKeepsExplicitNames() {
+        WildcardSubManager subManager = new WildcardSubManager();
+        assertThat(subManager.processResourceListChange(List.of("*", "foo"))).isPresent();
+        assertThat(subManager.processResourceListChange(List.of("foo"))).isPresent();
+        assertThat(subManager.isSubscribedTo("foo")).isTrue();
+        assertThat(subManager.isSubscribedTo("bar")).isFalse();
+    }
+
+    @Test
+    public void testEmptyListAfterNamesUnsubscribesFromEverything() {
+        WildcardSubManager subManager = new WildcardSubManager();
+        assertThat(subManager.processResourceListChange(List.of("*"))).isPresent();
+        assertThat(subManager.processResourceListChange(Collections.emptyList())).isPresent();
+        assertThat(subManager.isSubscribedTo("foo")).isFalse();
+    }
 
 }
