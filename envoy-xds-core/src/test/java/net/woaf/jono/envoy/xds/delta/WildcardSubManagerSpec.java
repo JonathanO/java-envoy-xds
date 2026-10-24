@@ -104,7 +104,9 @@ public class WildcardSubManagerSpec {
         assertThat(subManager.isSubscribedTo("baz")).isTrue();
         assertThat(subManager.isSubscribedTo("cat")).isTrue();
 
-        assertThat(subManager.processResourceListChange(ImmutableSet.of("bar"), ImmutableSet.of())).isEmpty();
+        // An explicit subscribe while in wildcard mode is answered for just that name.
+        wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of("bar"), ImmutableSet.of()).orElseThrow();
+        assertThat(wouldSendUpdates).accepts("bar").rejects("foo", "baz", "cat");
         assertThat(subManager.isSubscribedTo("foo")).isTrue();
         assertThat(subManager.isSubscribedTo("bar")).isTrue();
         assertThat(subManager.isSubscribedTo("baz")).isTrue();
