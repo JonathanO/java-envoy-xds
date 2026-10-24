@@ -111,7 +111,10 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
 
             TypeUrl typeUrl = TypeUrl.of(value.getTypeUrl());
             if (typeUrl == null) {
-                throw new RuntimeException("Client " + nodeId + " in cluster " + clusterId + " asked for unknown type URL " + value.getTypeUrl());
+                // Leave it unanswered, like a type nobody serves: closing the stream would take every other type down
+                // with it, and Envoy would reconnect and ask again.
+                log.warn("Client {} in cluster {} asked for unknown type URL {}, ignoring", nodeId, clusterId, value.getTypeUrl());
+                return;
             }
             log.debug("DiscoveryRequest T={}", value.getTypeUrl());
             if (value.getErrorDetail() != null) {
