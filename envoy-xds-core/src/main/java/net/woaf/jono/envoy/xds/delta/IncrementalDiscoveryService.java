@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.delta;
 
+import org.jspecify.annotations.Nullable;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.protobuf.Message;
@@ -25,7 +26,7 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
 
     private final StreamObserver<DeltaDiscoveryResponse> responseObserver;
 
-    private String lastNonce = null;
+    private @Nullable String lastNonce = null;
 
     private Long version = 0L;
 

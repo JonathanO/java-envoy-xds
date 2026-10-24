@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds;
 
+import org.jspecify.annotations.Nullable;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -26,7 +27,7 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
 
     private final NodeConfig<DetailsT> nodeConfig;
 
-    private StateUpdT currentState = null;
+    private @Nullable StateUpdT currentState = null;
 
     private SubState currentSubState = SubState.COMPLETED;
 
@@ -50,7 +51,7 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
         }
         TypeUrl typeUrl = TypeUrl.of(value.getTypeUrl());
         if (!myTypeUrl.equals(typeUrl)) {
-            throw new RuntimeException(myTypeUrl.name() + " discovery service got called for request of type " + typeUrl.name());
+            throw new RuntimeException(myTypeUrl.name() + " discovery service got called for request of type " + value.getTypeUrl());
         }
         active = true;
         processRequest(value.getMessage());
@@ -95,12 +96,16 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
         }
     }
 
+    private StateUpdT state() {
+        return Preconditions.checkNotNull(currentState, "Discovery must be initialized");
+    }
+
     protected IncrementalConfigBuilder.Resources<E> getResources(Predicate<String> resourceInSubListChange) {
         final IncrementalConfigBuilder.Resources<E> resources;
         if (SubState.PRE.equals(currentSubState)) {
-            resources = configBuilder.getResourcesAddOrder(currentState, resourceInSubListChange, nodeConfig.getXdsConfig().getClientDetails());
+            resources = configBuilder.getResourcesAddOrder(state(), resourceInSubListChange, nodeConfig.getXdsConfig().getClientDetails());
         } else {
-            resources = configBuilder.getResourcesRemoveOrder(currentState, resourceInSubListChange, nodeConfig.getXdsConfig().getClientDetails());
+            resources = configBuilder.getResourcesRemoveOrder(state(), resourceInSubListChange, nodeConfig.getXdsConfig().getClientDetails());
         }
         checkSubNames(resources, resourceInSubListChange);
         return resources;
@@ -145,7 +150,7 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
             // b) It might return stuff. Envoy gets really angry if ADS returns a message type that it never requested.
             return Optional.empty();
         }
-        IncrementalConfigBuilder.Response<E> resources = configBuilder.addOrder(currentState, subFilter(), nodeConfig.getXdsConfig().getClientDetails());
+        IncrementalConfigBuilder.Response<E> resources = configBuilder.addOrder(state(), subFilter(), nodeConfig.getXdsConfig().getClientDetails());
         checkSubNames(resources, subFilter());
         if (updateState(resources)) {
             return Optional.of(resources);
@@ -172,7 +177,7 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
             // b) It might return stuff. Envoy gets really angry if ADS returns a message type that it never requested.
             return Optional.empty();
         }
-        IncrementalConfigBuilder.Response<E> resources = configBuilder.removeOrder(currentState, subFilter(), nodeConfig.getXdsConfig().getClientDetails());
+        IncrementalConfigBuilder.Response<E> resources = configBuilder.removeOrder(state(), subFilter(), nodeConfig.getXdsConfig().getClientDetails());
         checkSubNames(resources, subFilter());
         if (updateState(resources)) {
             return Optional.of(resources);

@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.testing.assertions;
 
+import org.jspecify.annotations.Nullable;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
@@ -65,7 +66,7 @@ public abstract class EnvoyAssert<SelfT extends EnvoyAssert<SelfT>> extends Abst
      * @return this
      */
     @CanIgnoreReturnValue
-    public abstract SelfT wasMakeBeforeBreak(int fromMessage, Conversation before);
+    public abstract SelfT wasMakeBeforeBreak(int fromMessage, @Nullable Conversation before);
 
     /**
      * Every type Envoy asked for got at least one response. Without one Envoy waits out its initial fetch timeout, or

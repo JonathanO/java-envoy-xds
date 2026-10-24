@@ -1,5 +1,7 @@
 package net.woaf.jono.envoy.xds.api;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Track states waiting to be applied.
  * The simplest possible implementation would be a FIFO queue.
@@ -30,6 +32,6 @@ public interface StateBacklog<StateUpdT> {
      * If this was the last change remaining in the backlog, subsequent calls to isEmpty will return true.
      * @return The next change to apply.
      */
-    StateUpdT take();
+    @Nullable StateUpdT take();
 
 }

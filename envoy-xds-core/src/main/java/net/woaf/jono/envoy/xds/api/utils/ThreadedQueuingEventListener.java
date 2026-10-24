@@ -52,7 +52,7 @@ public class ThreadedQueuingEventListener<StateUpdT> implements ClusterManagerEv
             log.debug("QueueingMergingEventListener terminating");
         }
 
-        public void onNetworkChange(StateUpdT diff) {
+        void onNetworkChange(StateUpdT diff) {
             if (stopping) {
                 return;
             }

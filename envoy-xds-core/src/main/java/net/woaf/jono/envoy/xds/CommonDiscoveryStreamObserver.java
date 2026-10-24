@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds;
 
+import org.jspecify.annotations.Nullable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
@@ -27,10 +28,10 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
 
     private final StreamObserver<R> responseObserver;
     private final ClusterEventSource<StateUpdT> clusterManager;
-    private NodeConfig<DetailsT> xdsConfig = null;
+    private @Nullable NodeConfig<DetailsT> xdsConfig = null;
 
     private final DiscoveryServiceManagerFactory<T, R, StateUpdT, DetailsT> discoveryServiceManagerFactory;
-    private DiscoveryServiceManager<T, StateUpdT> discoveryServiceManager = null;
+    private @Nullable DiscoveryServiceManager<T, StateUpdT> discoveryServiceManager = null;
 
     private final Function<T, CommonDiscoveryRequest<T>> commonDiscoveryRequestConverter;
 
@@ -49,12 +50,12 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
      * If null then we don't delay the updates.
      * Implementation detail: this will be set to null once the expected ack is received.
      */
-    private TypeUrl delayUpdatesUntilAckOf = null;
+    private @Nullable TypeUrl delayUpdatesUntilAckOf = null;
 
-    private String nodeId = null;
-    private String clusterId = null;
+    private @Nullable String nodeId = null;
+    private @Nullable String clusterId = null;
 
-    private Node node = null;
+    private @Nullable Node node = null;
 
     public CommonDiscoveryStreamObserver(
         StreamObserver<R> responseObserver,
@@ -83,9 +84,9 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
 
         this.node = node;
         xdsConfig = NodeConfig.forNode(node, config);
-        notifyClientConnected();
+        notifyClientConnected(node, config);
 
-        delayUpdatesUntilAckOf = xdsConfig.getXdsConfig().getDelayUpdatesUntilAckOf();
+        delayUpdatesUntilAckOf = config.getDelayUpdatesUntilAckOf();
         nodeId = node.getId();
         clusterId = node.getCluster();
     }
@@ -104,6 +105,8 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
                 log.debug("New envoy connected: {}", value.getNode() != null ? value.getNode().getId() : null);
                 extractNodeData(value.getNode());
             }
+            final Node node = Preconditions.checkNotNull(this.node);
+            final NodeConfig<DetailsT> nodeConfig = Preconditions.checkNotNull(xdsConfig);
 
             if (value.getErrorDetail() != null) {
                 log.warn("Client {} rejected {}, so we'll send it no more changes on this stream: {}", nodeId, value.getTypeUrl(), value.getErrorDetail());
@@ -118,11 +121,11 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             }
             log.debug("DiscoveryRequest T={}", value.getTypeUrl());
             if (value.getErrorDetail() != null) {
-                notifyClientNack(typeUrl, value.getErrorDetail());
+                notifyClientNack(node, typeUrl, value.getErrorDetail());
             }
             if (discoveryServiceManager == null) {
-                discoveryServiceManager = discoveryServiceManagerFactory.build(responseObserver, xdsConfig, metrics);
-                discoveryServiceManager.init(clusterManager.subscribe(this), delayUpdatesUntilAckOf, xdsConfig.getXdsConfig().getSubscribesTo());
+                discoveryServiceManager = discoveryServiceManagerFactory.build(responseObserver, nodeConfig, metrics);
+                discoveryServiceManager.init(clusterManager.subscribe(this), delayUpdatesUntilAckOf, nodeConfig.getXdsConfig().getSubscribesTo());
             }
 
             discoveryServiceManager.processUpdate(value);
@@ -134,11 +137,11 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
 
     private static class RunWithExceptions implements Closeable {
 
-        private Throwable caught = null;
+        private @Nullable Throwable caught = null;
 
         private final String doingWhat;
 
-        public RunWithExceptions(String doingWhat) {
+        RunWithExceptions(String doingWhat) {
             this.doingWhat = doingWhat;
         }
 
@@ -192,12 +195,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
     }
 
     @GuardedBy("this")
-    private void notifyClientConnected() {
-        Node node = this.node;
-        if (node == null) {
-            return;
-        }
-        XdsConfig<DetailsT> config = xdsConfig.getXdsConfig();
+    private void notifyClientConnected(Node node, XdsConfig<DetailsT> config) {
         try (RunWithExceptions runner = new RunWithExceptions("notifying XdsEventListeners of client connection")) {
             for (XdsEventListener<DetailsT> listener: listeners) {
                 runner.exec(() -> listener.onNewClient(this, node, config));
@@ -206,7 +204,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
     }
 
     @GuardedBy("this")
-    private void notifyClientNack(TypeUrl typeUrl, com.google.rpc.Status errorDetail) {
+    private void notifyClientNack(Node node, TypeUrl typeUrl, com.google.rpc.Status errorDetail) {
         try (RunWithExceptions runner = new RunWithExceptions("notifying XdsEventListeners of a NACK")) {
             for (XdsEventListener<DetailsT> listener: listeners) {
                 runner.exec(() -> listener.onClientNack(this, node, typeUrl, errorDetail));
@@ -229,9 +227,10 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
     @GuardedBy("this")
     private void cleanupOnDisconnect(RunWithExceptions runner) {
         isDead = true;
-        if (discoveryServiceManager != null) {
+        DiscoveryServiceManager<T, StateUpdT> dsm = discoveryServiceManager;
+        if (dsm != null) {
             runner.exec(() -> clusterManager.unsubscribe(this));
-            runner.exec(() -> discoveryServiceManager.close());
+            runner.exec(dsm::close);
             discoveryServiceManager = null;
         }
         notifyClientDisconnected(runner);
@@ -274,7 +273,8 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
         }
 
         try {
-            discoveryServiceManager.pushUpdates(diff);
+            // Set before we subscribe, and only cleared once dead.
+            Preconditions.checkNotNull(discoveryServiceManager).pushUpdates(diff);
         } catch (Throwable t) {
             this.onError(t);
             throw t;

@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds;
 
+import org.jspecify.annotations.Nullable;
 import com.google.protobuf.Message;
 import com.google.rpc.Status;
 import io.envoyproxy.envoy.config.core.v3.Node;
@@ -15,5 +16,5 @@ public class CommonDiscoveryRequest<RequestT extends Message> {
     Node node;
     String typeUrl;
     RequestT message;
-    Status errorDetail;
+    @Nullable Status errorDetail;
 }
