@@ -36,11 +36,3 @@ dependencies {
     testImplementation 'dev.hegel:hegel:0.10.1'
 }
 
-compileTestJava {
-    // Hegel calls its native engine through the FFM API.
-    options.release = 22
-}
-
-test {
-    jvmArgs '--enable-native-access=ALL-UNNAMED'
-}

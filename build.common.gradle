@@ -63,6 +63,7 @@ compileJava {
 
 test {
     useJUnitPlatform()
+    jvmArgs '--enable-native-access=ALL-UNNAMED' // Hegel
     testLogging {
         events TestLogEvent.STARTED, TestLogEvent.FAILED, TestLogEvent.SKIPPED, TestLogEvent.PASSED,
                 TestLogEvent.STANDARD_ERROR
@@ -102,6 +103,8 @@ compileJava {
 }
 
 compileTestJava {
+    // Hegel calls its native engine through the FFM API. Tests aren't published, so needn't run on 17.
+    options.release = 22
     // Tests aren't @NullMarked, and often call a method for its side effect alone.
     options.errorprone.disable("NullAway", "CheckReturnValue")
 }
