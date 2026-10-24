@@ -83,10 +83,6 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
 
     @GuardedBy("this")
     private void extractNodeData(Node node) {
-        if (node == null) {
-            log.warn("Client fed us null node data, envoy bug?");
-            throw new StatusRuntimeException(Status.INVALID_ARGUMENT);
-        }
         XdsConfig<DetailsT> config = configProvider.lookup(node);
 
         this.node = node;
@@ -104,12 +100,8 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             Preconditions.checkState(!isDead);
             CommonDiscoveryRequest<T> value = commonDiscoveryRequestConverter.apply(concreteValue);
 
-            if (value.getTypeUrl() == null) {
-                throw new RuntimeException("Missing type URL on request");
-            }
-
             if (node == null) {
-                log.debug("New envoy connected: {}", value.getNode() != null ? value.getNode().getId() : null);
+                log.debug("New envoy connected: {}", value.getNode().getId());
                 extractNodeData(value.getNode());
             }
             final Node node = Preconditions.checkNotNull(this.node);
@@ -185,7 +177,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
                 if (caught instanceof RuntimeException rethrow) {
                     throw rethrow;
                 }
-                throw new RuntimeException("Caught exception while " + doingWhat, caught);
+                throw new IllegalStateException("Caught exception while " + doingWhat, caught);
             }
         }
     }

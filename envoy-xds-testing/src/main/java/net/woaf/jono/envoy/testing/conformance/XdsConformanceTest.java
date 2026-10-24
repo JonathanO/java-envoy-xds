@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.testing.conformance;
 
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.DynamicTest.dynamicTest;
@@ -560,6 +561,7 @@ public abstract class XdsConformanceTest {
          * Wait for Envoy's nth stream to sync. Every type it asked for must be answered well inside its 15s initial fetch
          * timeout. Later checks only look at what happens from here on.
          */
+        @CanIgnoreReturnValue
         private Conversation synced(int nth) {
             await().atMost(60, TimeUnit.SECONDS).until(() -> conversations.getConversations().size() >= nth);
             Conversation conversation = conversations.getConversations().get(nth - 1);

@@ -30,7 +30,7 @@ import org.assertj.core.api.InstanceOfAssertFactory;
 public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> {
 
 
-    public static InstanceOfAssertFactory<Conversation, SotwConversationAssert> SOTW_CONVERSATION = new InstanceOfAssertFactory<>(Conversation.class, new Factory());
+    public static final InstanceOfAssertFactory<Conversation, SotwConversationAssert> SOTW_CONVERSATION = new InstanceOfAssertFactory<>(Conversation.class, new Factory());
 
     protected SotwConversationAssert(Conversation actual) {
         super(actual, SotwConversationAssert.class);

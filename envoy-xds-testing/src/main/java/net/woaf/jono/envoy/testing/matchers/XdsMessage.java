@@ -52,7 +52,7 @@ public sealed interface XdsMessage {
      * @param message a DiscoveryRequest, DiscoveryResponse, DeltaDiscoveryRequest or DeltaDiscoveryResponse
      * @return the view, or empty for anything else
      */
-    static Optional<XdsMessage> of(Object message) {
+    static Optional<XdsMessage> of(@Nullable Object message) {
         if (message instanceof DiscoveryRequest r) {
             return Optional.of(new Request(r.getTypeUrl(), r.getResponseNonce(), r.getResourceNamesList(), List.of(),
                 r.hasErrorDetail() ? r.getErrorDetail().getMessage() : null));

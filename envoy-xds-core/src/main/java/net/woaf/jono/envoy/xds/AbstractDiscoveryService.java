@@ -46,12 +46,9 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
     @Override
     public void processUpdate(CommonDiscoveryRequest<T> value) {
         Preconditions.checkState(currentState != null, "Discovery must be initialized");
-        if (value.getTypeUrl() == null) {
-            throw new RuntimeException("Missing type URL on request");
-        }
         TypeUrl typeUrl = TypeUrl.of(value.getTypeUrl());
         if (!myTypeUrl.equals(typeUrl)) {
-            throw new RuntimeException(myTypeUrl.name() + " discovery service got called for request of type " + value.getTypeUrl());
+            throw new IllegalArgumentException(myTypeUrl.name() + " discovery service got called for request of type " + value.getTypeUrl());
         }
         active = true;
         processRequest(value.getMessage());

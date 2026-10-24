@@ -1,6 +1,5 @@
 package net.woaf.jono.envoy.example.configbuilder;
 
-import com.google.common.base.Preconditions;
 import net.woaf.jono.envoy.example.config.ClientConfig;
 import net.woaf.jono.envoy.example.state.Service;
 import net.woaf.jono.envoy.example.state.SimpleUpdate;
@@ -41,8 +40,6 @@ public class RouteConfigurationConfigBuilder extends AbstractConfigBuilder<Route
 
     @Override
     public Response<RouteConfiguration> addOrder(SimpleUpdate diff, Predicate<String> resourceInSubListChange, ClientConfig clientDetails) {
-        Preconditions.checkArgument(clientDetails != null);
-
         // Our toy example has a single route config with routes to every service. If a service is added/removed we have to update the route config to add a route to it, but we need to preserve all the existing routes too!
 
         if (!resourceInSubListChange.test(ROUTE_NAME)) {
@@ -59,8 +56,6 @@ public class RouteConfigurationConfigBuilder extends AbstractConfigBuilder<Route
 
     @Override
     public Response<RouteConfiguration> removeOrder(SimpleUpdate diff, Predicate<String> resourceInSubListChange, ClientConfig clientDetails) {
-        Preconditions.checkArgument(clientDetails != null);
-
         // Our toy example has a single route config with routes to every service. If a service is added/removed we have to update the route config to add a route to it, but we need to preserve all the existing routes too!
 
         if (!resourceInSubListChange.test(ROUTE_NAME)) {
@@ -77,8 +72,6 @@ public class RouteConfigurationConfigBuilder extends AbstractConfigBuilder<Route
 
     @Override
     public Resources<RouteConfiguration> getResources(Collection<Service> services, Predicate<String> resourceInSubListChange, ClientConfig clientDetails) {
-        Preconditions.checkArgument(clientDetails != null);
-
         if (!resourceInSubListChange.test(ROUTE_NAME)) {
             return Resources.<RouteConfiguration>builder().build();
         }

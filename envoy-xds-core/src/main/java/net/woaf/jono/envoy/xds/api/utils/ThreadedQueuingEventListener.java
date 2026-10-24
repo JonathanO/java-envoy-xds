@@ -82,7 +82,8 @@ public class ThreadedQueuingEventListener<StateUpdT> implements ClusterManagerEv
         try {
             processorThread.join();
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
         }
     }
 

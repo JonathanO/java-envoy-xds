@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.snapshot;
 
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import org.jspecify.annotations.Nullable;
 import java.util.concurrent.ConcurrentHashMap;
@@ -47,6 +48,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
      * @param edit applies your changes to an editor of the current snapshot
      * @return the update sent to clients
      */
+    @CanIgnoreReturnValue
     public synchronized SnapshotUpdate<D> update(UnaryOperator<Snapshot.Editor> edit) {
         return publish(edit.apply(current.base().edit()).build());
     }
@@ -57,6 +59,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
      * @param next the new desired config
      * @return the update sent to clients
      */
+    @CanIgnoreReturnValue
     public synchronized SnapshotUpdate<D> publish(Snapshot next) {
         Published<D> published = new Published<>(next, overlay);
         SnapshotUpdate<D> update = new SnapshotUpdate<>(current, published, next.parentId() == current.base().id() ? next.touched() : null);
