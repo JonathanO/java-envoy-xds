@@ -29,6 +29,7 @@ import io.envoyproxy.envoy.service.discovery.v3.Resource;
 import io.grpc.stub.StreamObserver;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
@@ -365,6 +366,61 @@ public class IncrementalDiscoveryServiceTest {
         assertThat(resp.getRemovedResourcesList()).isEmpty();
 
         assertThat(ds.awaitingAck()).isTrue();
+    }
+
+    @Test
+    public void testExplicitSubscribeInWildcardModeIsAnswered(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
+                                                              @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
+
+        final DummyUpdate initState = new DummyUpdate();
+        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+
+        final Cluster foo = Cluster.newBuilder()
+            .setName("foo")
+            .build();
+
+        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenAnswer(inv -> {
+            Predicate<String> filter = inv.getArgument(1);
+            IncrementalConfigBuilder.Resources.ResourcesBuilder<Cluster> builder = IncrementalConfigBuilder.Resources.builder();
+            if (filter.test("foo")) {
+                builder.resource(IncrementalConfigBuilder.NamedMessage.of(foo));
+            }
+            return builder.build();
+        });
+
+        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryService<>(TypeUrl.CDS, responseObserver, configBuilder, nodeConfig, new WildcardSubManager(nodeConfig));
+        ds.init(initState);
+
+        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
+            .typeUrl(TypeUrl.CDS.getTypeUrl())
+            .message(DeltaDiscoveryRequest.newBuilder()
+                .setTypeUrl(TypeUrl.CDS.getTypeUrl())
+                .addResourceNamesSubscribe("*")
+                .build())
+            .build());
+        verify(responseObserver).onNext(responseCaptor.capture());
+        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
+            .typeUrl(TypeUrl.CDS.getTypeUrl())
+            .message(DeltaDiscoveryRequest.newBuilder()
+                .setTypeUrl(TypeUrl.CDS.getTypeUrl())
+                .setResponseNonce(responseCaptor.getValue().getNonce())
+                .build())
+            .build());
+
+        // On-demand style subscribe to a name that doesn't exist, without touching "*": the spec requires an answer
+        // that removes it, or Envoy waits out initial_fetch_timeout.
+        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
+            .typeUrl(TypeUrl.CDS.getTypeUrl())
+            .message(DeltaDiscoveryRequest.newBuilder()
+                .setTypeUrl(TypeUrl.CDS.getTypeUrl())
+                .addResourceNamesSubscribe("missing")
+                .build())
+            .build());
+
+        verify(responseObserver, times(2)).onNext(responseCaptor.capture());
+        DeltaDiscoveryResponse resp = responseCaptor.getValue();
+        assertThat(resp.getResourcesList()).isEmpty();
+        assertThat(resp.getRemovedResourcesList()).containsExactly("missing");
     }
 
     @Test

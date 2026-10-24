@@ -67,8 +67,9 @@ class WildcardSubManager implements SubManager {
                 )
             );
         } else {
-            // Nothing happened
-            return Optional.empty();
+            // Explicit names added while in wildcard mode still need an answer: the spec requires one, with removals for
+            // names that don't exist.
+            return subListChange;
         }
     }
 
