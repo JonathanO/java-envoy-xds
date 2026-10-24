@@ -2,6 +2,8 @@ package net.woaf.jono.envoy.xds.api;
 
 import org.jspecify.annotations.Nullable;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.errorprone.annotations.Immutable;
+import com.google.errorprone.annotations.ImmutableTypeParameter;
 import com.google.protobuf.Message;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
@@ -87,7 +89,8 @@ public interface IncrementalConfigBuilder<ResourceT extends Message, StateUpdT, 
      * @param <ResourceT> Type of envoy resource being held
      */
     @Value
-    class NamedMessage<ResourceT extends Message> {
+    @Immutable
+    class NamedMessage<@ImmutableTypeParameter ResourceT extends Message> {
         String name;
         ResourceT message;
 

@@ -1,6 +1,7 @@
 package net.woaf.jono.envoy.testing.utils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 import io.grpc.ForwardingServerCall;
 import io.grpc.ForwardingServerCallListener;
 import io.grpc.Metadata;
@@ -37,8 +38,11 @@ public class ConversationLogger implements ServerInterceptor {
     @ToString
     public static class Conversation {
 
+        @GuardedBy("this")
         private final List<Object> messages = new ArrayList<>();
+        @GuardedBy("this")
         private boolean isFinished = false;
+        @GuardedBy("this")
         private long lastMessageNanos = System.nanoTime();
 
         public synchronized void onCancel() {
