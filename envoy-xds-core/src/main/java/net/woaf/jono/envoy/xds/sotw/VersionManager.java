@@ -4,6 +4,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.primitives.UnsignedLong;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.Nullable;
 
 import java.util.UUID;
 
@@ -19,10 +20,10 @@ class VersionManager {
         this.currentVersion = initialVersion;
     }
 
-    private String currentNonce;
+    private @Nullable String currentNonce;
 
-    private UnsignedLong acceptedVersion;
-    private UnsignedLong sentVersion;
+    private @Nullable UnsignedLong acceptedVersion;
+    private @Nullable UnsignedLong sentVersion;
 
     private UnsignedLong currentVersion;
 
@@ -43,14 +44,14 @@ class VersionManager {
     }
 
     @VisibleForTesting
-    UnsignedLong getSentVersion() {
+    @Nullable UnsignedLong getSentVersion() {
         return sentVersion;
     }
 
     public boolean processUpdate(String responseNonce, String versionInfo) {
         if (sentVersion != null) {
-            if (!currentNonce.equals(responseNonce)) {
-                log.debug("Client sent stale nonce {}, ignoring", responseNonce == null ? "''" : responseNonce);
+            if (!responseNonce.equals(currentNonce)) {
+                log.debug("Client sent stale nonce {}, ignoring", responseNonce.isEmpty() ? "''" : responseNonce);
                 return false;
             }
 

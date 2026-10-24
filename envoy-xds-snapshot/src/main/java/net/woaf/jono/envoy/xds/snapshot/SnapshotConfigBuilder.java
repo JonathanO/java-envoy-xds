@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.snapshot;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.Message;
 import java.util.Arrays;
@@ -82,7 +83,8 @@ public final class SnapshotConfigBuilder<R extends Message, D> implements Increm
                 continue;
             }
             R value = services.after(type, name, clientDetails);
-            resources.resource(new NamedMessage<>(name, value != null ? value : services.before(type, name, clientDetails)));
+            // Named before or after, so one of them has it.
+            resources.resource(new NamedMessage<>(name, value != null ? value : Preconditions.checkNotNull(services.before(type, name, clientDetails))));
         }
         return resources.build();
     }
@@ -92,7 +94,7 @@ public final class SnapshotConfigBuilder<R extends Message, D> implements Increm
         Resources.ResourcesBuilder<R> resources = Resources.builder();
         for (String name : services.namesAfter(type, clientDetails)) {
             if (resourceInSubListChange.test(name)) {
-                resources.resource(new NamedMessage<>(name, services.after(type, name, clientDetails)));
+                resources.resource(new NamedMessage<>(name, Preconditions.checkNotNull(services.after(type, name, clientDetails))));
             }
         }
         return resources.build();

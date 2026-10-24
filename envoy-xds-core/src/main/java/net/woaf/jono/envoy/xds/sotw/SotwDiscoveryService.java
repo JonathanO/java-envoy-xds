@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.sotw;
 
+import org.jspecify.annotations.Nullable;
 import com.google.protobuf.Message;
 import net.woaf.jono.envoy.xds.NodeConfig;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder;
@@ -26,7 +27,7 @@ class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends Abstr
     private final SubManager subManager;
     private final VersionManager versionManager;
 
-    private String awaitingVersion = null;
+    private @Nullable String awaitingVersion = null;
 
     private final Map<String, NamedMessage<E>> resourceState = new LinkedHashMap<>();
 

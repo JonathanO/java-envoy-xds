@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.api.utils;
 
+import org.jspecify.annotations.Nullable;
 import net.woaf.jono.envoy.xds.api.Mergeable;
 import net.woaf.jono.envoy.xds.api.StateBacklog;
 import net.woaf.jono.envoy.xds.api.StateBacklogFactory;
@@ -10,7 +11,7 @@ import net.woaf.jono.envoy.xds.api.StateBacklogFactory;
  */
 public class MergingStateBacklog<StateUpdT extends Mergeable<StateUpdT>> implements StateBacklog<StateUpdT> {
 
-    private StateUpdT backlog = null;
+    private @Nullable StateUpdT backlog = null;
 
     private MergingStateBacklog() {
     }
@@ -30,7 +31,7 @@ public class MergingStateBacklog<StateUpdT extends Mergeable<StateUpdT>> impleme
     }
 
     @Override
-    public synchronized StateUpdT take() {
+    public synchronized @Nullable StateUpdT take() {
         StateUpdT value = backlog;
         backlog = null;
         return value;

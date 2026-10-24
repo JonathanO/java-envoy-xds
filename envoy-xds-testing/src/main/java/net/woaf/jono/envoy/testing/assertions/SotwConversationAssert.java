@@ -2,11 +2,14 @@ package net.woaf.jono.envoy.testing.assertions;
 
 import static net.woaf.jono.envoy.testing.configdump.EnvoyAdminClient.sneakyUnpack;
 
+import com.google.common.base.Preconditions;
+import org.jspecify.annotations.Nullable;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.SetMultimap;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.protobuf.Any;
+import com.google.protobuf.Message;
 import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
 import net.woaf.jono.envoy.testing.XdsTypes;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
@@ -145,7 +148,8 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
     }
 
     private String getNameForResource(Any any) {
-        Object resource = sneakyUnpack(any, XdsTypes.messageClass(any.getTypeUrl()));
+        Class<? extends Message> type = XdsTypes.messageClass(any.getTypeUrl());
+        Object resource = type == null ? any : sneakyUnpack(any, type); // an unknown type fails below
         if (resource instanceof Cluster c) {
             return c.getName();
         }
@@ -158,8 +162,7 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
         if (resource instanceof RouteConfiguration r) {
             return r.getName();
         }
-        failWithMessage("Found message of type I don't know how to decode <%s>", any.getTypeUrl());
-        return null;
+        throw failure("Found message of type I don't know how to decode <%s>", any.getTypeUrl());
     }
 
     @Override
@@ -208,7 +211,7 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
 
     @Override
     @CanIgnoreReturnValue
-    public SotwConversationAssert wasMakeBeforeBreak(int fromMessage, Conversation before) {
+    public SotwConversationAssert wasMakeBeforeBreak(int fromMessage, @Nullable Conversation before) {
         isNotNull();
         AckedState state = new AckedState();
         if (before != null) {
@@ -243,7 +246,7 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
             } else if (message instanceof DiscoveryRequest r && !r.hasErrorDetail()) {
                 DiscoveryResponse ackedResponse = pending.remove(r.getResponseNonce());
                 if (ackedResponse != null) {
-                    state.acked(ackedResponse.getTypeUrl(), ackedResponse.getResourcesList(), pendingRemovals.remove(r.getResponseNonce()));
+                    state.acked(ackedResponse.getTypeUrl(), ackedResponse.getResourcesList(), Preconditions.checkNotNull(pendingRemovals.remove(r.getResponseNonce())));
                 }
                 if (!XdsTypes.isWildcard(r.getTypeUrl())) {
                     // Envoy drops what it stops asking for, e.g. a route config once no listener uses it.

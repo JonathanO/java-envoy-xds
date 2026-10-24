@@ -26,6 +26,7 @@ public class EnvoyContainer extends GenericContainer<EnvoyContainer> {
 
     private final List<String> log = Collections.synchronizedList(new ArrayList<>());
 
+    @SuppressWarnings("this-escape") // the usual Testcontainers set-up; subclasses get our defaults first
     public EnvoyContainer(String image) {
         super(DockerImageName.parse(image));
         // Old Envoy builds occasionally crash in tcmalloc at startup; wait for the admin API and retry if it never comes up.

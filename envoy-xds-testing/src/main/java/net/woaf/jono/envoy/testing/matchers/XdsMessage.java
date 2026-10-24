@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.testing.matchers;
 
+import org.jspecify.annotations.Nullable;
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.Any;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -28,7 +29,7 @@ public sealed interface XdsMessage {
      * @param unsubscribe names it unsubscribes from: delta only, SotW requests carry the whole list instead
      * @param errorMessage why Envoy rejected the response it answers, or null if it didn't
      */
-    record Request(String typeUrl, String responseNonce, List<String> subscribe, List<String> unsubscribe, String errorMessage) implements XdsMessage {
+    record Request(String typeUrl, String responseNonce, List<String> subscribe, List<String> unsubscribe, @Nullable String errorMessage) implements XdsMessage {
 
         public boolean isNack() {
             return errorMessage != null;

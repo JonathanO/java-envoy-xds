@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds;
 
+import org.jspecify.annotations.Nullable;
 import com.google.protobuf.Message;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
@@ -43,7 +44,7 @@ public enum TypeUrl {
         return typeUrl;
     }
 
-    public static TypeUrl of(String typeUrl) {
+    public static @Nullable TypeUrl of(String typeUrl) {
         return Arrays.stream(TypeUrl.values()).filter(
                 t -> t.getTypeUrl().equals(typeUrl)
         ).findAny().orElse(null);

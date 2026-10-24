@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.api;
 
+import org.jspecify.annotations.Nullable;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.protobuf.Message;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
@@ -201,7 +202,7 @@ public interface IncrementalConfigBuilder<ResourceT extends Message, StateUpdT, 
         }
 
         @VisibleForTesting
-        public ResourceT getByName(String name) {
+        public @Nullable ResourceT getByName(String name) {
             return resources.stream().filter(r -> name.equals(r.getName())).findAny().map(NamedMessage::getMessage).orElse(null);
         }
     }
