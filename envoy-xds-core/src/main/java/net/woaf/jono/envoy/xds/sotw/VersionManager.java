@@ -57,8 +57,8 @@ class VersionManager {
             if (Strings.isNullOrEmpty(versionInfo)) {
                 log.error("Client rejected version {} and has no version to roll back to!", sentVersion);
             } else {
-                UnsignedLong parsedVersion = UnsignedLong.valueOf(versionInfo);
-                if (!sentVersion.equals(parsedVersion)) {
+                // Compare as strings: the client may echo a version from another control plane, which needn't be a number.
+                if (!sentVersion.toString().equals(versionInfo)) {
                     log.error("Client rejected version {} and rolled back to {}", sentVersion, versionInfo);
                 } else {
                     log.debug("Client accepted version {}", sentVersion);

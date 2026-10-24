@@ -44,6 +44,16 @@ public class VersionManagerSpec {
     }
 
     @Test
+    public void testRejectsRollingBackToNonNumericVersion() {
+        VersionManager versionManager = new VersionManager();
+        versionManager.processUpdate("", "");
+        final String sentNonce = versionManager.pushedVersion("1");
+        // e.g. a version left over from another control plane
+        assertThat(versionManager.processUpdate(sentNonce, "v-abc")).isTrue();
+        assertThat(versionManager.hasAcceptedVersion("1")).isFalse();
+    }
+
+    @Test
     public void testsRejectsThenAccepts() {
         VersionManager versionManager = new VersionManager();
         versionManager.processUpdate("", "");
