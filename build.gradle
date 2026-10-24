@@ -15,6 +15,25 @@ plugins {
     id "net.ltgt.errorprone" version "5.1.1" apply false
     id 'info.solidsoft.pitest' version '1.19.0' apply false
     id 'io.github.gradle-nexus.publish-plugin' version "2.0.0"
+    id 'com.autonomousapps.dependency-analysis' version '3.9.0'
+}
+
+dependencyAnalysis {
+    // JUnit's aggregate artifact is how JUnit says to depend on it.
+    structure {
+        bundle('junit-jupiter') {
+            includeGroup('org.junit.jupiter')
+        }
+    }
+    issues {
+        all {
+            onUnusedDependencies {
+                // build.common.gradle gives every module the same test kit.
+                exclude('org.assertj:assertj-core', 'org.mockito:mockito-core', 'org.mockito:mockito-junit-jupiter',
+                    'org.junit.jupiter:junit-jupiter')
+            }
+        }
+    }
 }
 
 idea.project {
