@@ -1,5 +1,16 @@
 package net.woaf.jono.envoy.xds.api;
 
+/**
+ * The source of state updates for connected clients.
+ *
+ * <p>Threading: each client's listener holds its own lock while calling {@link #subscribe} and {@link #unsubscribe},
+ * and takes that lock when it receives an update. So never call a listener while holding a lock that subscribe or
+ * unsubscribe also take, or a client connecting while you broadcast deadlocks. A listener that fails during an update
+ * unsubscribes itself from inside that call, so broadcasts must also tolerate unsubscribe while iterating listeners.
+ * The simplest way to meet both is to wrap each listener in
+ * {@link net.woaf.jono.envoy.xds.api.utils.QueueingMergingEventListener}, as {@code SnapshotSource} does, so
+ * broadcasting only enqueues.</p>
+ */
 public interface ClusterEventSource<StateUpdT> {
 
     /**
