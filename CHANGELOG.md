@@ -29,6 +29,7 @@ All notable changes to this project will be documented in this file.
 * A request for an xDS type we don't serve (e.g. ECDS) is logged and left unanswered, instead of closing the stream
 * Normal client disconnects (`CANCELLED`) are no longer logged as warnings
 * Each resource is packed into an `Any` once, instead of once per client
+* SotW: a request that lists a name twice no longer leaves names it dropped subscribed
 
 ## [2.0.0] - 2026-10-16
 ### Changed
