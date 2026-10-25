@@ -13,8 +13,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import lombok.EqualsAndHashCode;
-import lombok.ToString;
 
 public class ConversationLogger implements ServerInterceptor {
 
@@ -34,8 +32,6 @@ public class ConversationLogger implements ServerInterceptor {
         return ImmutableList.copyOf(conversations);
     }
 
-    @EqualsAndHashCode
-    @ToString
     public static class Conversation {
 
         @GuardedBy("this")
@@ -78,6 +74,11 @@ public class ConversationLogger implements ServerInterceptor {
 
         public synchronized List<Object> getMessages() {
             return ImmutableList.copyOf(messages);
+        }
+
+        @Override
+        public synchronized String toString() {
+            return "Conversation(finished=" + isFinished + ", messages=" + messages + ")";
         }
 
         public synchronized boolean isFinished() {
