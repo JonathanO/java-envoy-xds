@@ -15,7 +15,7 @@ testImplementation 'net.woaf.jono.envoy:envoy-xds-testing:<version>'
 ```
 
 You also need Docker, JUnit 5 or later, and an envoy-api with the usual `io.envoyproxy.envoy` packages. That is
-whichever one your control plane already uses, e.g. `com.transferwise.envoy:envoy-api` or java-control-plane's
+whichever one your control plane already uses, e.g. `net.woaf.jono.envoy:envoy-api` or java-control-plane's
 `io.envoyproxy.controlplane:api`.
 
 What's in it:
