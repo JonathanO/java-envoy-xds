@@ -33,6 +33,7 @@ All notable changes to this project will be documented in this file.
 * Normal client disconnects (`CANCELLED`) are no longer logged as warnings
 * Each resource is packed into an `Any` once, instead of once per client
 * SotW: a request that lists a name twice no longer leaves names it dropped subscribed
+* `Snapshot.Editor.put` and `remove` can be called for their effect alone: with Error Prone, filling an editor in a loop no longer fails `CheckReturnValue`
 
 ## [2.0.0] - 2026-10-16
 ### Changed
