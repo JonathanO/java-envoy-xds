@@ -13,10 +13,11 @@ dependencies {
     api project(':envoy-xds-testing')
     testImplementation "com.google.guava:guava:33.7.2-jre"
     testImplementation 'com.google.protobuf:protobuf-java:4.36.2'
-    testImplementation 'com.transferwise.envoy:envoy-api:1.17.0'
+    testImplementation 'net.woaf.jono.envoy:envoy-api:1.36.0'
     testImplementation project(':envoy-xds-snapshot')
     testImplementation project(':envoy-xds-example')
     testImplementation 'io.grpc:grpc-api:1.85.1'
+    testRuntimeOnly 'io.grpc:grpc-netty-shaded:1.85.1'
     testImplementation 'org.hamcrest:hamcrest:3.0'
     testImplementation 'org.testcontainers:testcontainers:2.0.5'
     testImplementation 'org.awaitility:awaitility:4.3.0'
