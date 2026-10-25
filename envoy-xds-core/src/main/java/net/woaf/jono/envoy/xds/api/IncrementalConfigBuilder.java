@@ -83,18 +83,34 @@ public interface IncrementalConfigBuilder<ResourceT extends Message, StateUpdT, 
     @Immutable
     record NamedMessage<@ImmutableTypeParameter ResourceT extends Message>(String name, ResourceT message) {
 
+        /**
+         * {@return it, named by its cluster name}
+         * @param cla the resource
+         */
         public static NamedMessage<ClusterLoadAssignment> of(ClusterLoadAssignment cla) {
             return new NamedMessage<>(cla.getClusterName(), cla);
         }
 
+        /**
+         * {@return it, named by its name}
+         * @param cla the resource
+         */
         public static NamedMessage<Cluster> of(Cluster cla) {
             return new NamedMessage<>(cla.getName(), cla);
         }
 
+        /**
+         * {@return it, named by its name}
+         * @param cla the resource
+         */
         public static NamedMessage<Listener> of(Listener cla) {
             return new NamedMessage<>(cla.getName(), cla);
         }
 
+        /**
+         * {@return it, named by its name}
+         * @param cla the resource
+         */
         public static NamedMessage<RouteConfiguration> of(RouteConfiguration cla) {
             return new NamedMessage<>(cla.getName(), cla);
         }
@@ -110,11 +126,16 @@ public interface IncrementalConfigBuilder<ResourceT extends Message, StateUpdT, 
      */
     record Response<ResourceT extends Message>(List<NamedMessage<ResourceT>> addAndUpdates, List<String> removes) {
 
+        /** Copies both lists. */
         public Response {
             addAndUpdates = ImmutableList.copyOf(addAndUpdates);
             removes = ImmutableList.copyOf(removes);
         }
 
+        /**
+         * {@return a response that changes nothing}
+         * @param <ResourceT> Type of envoy resource
+         */
         public static <ResourceT extends Message> Response<ResourceT> empty() {
             return new Response<>(List.of(), List.of());
         }
@@ -136,14 +157,23 @@ public interface IncrementalConfigBuilder<ResourceT extends Message, StateUpdT, 
      */
     record Resources<ResourceT extends Message>(List<NamedMessage<ResourceT>> resources) {
 
+        /** Copies the list. */
         public Resources {
             resources = ImmutableList.copyOf(resources);
         }
 
+        /**
+         * {@return no resources}
+         * @param <ResourceT> Type of envoy resource
+         */
         public static <ResourceT extends Message> Resources<ResourceT> empty() {
             return new Resources<>(List.of());
         }
 
+        /**
+         * {@return the resource with that name, or null}
+         * @param name a resource name
+         */
         @VisibleForTesting
         public @Nullable ResourceT getByName(String name) {
             return resources.stream().filter(r -> name.equals(r.name())).findAny().map(NamedMessage::message).orElse(null);

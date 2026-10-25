@@ -36,10 +36,16 @@ public final class SnapshotUpdate<D> implements Mergeable<SnapshotUpdate<D>> {
         this.touched = touched;
     }
 
+    /**
+     * {@return the snapshot clients had before this update}
+     */
     public Snapshot getPrevious() {
         return previous.base();
     }
 
+    /**
+     * {@return the snapshot clients have after it}
+     */
     public Snapshot getCurrent() {
         return current.base();
     }

@@ -52,27 +52,21 @@ public final class Checkpoint {
     }
 
     /**
-
-     * Conversation size when taken, e.g. for {@link Settled#settledAfter}.
-
+     * {@return the conversation size when taken, e.g. for {@link Settled#settledAfter}}
      */
     public int message() {
         return message;
     }
 
     /**
-
-     * Envoy's log length when taken.
-
+     * {@return Envoy's log length when taken}
      */
     public int logLine() {
         return logLine;
     }
 
     /**
-
-     * Envoy's stats when taken.
-
+     * {@return Envoy's stats when taken}
      */
     public Map<String, Long> stats() {
         return stats;
