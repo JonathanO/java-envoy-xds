@@ -27,9 +27,9 @@ dependencies {
     api 'com.google.errorprone:error_prone_annotations:2.51.0'
     implementation 'io.grpc:grpc-api:1.85.1'
     implementation 'org.slf4j:slf4j-api:2.0.20'
-    compileOnly 'com.transferwise.envoy:envoy-api:1.17.0' // Users are expected to provide a compatible envoy api
+    compileOnly 'net.woaf.jono.envoy:envoy-api:1.36.0' // Users are expected to provide a compatible envoy api
     pitest 'org.pitest:pitest-junit5-plugin:1.2.3'
-    testImplementation 'com.transferwise.envoy:envoy-api:1.17.0'
+    testImplementation 'net.woaf.jono.envoy:envoy-api:1.36.0'
     testImplementation 'com.github.spotbugs:spotbugs-annotations:4.10.5'
     testImplementation 'dev.hegel:hegel:0.10.1'
 }
