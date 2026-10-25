@@ -1,3 +1,6 @@
+/**
+ * A conformance suite for xDS libraries, run against real Envoys.
+ */
 @NullMarked
 @CheckReturnValue
 package net.woaf.jono.envoy.testing.conformance;

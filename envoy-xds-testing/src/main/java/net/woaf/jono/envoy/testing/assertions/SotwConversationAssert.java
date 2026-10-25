@@ -27,15 +27,29 @@ import java.util.stream.Collectors;
 import org.assertj.core.api.AssertFactory;
 import org.assertj.core.api.InstanceOfAssertFactory;
 
+/**
+ * Checks on a recorded SotW xDS conversation.
+ */
 public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> {
 
 
+    /**
+     * For AssertJ's {@code asInstanceOf} and {@code extracting}.
+     */
     public static final InstanceOfAssertFactory<Conversation, SotwConversationAssert> SOTW_CONVERSATION = new InstanceOfAssertFactory<>(Conversation.class, new Factory());
 
+    /**
+     * Use {@link #assertThat}.
+     * @param actual the conversation
+     */
     protected SotwConversationAssert(Conversation actual) {
         super(actual, SotwConversationAssert.class);
     }
 
+    /**
+     * {@return checks on this conversation}
+     * @param actual the conversation
+     */
     public static SotwConversationAssert assertThat(Conversation actual) {
         return new SotwConversationAssert(actual);
     }
@@ -301,7 +315,12 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
         return this;
     }
 
+    /** An AssertJ factory for these checks. */
     public static class Factory implements AssertFactory<Conversation, SotwConversationAssert> {
+
+        /** Creates the factory. */
+        public Factory() {
+        }
 
         @Override
         public SotwConversationAssert createAssert(Conversation conversation) {

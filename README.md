@@ -36,8 +36,9 @@ But I guess the answer is - it scales well enough under non-trivial loads.
 ## Usage
 
 envoy-xds-example contains a toy example ADS, documented [here](envoy-xds-example/README.md).
-Any implementation will need to provide a dependency on a version of com.transferwise.envoy:envoy-api supported by the
-envoy version they run.
+Any implementation will need to provide a dependency on a version of the Envoy API supported by the envoy version they
+run, e.g. [net.woaf.jono.envoy:envoy-api](https://github.com/JonathanO/envoy-api-java), which is published for each
+Envoy release.
 
 ### Snapshots (experimental)
 
@@ -93,12 +94,13 @@ just this library's, and includes a conformance suite for xDS libraries. See [it
 
 ## Versioning
 
-At the moment the library has a compile-only dependency on a version of com.transferwise.envoy:envoy-api. It relies only
-on classes and fields that are common to all versions of the v3 API, there is no dependency on anything known to be envoy
-version specific.
+The library has a compile-only dependency on net.woaf.jono.envoy:envoy-api, built from the oldest Envoy release the
+e2e tests cover. It relies only on classes and fields that are common to all versions of the v3 API, there is no
+dependency on anything known to be envoy version specific.
 
-Users of the library can depend on any version of com.transferwise.envoy:envoy-api appropriate for the Envoy version used.
-The upstream io.envoyproxy.controlplane:api protos should also work, as the generated packages are the same.
+Users of the library can depend on the net.woaf.jono.envoy:envoy-api version matching the Envoy they run. Other builds
+of the same protos, such as com.transferwise.envoy:envoy-api or java-control-plane's io.envoyproxy.controlplane:api,
+should also work, as the generated packages are the same.
 
 The e2e tests run against Envoy 1.36 to 1.40, over both SotW and delta ADS.
 See Envoy's deprecation rules for specifics of what version you should choose.

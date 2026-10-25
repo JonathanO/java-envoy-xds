@@ -35,6 +35,10 @@ public class EnvoyAdminClient {
 
     private final HostAndPort hostAndPort;
 
+    /**
+     * A client for an Envoy's admin interface.
+     * @param hostAndPort where it listens
+     */
     public EnvoyAdminClient(HostAndPort hostAndPort) {
         this.hostAndPort = hostAndPort;
     }

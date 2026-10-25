@@ -19,6 +19,9 @@ import net.woaf.jono.envoy.testing.XdsTypes;
  */
 public sealed interface XdsMessage {
 
+    /**
+     * {@return the message's type URL}
+     */
     String typeUrl();
 
     /**
@@ -31,6 +34,9 @@ public sealed interface XdsMessage {
      */
     record Request(String typeUrl, String responseNonce, List<String> subscribe, List<String> unsubscribe, @Nullable String errorMessage) implements XdsMessage {
 
+        /**
+         * {@return whether Envoy rejected the response this answers}
+         */
         public boolean isNack() {
             return errorMessage != null;
         }

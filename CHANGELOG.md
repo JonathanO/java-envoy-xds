@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 * Results of our methods must be used, unless marked `@CanIgnoreReturnValue` (`SnapshotSource.update` and `publish` are)
 
 ### Changed
+* Built and tested against `net.woaf.jono.envoy:envoy-api` 1.36.0 (from [envoy-api-java](https://github.com/JonathanO/envoy-api-java), published for each Envoy release) instead of `com.transferwise.envoy:envoy-api` 1.17.0. It's still `compileOnly`, so bring the envoy-api you already use
 * `delayUpdatesUntilAckOf` no longer blocks updates forever when the client never ACKs that type: it's ignored if `subscribesTo` leaves the type out, and otherwise gives up after 30 seconds with a warning
 * e2e tests run on Envoy 1.36 to 1.40, the releases upstream supports, instead of also 1.17 to 1.24
 * **Breaking (unreleased API):** `XdsConformanceTest` runs its own matrix: every scenario on both protocols (or `protocols()`), on Envoy 1.36 and 1.40, with and without rate limiting. Libraries implement `newControlPlane()` once, instead of a subclass per variant, and record deviations with `knownDeviations()`.
@@ -22,6 +23,9 @@ All notable changes to this project will be documented in this file.
 * `TypedEnvoyConfigDump` sections Envoy left out of the dump are empty instead of null
 * Dependencies: core and snapshot expose Guava, protobuf-java, grpc-stub (core) and error_prone_annotations as `api`, since their types are in our API. spotbugs-annotations and javax.annotation-api are no longer dependencies. `./gradlew buildHealth` reports unused and undeclared dependencies
 * **Breaking:** no more Lombok. `XdsConfig`, `NodeConfig`, `CommonDiscoveryRequest`, `NamedMessage`, `Response`, `Resources` and `TypedEnvoyConfigDump` are records, so their accessors drop the `get`/`is` prefix (`name()`, `addAndUpdates()`, `clientDetails()`). Their builders are gone: use `XdsConfig.of(details)`, with `withDelayUpdatesUntilAckOf` and `withSubscribesTo`; `new Response<>(addAndUpdates, removes)` or `Response.empty()`; `new Resources<>(resources)` or `Resources.empty()`; `TypedEnvoyConfigDump.of(dump)`. The unused `Response.merge()` and `Resources.merge()` are removed. `XdsConfig.delayUpdatesUntilAckOf` and `subscribesTo` are now marked `@Nullable`, as documented
+* **Breaking:** clients no longer get a thread each. `SnapshotSource` delivers updates on a shared pool with one thread per core, or on your own `Executor` (`new SnapshotSource<>(overlay, executor)`). `QueueingMergingEventListener`, `QueueingEventListener` and `ThreadedQueuingEventListener` are replaced by `SerialEventListener`, which delivers each client's updates in order on an executor and doesn't merge: updates that arrive while a client is busy are merged by its `StateBacklog`, so use `MergingStateBacklog` to keep merging
+* **Breaking:** the protocol machinery moved to `net.woaf.jono.envoy.xds.internal` (and `.internal.delta`, `.internal.sotw`), which is not API and may change in any release: `DiscoveryServiceManager`, `CommonDiscoveryStreamObserver`, `NodeConfig`, `CommonDiscoveryRequest`, the discovery services and their factories. Use `AggregatedDiscoveryService`; its constructor taking the per-protocol services is gone
+* Every public class and method in core, snapshot and testing has Javadoc, and the Javadoc build fails on warnings
 * **Breaking:** removed `XdsConfig.silentNacks`. Every NACK now freezes the stream, and is logged at warn; use `onClientNack` to act on it.
 
 ### Fixed
@@ -32,6 +36,7 @@ All notable changes to this project will be documented in this file.
 * Normal client disconnects (`CANCELLED`) are no longer logged as warnings
 * Each resource is packed into an `Any` once, instead of once per client
 * SotW: a request that lists a name twice no longer leaves names it dropped subscribed
+* `Snapshot.Editor.put` and `remove` can be called for their effect alone: with Error Prone, filling an editor in a loop no longer fails `CheckReturnValue`
 
 ## [2.0.0] - 2026-10-16
 ### Changed
