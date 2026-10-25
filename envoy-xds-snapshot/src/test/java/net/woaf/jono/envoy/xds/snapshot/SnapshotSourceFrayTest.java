@@ -10,6 +10,9 @@ import io.grpc.stub.StreamObserver;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.woaf.jono.envoy.xds.AggregatedDiscoveryService;
@@ -68,9 +71,21 @@ public class SnapshotSourceFrayTest {
         }
     }
 
+    /** Our own pool, so each interleaving can shut it down: Fray needs every thread to end. */
+    private static ExecutorService pool() {
+        return Executors.newFixedThreadPool(2);
+    }
+
+    /** Waits for every queued delivery, then lets the pool's threads end. */
+    private static void drain(ExecutorService pool) throws InterruptedException {
+        pool.shutdown();
+        assertThat(pool.awaitTermination(1, TimeUnit.MINUTES)).isTrue();
+    }
+
     @FrayTest(iterations = 100)
     void subscribingWhilePublishingMissesNothing() throws InterruptedException {
-        SnapshotSource<Object> source = new SnapshotSource<>();
+        ExecutorService pool = pool();
+        SnapshotSource<Object> source = new SnapshotSource<>(null, pool);
         Client client = new Client();
 
         // A small message, so each interleaving doesn't load Envoy's API.
@@ -86,6 +101,7 @@ public class SnapshotSourceFrayTest {
         // Unsubscribing drains what's queued, then closes the client.
         source.unsubscribe(client);
         client.closed.await();
+        drain(pool);
 
         assertThat(client.problem()).isEmpty();
         assertThat(client.seen()).isSameAs(source.current());
@@ -129,23 +145,18 @@ public class SnapshotSourceFrayTest {
         }
     }
 
-    private static final class NoListener implements ClusterManagerEventListener<SnapshotUpdate<Object>> {
-        @Override
-        public void onNetworkChange(SnapshotUpdate<Object> update) {
-        }
-    }
-
     // Taking synchronized off CommonDiscoveryStreamObserver.onNetworkChange first fails around interleaving 60.
     @FrayTest(iterations = 150)
     void streamEndingWhileChangesArriveEndsCleanly() throws InterruptedException {
-        SnapshotSource<Object> source = new SnapshotSource<>();
+        ExecutorService pool = pool();
+        SnapshotSource<Object> source = new SnapshotSource<>(null, pool);
         AggregatedDiscoveryService<SnapshotUpdate<Object>, Object> ads = new AggregatedDiscoveryService<>(source,
             SnapshotConfigBuilder.<Object>forTypes(Cluster.class), node -> XdsConfig.of(new Object()), ImmutableList.of(),
             MergingStateBacklog.factory(), DiscoveryServiceManagerMetrics.METRICS_DISABLED);
         Responses responses = new Responses();
         StreamObserver<DeltaDiscoveryRequest> requests = ads.deltaAggregatedResources(responses);
 
-        // gRPC delivers one stream's requests on one thread at a time; changes arrive on the source's own thread.
+        // gRPC delivers one stream's requests on one thread at a time; changes arrive on the source's pool.
         Thread client = new Thread(() -> {
             requests.onNext(DeltaDiscoveryRequest.newBuilder().setTypeUrl(TypeUrl.CDS.getTypeUrl()).build());
             requests.onNext(DeltaDiscoveryRequest.newBuilder().setTypeUrl(TypeUrl.CDS.getTypeUrl()).addResourceNamesSubscribe("a").build());
@@ -163,7 +174,7 @@ public class SnapshotSourceFrayTest {
         responses.ended.await();
         // Let any change still queued arrive: nothing may follow the end.
         source.update(e -> e.put(cluster("c")));
-        source.unsubscribe(new NoListener());
+        drain(pool);
 
         assertThat(responses.problems).isEmpty();
         assertThat(responses.ends.get()).isEqualTo(1);
