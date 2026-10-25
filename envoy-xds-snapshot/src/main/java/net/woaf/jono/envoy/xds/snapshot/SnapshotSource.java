@@ -4,11 +4,12 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import org.jspecify.annotations.Nullable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
 import net.woaf.jono.envoy.xds.api.ClusterEventSource;
 import net.woaf.jono.envoy.xds.api.ClusterManagerEventListener;
-import net.woaf.jono.envoy.xds.api.utils.QueueingMergingEventListener;
+import net.woaf.jono.envoy.xds.api.utils.SerialEventListener;
 
 /**
  * Holds the current snapshot and tells every connected client when it changes.
@@ -21,8 +22,10 @@ import net.woaf.jono.envoy.xds.api.utils.QueueingMergingEventListener;
  */
 public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> {
 
-    private final ConcurrentHashMap<ClusterManagerEventListener<SnapshotUpdate<D>>, QueueingMergingEventListener<SnapshotUpdate<D>>> targets =
+    private final ConcurrentHashMap<ClusterManagerEventListener<SnapshotUpdate<D>>, SerialEventListener<SnapshotUpdate<D>>> targets =
         new ConcurrentHashMap<>();
+
+    private final Executor executor;
 
     @Nullable
     private final BiFunction<Snapshot, ? super D, Snapshot> overlay;
@@ -41,7 +44,18 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
      *     the snapshot's; null for none
      */
     public SnapshotSource(@Nullable BiFunction<Snapshot, ? super D, Snapshot> overlay) {
+        this(overlay, SerialEventListener.sharedExecutor());
+    }
+
+    /**
+     * Use your own executor to deliver updates to clients, instead of {@link SerialEventListener#sharedExecutor()}.
+     * Overlays run there, so use this if yours block.
+     * @param overlay per client overlay, or null
+     * @param executor runs each client's updates, one at a time per client
+     */
+    public SnapshotSource(@Nullable BiFunction<Snapshot, ? super D, Snapshot> overlay, Executor executor) {
         this.overlay = overlay;
+        this.executor = executor;
         this.current = new Published<>(Snapshot.empty(), overlay);
     }
 
@@ -73,20 +87,20 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
         Published<D> published = new Published<>(next, overlay);
         SnapshotUpdate<D> update = new SnapshotUpdate<>(current, published, next.parentId() == current.base().id() ? next.touched() : null);
         current = published;
-        // Enqueue only: each listener runs on its own thread, so we never call into a stream while holding our lock.
+        // Hand over only: listeners run on the executor, so we never call into a stream while holding our lock.
         targets.values().forEach(t -> t.onNetworkChange(update));
         return update;
     }
 
     @Override
     public synchronized SnapshotUpdate<D> subscribe(ClusterManagerEventListener<SnapshotUpdate<D>> listener) {
-        targets.computeIfAbsent(listener, QueueingMergingEventListener::createAndStart);
+        targets.computeIfAbsent(listener, l -> new SerialEventListener<>(executor, l));
         return new SnapshotUpdate<>(Published.none(), current, null);
     }
 
     @Override
     public void unsubscribe(ClusterManagerEventListener<SnapshotUpdate<D>> listener) {
-        QueueingMergingEventListener<SnapshotUpdate<D>> old = targets.remove(listener);
+        SerialEventListener<SnapshotUpdate<D>> old = targets.remove(listener);
         if (old != null) {
             old.close();
         }
