@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 * Results of our methods must be used, unless marked `@CanIgnoreReturnValue` (`SnapshotSource.update` and `publish` are)
 
 ### Changed
+* Built and tested against `net.woaf.jono.envoy:envoy-api` 1.36.0 (from [envoy-api-java](https://github.com/JonathanO/envoy-api-java), published for each Envoy release) instead of `com.transferwise.envoy:envoy-api` 1.17.0. It's still `compileOnly`, so bring the envoy-api you already use
 * `delayUpdatesUntilAckOf` no longer blocks updates forever when the client never ACKs that type: it's ignored if `subscribesTo` leaves the type out, and otherwise gives up after 30 seconds with a warning
 * e2e tests run on Envoy 1.36 to 1.40, the releases upstream supports, instead of also 1.17 to 1.24
 * **Breaking (unreleased API):** `XdsConformanceTest` runs its own matrix: every scenario on both protocols (or `protocols()`), on Envoy 1.36 and 1.40, with and without rate limiting. Libraries implement `newControlPlane()` once, instead of a subclass per variant, and record deviations with `knownDeviations()`.
