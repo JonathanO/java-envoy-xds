@@ -288,7 +288,7 @@ public final class XdsMatchers {
 
     public static Matcher<TypedEnvoyConfigDump> hasRouteConfig(Matcher<? super RouteConfiguration> route) {
         return feature("Envoy with a dynamic route config", "dynamic route configs",
-            d -> d.getRoutesConfigDump().getDynamicRouteConfigsList().stream().map(r -> sneakyUnpack(r.getRouteConfig(), RouteConfiguration.class)).toList(),
+            d -> d.routesConfigDump().getDynamicRouteConfigsList().stream().map(r -> sneakyUnpack(r.getRouteConfig(), RouteConfiguration.class)).toList(),
             Matchers.hasItem(route));
     }
 
@@ -303,7 +303,7 @@ public final class XdsMatchers {
     }
 
     private static List<Cluster> activeClusters(TypedEnvoyConfigDump dump) {
-        return dump.getClustersConfigDump().getDynamicActiveClustersList().stream().map(c -> sneakyUnpack(c.getCluster(), Cluster.class)).toList();
+        return dump.clustersConfigDump().getDynamicActiveClustersList().stream().map(c -> sneakyUnpack(c.getCluster(), Cluster.class)).toList();
     }
 
     private static List<String> clustersRoutedTo(Stream<VirtualHost> virtualHosts) {

@@ -3,18 +3,14 @@ package net.woaf.jono.envoy.xds.api.utils;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import net.woaf.jono.envoy.xds.api.Mergeable;
-import lombok.Value;
 import org.junit.jupiter.api.Test;
 
 public class MergingStateBacklogTest {
 
-    @Value
-    private static class SimpleMergeable implements Mergeable<SimpleMergeable> {
-        String name;
-
+    private record SimpleMergeable(String name) implements Mergeable<SimpleMergeable> {
         @Override
         public SimpleMergeable merge(SimpleMergeable update) {
-            return new SimpleMergeable(name + update.getName());
+            return new SimpleMergeable(name + update.name());
         }
     }
 

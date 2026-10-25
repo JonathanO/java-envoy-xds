@@ -19,10 +19,12 @@ import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-@Slf4j
 class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extends AbstractDiscoveryService<DeltaDiscoveryRequest, E, StateUpdT, DetailsT> {
+
+    private static final Logger log = LoggerFactory.getLogger(IncrementalDiscoveryService.class);
 
     private final StreamObserver<DeltaDiscoveryResponse> responseObserver;
 
@@ -92,11 +94,11 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
         // Now actually generate the resources for this sub update.
         IncrementalConfigBuilder.Resources<E> resources = getResources(filter);
 
-        for (IncrementalConfigBuilder.NamedMessage<E> msg: resources.getResources()) {
+        for (IncrementalConfigBuilder.NamedMessage<E> msg: resources.resources()) {
             // If we generated a resource we don't want to tell envoy to remove it.
-            removed.remove(msg.getName());
-            reconnectRemovals.remove(msg.getName());
-            deferredReconnectRemovals.remove(msg.getName());
+            removed.remove(msg.name());
+            reconnectRemovals.remove(msg.name());
+            deferredReconnectRemovals.remove(msg.name());
         }
 
         if (deferReconnectRemovals.getAsBoolean()) {
@@ -104,7 +106,7 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
         } else {
             removed.addAll(reconnectRemovals);
         }
-        pushResources(resources.getResources(), removed);
+        pushResources(resources.resources(), removed);
     }
 
     @Override
@@ -119,10 +121,10 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
 
     @Override
     public void pushNewState(IncrementalConfigBuilder.Response<E> response) {
-        if (response.getAddAndUpdates().isEmpty() && response.getRemoves().isEmpty()) {
+        if (response.addAndUpdates().isEmpty() && response.removes().isEmpty()) {
             return;
         }
-        pushResources(response.getAddAndUpdates(), response.getRemoves());
+        pushResources(response.addAndUpdates(), response.removes());
     }
 
     @Override
@@ -142,8 +144,8 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
             .collect(Collectors.toCollection(HashSet::new));
 
         IncrementalConfigBuilder.Resources<E> currentResources = getResources(currentlySubscribed);
-        for (IncrementalConfigBuilder.NamedMessage<E> msg: currentResources.getResources()) {
-            removals.remove(msg.getName());
+        for (IncrementalConfigBuilder.NamedMessage<E> msg: currentResources.resources()) {
+            removals.remove(msg.name());
         }
 
         deferredReconnectRemovals.clear();
@@ -157,9 +159,9 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
         DeltaDiscoveryResponse.Builder responseBuilder = DeltaDiscoveryResponse.newBuilder();
         for (IncrementalConfigBuilder.NamedMessage<? extends Message> namedMessage : resources) {
             responseBuilder.addResources(Resource.newBuilder()
-                    .setName(namedMessage.getName())
+                    .setName(namedMessage.name())
                     .setVersion(myVersion.toString())
-                    .setResource(pack(namedMessage.getMessage()))
+                    .setResource(pack(namedMessage.message()))
                     .build());
         }
         responseBuilder.addAllRemovedResources(removals);
@@ -171,7 +173,7 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
         DeltaDiscoveryResponse discoveryResponse = responseBuilder.build();
 
         if (log.isDebugEnabled()) {
-            log.debug("{} Pushing update {} change - added: {} removed: {}", getTypeUrl().name(), lastNonce, resources.stream().map(IncrementalConfigBuilder.NamedMessage::getName).collect(Collectors.toList()), removals);
+            log.debug("{} Pushing update {} change - added: {} removed: {}", getTypeUrl().name(), lastNonce, resources.stream().map(IncrementalConfigBuilder.NamedMessage::name).collect(Collectors.toList()), removals);
         }
 
         markAnswered();

@@ -4,10 +4,12 @@ import net.woaf.jono.envoy.xds.api.ClusterManagerEventListener;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-@Slf4j
 public class ThreadedQueuingEventListener<StateUpdT> implements ClusterManagerEventListener<StateUpdT> {
+
+    private static final Logger log = LoggerFactory.getLogger(ThreadedQueuingEventListener.class);
 
     public interface QueueTakeStrategy<StateUpdT> {
         StateUpdT take(BlockingQueue<StateUpdT> queue) throws InterruptedException;

@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file.
 * `XdsEventListener.onClientNack`, `ClientHandle.resync()`, and `ResyncAfterNack` to resync an Envoy that NACKed on a backoff
 * JSpecify nullness annotations: every package is `@NullMarked`, so anything that may be null says `@Nullable`. NullAway checks this strictly at build time, and Error Prone and javac warnings now fail the build
 * Error Prone checks locking and immutability at build time: fields shared between threads are `@GuardedBy` their lock, and `Snapshot` and `NamedMessage` are `@Immutable`
-* Results of methods outside the core `xds` and `xds.api` packages must be used, unless marked `@CanIgnoreReturnValue` (`SnapshotSource.update` and `publish` are)
+* Results of our methods must be used, unless marked `@CanIgnoreReturnValue` (`SnapshotSource.update` and `publish` are)
 
 ### Changed
 * `delayUpdatesUntilAckOf` no longer blocks updates forever when the client never ACKs that type: it's ignored if `subscribesTo` leaves the type out, and otherwise gives up after 30 seconds with a warning
@@ -20,7 +20,8 @@ All notable changes to this project will be documented in this file.
 * **Breaking:** after Envoy NACKs, we stop sending it changes on that stream, for both SotW and delta. Envoy keeps its last good config until it reconnects. Previously delta dropped the stream (Envoy then reconnects in a tight loop), and SotW stalled without saying so while its backlog grew. `ClientNackException` is gone.
 * When Envoy reconnects, it re-subscribes to everything at once. Route and listener answers now wait until the clusters and endpoints they may use are ACKed. Stale resources Envoy kept (delta) are removed in remove order, once the types that may still use them have been answered and ACKed, without needing `delayUpdatesUntilAckOf`. `XdsConfig.subscribesTo` says which types a client gets from us, so its removals don't wait for types it never asks for; they wait at most 30 seconds anyway. On SotW, a cluster Envoy kept is still removed straight away: the CDS answer is the whole set.
 * `TypedEnvoyConfigDump` sections Envoy left out of the dump are empty instead of null
-* Dependencies: core and snapshot expose Guava, protobuf-java, grpc-stub (core) and error_prone_annotations as `api`, since their types are in our API. spotbugs-annotations and javax.annotation-api are no longer runtime dependencies, and Lombok no longer adds `@SuppressFBWarnings` to generated code. `./gradlew buildHealth` reports unused and undeclared dependencies
+* Dependencies: core and snapshot expose Guava, protobuf-java, grpc-stub (core) and error_prone_annotations as `api`, since their types are in our API. spotbugs-annotations and javax.annotation-api are no longer dependencies. `./gradlew buildHealth` reports unused and undeclared dependencies
+* **Breaking:** no more Lombok. `XdsConfig`, `NodeConfig`, `CommonDiscoveryRequest`, `NamedMessage`, `Response`, `Resources` and `TypedEnvoyConfigDump` are records, so their accessors drop the `get`/`is` prefix (`name()`, `addAndUpdates()`, `clientDetails()`). Their builders are gone: use `XdsConfig.of(details)`, with `withDelayUpdatesUntilAckOf` and `withSubscribesTo`; `new Response<>(addAndUpdates, removes)` or `Response.empty()`; `new Resources<>(resources)` or `Resources.empty()`; `TypedEnvoyConfigDump.of(dump)`. The unused `Response.merge()` and `Resources.merge()` are removed. `XdsConfig.delayUpdatesUntilAckOf` and `subscribesTo` are now marked `@Nullable`, as documented
 * **Breaking:** removed `XdsConfig.silentNacks`. Every NACK now freezes the stream, and is logged at warn; use `onClientNack` to act on it.
 
 ### Fixed

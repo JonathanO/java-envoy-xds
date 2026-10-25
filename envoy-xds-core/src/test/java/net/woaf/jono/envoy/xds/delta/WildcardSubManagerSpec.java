@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.delta;
 
+import net.woaf.jono.envoy.xds.XdsConfig;
 import com.google.common.collect.ImmutableSet;
 import net.woaf.jono.envoy.xds.NodeConfig;
 import net.woaf.jono.envoy.xds.delta.WildcardSubManager;
@@ -15,7 +16,7 @@ public class WildcardSubManagerSpec {
 
     @Test
     public void testNotSubscribed() {
-        WildcardSubManager subManager = new WildcardSubManager(NodeConfig.builder().build());
+        WildcardSubManager subManager = new WildcardSubManager(new NodeConfig<>(XdsConfig.of(new Object()), false));
 
         assertThat(subManager.isSubscribedTo("foo")).isFalse();
         assertThat(subManager.isSubscribedTo("bar")).isFalse();
@@ -23,7 +24,7 @@ public class WildcardSubManagerSpec {
 
     @Test
     public void testSubscribeEmptyFirstMessageIsWildcard() {
-        WildcardSubManager subManager = new WildcardSubManager(NodeConfig.builder().build());
+        WildcardSubManager subManager = new WildcardSubManager(new NodeConfig<>(XdsConfig.of(new Object()), false));
 
         Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of()).orElseThrow();
 
@@ -34,7 +35,7 @@ public class WildcardSubManagerSpec {
 
     @Test
     public void testSubscribeStarIsWildcard() {
-        WildcardSubManager subManager = new WildcardSubManager(NodeConfig.builder().build());
+        WildcardSubManager subManager = new WildcardSubManager(new NodeConfig<>(XdsConfig.of(new Object()), false));
 
         Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of("*"), ImmutableSet.of()).orElseThrow();
 
@@ -47,7 +48,7 @@ public class WildcardSubManagerSpec {
 
     @Test
     public void testSubscribeMoreThanOnce() {
-        WildcardSubManager subManager = new WildcardSubManager(NodeConfig.builder().build());
+        WildcardSubManager subManager = new WildcardSubManager(new NodeConfig<>(XdsConfig.of(new Object()), false));
 
         Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of()).orElseThrow();
         assertThat(wouldSendUpdates).accepts("foo", "bar");
@@ -61,7 +62,7 @@ public class WildcardSubManagerSpec {
 
     @Test
     public void testSubscribeWithResourceNamesSubscribesToResourcesByName() {
-        WildcardSubManager subManager = new WildcardSubManager(NodeConfig.builder().build());
+        WildcardSubManager subManager = new WildcardSubManager(new NodeConfig<>(XdsConfig.of(new Object()), false));
 
         Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of("foo", "bar"), ImmutableSet.of()).orElseThrow();
         assertThat(wouldSendUpdates).accepts("foo", "bar").rejects("baz");
@@ -80,7 +81,7 @@ public class WildcardSubManagerSpec {
     public void testBugClientSendsResourceListOnReconnectToWildcard() {
         // Prior to 1.19 a reconnecting envoy would send a resource list on connection to a wildcard DS if it already had state for that DS (e.g. if it was reconnecting to the control plane.)
         // While the spec says this should be treated as a normal SubList style subscribe, Envoy actually wanted a wildcard subscription, so we have a bug flag to allow this.
-        WildcardSubManager subManager = new WildcardSubManager(NodeConfig.builder().bugClientSendsResourceListOnReconnectToWildcard(true).build());
+        WildcardSubManager subManager = new WildcardSubManager(new NodeConfig<>(XdsConfig.of(new Object()), true));
 
         Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of("foo", "bar"), ImmutableSet.of()).orElseThrow();
         assertThat(wouldSendUpdates).accepts("foo", "bar", "baz");
@@ -95,7 +96,7 @@ public class WildcardSubManagerSpec {
 
     @Test
     public void testSubUnsubSubWildcard() {
-        WildcardSubManager subManager = new WildcardSubManager(NodeConfig.builder().build());
+        WildcardSubManager subManager = new WildcardSubManager(new NodeConfig<>(XdsConfig.of(new Object()), false));
 
         Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of("*", "foo"), ImmutableSet.of()).orElseThrow();
         assertThat(wouldSendUpdates).accepts("foo", "bar", "baz", "cat");

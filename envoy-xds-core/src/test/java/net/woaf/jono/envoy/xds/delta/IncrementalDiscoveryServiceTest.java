@@ -27,6 +27,7 @@ import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.Resource;
 import io.grpc.stub.StreamObserver;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
@@ -51,7 +52,7 @@ public class IncrementalDiscoveryServiceTest {
     public void testUpdateNotSubscribedNoSendUpdates(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
                                                 @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
 
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryService<>(TypeUrl.EDS, responseObserver, configBuilder, nodeConfig, new SubListSubManager(nodeConfig));
         var initState = new DummyUpdate();
 
@@ -74,29 +75,24 @@ public class IncrementalDiscoveryServiceTest {
 
         final DummyUpdate initState = new DummyUpdate();
         final DummyUpdate next = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
         final ClusterLoadAssignment newCluster = ClusterLoadAssignment.newBuilder()
             .setClusterName("foo")
             .build();
 
-        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<ClusterLoadAssignment>builder().build());
-        when(configBuilder.addOrder(eq(next), any(), any())).thenReturn(IncrementalConfigBuilder.Response.<ClusterLoadAssignment>builder()
-            .addAndUpdate(IncrementalConfigBuilder.NamedMessage.of(newCluster))
-            .build());
-        when(configBuilder.removeOrder(eq(next), any(), any())).thenReturn(IncrementalConfigBuilder.Response.<ClusterLoadAssignment>builder().build());
+        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<ClusterLoadAssignment>empty());
+        when(configBuilder.addOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<>(List.of(IncrementalConfigBuilder.NamedMessage.of(newCluster)), List.of()));
+        when(configBuilder.removeOrder(eq(next), any(), any())).thenReturn(IncrementalConfigBuilder.Response.<ClusterLoadAssignment>empty());
 
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryService<>(TypeUrl.EDS, responseObserver, configBuilder, nodeConfig, new SubListSubManager(nodeConfig));
 
         // Envoy sends an EDS request:
         ds.init(initState);
         assertThat(ds.awaitingAck()).isFalse();
-        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(TypeUrl.EDS.getTypeUrl())
-            .message(DeltaDiscoveryRequest.newBuilder()
+        ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.EDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                 .setTypeUrl(TypeUrl.EDS.getTypeUrl())
                 .addResourceNamesSubscribe("foo")
-                .build())
-            .build());
+                .build(), null));
 
         InOrder inOrder = inOrder(responseObserver);
         inOrder.verify(responseObserver).onNext(responseCaptor.capture());
@@ -111,13 +107,10 @@ public class IncrementalDiscoveryServiceTest {
         assertThat(ds.awaitingAck()).isTrue();
 
         // Envoy acks the update, without changing the subs list.
-        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(TypeUrl.EDS.getTypeUrl())
-            .message(DeltaDiscoveryRequest.newBuilder()
+        ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.EDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                 .setTypeUrl(TypeUrl.EDS.getTypeUrl())
                 .setResponseNonce(nonce)
-                .build())
-            .build());
+                .build(), null));
 
         assertThat(ds.awaitingAck()).isFalse();
 
@@ -140,7 +133,7 @@ public class IncrementalDiscoveryServiceTest {
                                                               @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
 
         final DummyUpdate initState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
 
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryService<>(TypeUrl.EDS, responseObserver, configBuilder, nodeConfig, new SubListSubManager(nodeConfig));
 
@@ -148,20 +141,14 @@ public class IncrementalDiscoveryServiceTest {
         assertThat(ds.awaitingAck()).isFalse();
 
         // Envoy sends an EDS request that asks for nothing
-        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(TypeUrl.EDS.getTypeUrl())
-            .message(DeltaDiscoveryRequest.newBuilder()
+        ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.EDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                 .setTypeUrl(TypeUrl.EDS.getTypeUrl())
-                .build())
-            .build());
+                .build(), null));
 
         // Send it again to see what happens
-        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(TypeUrl.EDS.getTypeUrl())
-            .message(DeltaDiscoveryRequest.newBuilder()
+        ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.EDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                 .setTypeUrl(TypeUrl.EDS.getTypeUrl())
-                .build())
-            .build());
+                .build(), null));
 
         // If envoy didn't ask for anything, we do not expect any attempt to send a response? Or do we? I have no idea!
         verify(responseObserver, never()).onNext(any());
@@ -174,9 +161,9 @@ public class IncrementalDiscoveryServiceTest {
                                    @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
 
         final DummyUpdate initState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
 
-        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
+        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>empty());
 
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryService<>(TypeUrl.CDS, responseObserver, configBuilder, nodeConfig, new WildcardSubManager(nodeConfig));
 
@@ -184,12 +171,9 @@ public class IncrementalDiscoveryServiceTest {
         assertThat(ds.awaitingAck()).isFalse();
 
         // Envoy sends a CDS request that asks for nothing, this should cause it to sub to wildcard.
-        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(TypeUrl.CDS.getTypeUrl())
-            .message(DeltaDiscoveryRequest.newBuilder()
+        ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.CDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                 .setTypeUrl(TypeUrl.CDS.getTypeUrl())
-                .build())
-            .build());
+                .build(), null));
 
         verify(responseObserver).onNext(responseCaptor.capture());
         // We should tell envoy about everything
@@ -206,13 +190,13 @@ public class IncrementalDiscoveryServiceTest {
                                    @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
 
         final DummyUpdate initState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
 
         final Cluster newCluster = Cluster.newBuilder()
             .setName("foo")
             .build();
 
-        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().resource(IncrementalConfigBuilder.NamedMessage.of(newCluster)).build());
+        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(IncrementalConfigBuilder.NamedMessage.of(newCluster))));
 
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryService<>(TypeUrl.CDS, responseObserver, configBuilder, nodeConfig, new WildcardSubManager(nodeConfig));
 
@@ -220,12 +204,9 @@ public class IncrementalDiscoveryServiceTest {
         assertThat(ds.awaitingAck()).isFalse();
 
         // Envoy sends a CDS request that asks for nothing, this should cause it to sub to wildcard.
-        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(TypeUrl.CDS.getTypeUrl())
-            .message(DeltaDiscoveryRequest.newBuilder()
+        ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.CDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                 .setTypeUrl(TypeUrl.CDS.getTypeUrl())
-                .build())
-            .build());
+                .build(), null));
 
         verify(responseObserver).onNext(responseCaptor.capture());
         // We should tell envoy about everything
@@ -242,13 +223,13 @@ public class IncrementalDiscoveryServiceTest {
                                    @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
 
         final DummyUpdate initState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
 
         final Cluster newCluster = Cluster.newBuilder()
             .setName("foo")
             .build();
 
-        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().resource(IncrementalConfigBuilder.NamedMessage.of(newCluster)).build());
+        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(IncrementalConfigBuilder.NamedMessage.of(newCluster))));
 
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryService<>(TypeUrl.EDS, responseObserver, configBuilder, nodeConfig, new SubListSubManager(nodeConfig));
 
@@ -259,13 +240,10 @@ public class IncrementalDiscoveryServiceTest {
         InOrder inOrder = inOrder(responseObserver);
 
         {
-            ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-                .typeUrl(TypeUrl.EDS.getTypeUrl())
-                .message(DeltaDiscoveryRequest.newBuilder()
+            ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.EDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                     .setTypeUrl(TypeUrl.EDS.getTypeUrl())
                     .addResourceNamesSubscribe("foo")
-                    .build())
-                .build());
+                    .build(), null));
 
             inOrder.verify(responseObserver).onNext(responseCaptor.capture());
 
@@ -280,13 +258,10 @@ public class IncrementalDiscoveryServiceTest {
 
         {
             // Ask again, as if envoy has forgotten about the resource
-            ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-                .typeUrl(TypeUrl.EDS.getTypeUrl())
-                .message(DeltaDiscoveryRequest.newBuilder()
+            ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.EDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                     .setTypeUrl(TypeUrl.EDS.getTypeUrl())
                     .addResourceNamesSubscribe("foo")
-                    .build())
-                .build());
+                    .build(), null));
 
             inOrder.verify(responseObserver).onNext(responseCaptor.capture());
             DeltaDiscoveryResponse resp = responseCaptor.getValue();
@@ -304,16 +279,12 @@ public class IncrementalDiscoveryServiceTest {
     public void testNackIsAnAnswer(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
                                    @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
         final DummyUpdate initState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
-        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder()
-            .resource(IncrementalConfigBuilder.NamedMessage.of(Cluster.newBuilder().setName("foo").build())).build());
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
+        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(IncrementalConfigBuilder.NamedMessage.of(Cluster.newBuilder().setName("foo").build()))));
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryService<>(TypeUrl.EDS, responseObserver, configBuilder, nodeConfig, new SubListSubManager(nodeConfig));
         ds.init(initState);
 
-        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(TypeUrl.EDS.getTypeUrl())
-            .message(DeltaDiscoveryRequest.newBuilder().setTypeUrl(TypeUrl.EDS.getTypeUrl()).addResourceNamesSubscribe("foo").build())
-            .build());
+        ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.EDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder().setTypeUrl(TypeUrl.EDS.getTypeUrl()).addResourceNamesSubscribe("foo").build(), null));
         verify(responseObserver).onNext(responseCaptor.capture());
         assertThat(ds.awaitingAck()).isTrue();
 
@@ -322,11 +293,7 @@ public class IncrementalDiscoveryServiceTest {
             .setResponseNonce(responseCaptor.getValue().getNonce())
             .setErrorDetail(com.google.rpc.Status.newBuilder().setMessage("rejected"))
             .build();
-        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(TypeUrl.EDS.getTypeUrl())
-            .message(nack)
-            .errorDetail(nack.getErrorDetail())
-            .build());
+        ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.EDS.getTypeUrl(), nack, nack.getErrorDetail()));
 
         assertThat(ds.awaitingAck()).isFalse();
     }
@@ -336,13 +303,13 @@ public class IncrementalDiscoveryServiceTest {
                                    @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
 
         final DummyUpdate initState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
 
         final Cluster newCluster = Cluster.newBuilder()
             .setName("foo")
             .build();
 
-        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().resource(IncrementalConfigBuilder.NamedMessage.of(newCluster)).build());
+        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(IncrementalConfigBuilder.NamedMessage.of(newCluster))));
 
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryService<>(TypeUrl.CDS, responseObserver, configBuilder, nodeConfig, new WildcardSubManager(nodeConfig));
 
@@ -350,13 +317,10 @@ public class IncrementalDiscoveryServiceTest {
         assertThat(ds.awaitingAck()).isFalse();
 
         // Envoy sends a CDS request that asks for "*", this should cause it to sub to wildcard.
-        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(TypeUrl.CDS.getTypeUrl())
-            .message(DeltaDiscoveryRequest.newBuilder()
+        ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.CDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                 .setTypeUrl(TypeUrl.CDS.getTypeUrl())
                 .addResourceNamesSubscribe("*")
-                .build())
-            .build());
+                .build(), null));
 
         verify(responseObserver).onNext(responseCaptor.capture());
         // We should tell envoy about everything
@@ -373,7 +337,7 @@ public class IncrementalDiscoveryServiceTest {
                                                               @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
 
         final DummyUpdate initState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
 
         final Cluster foo = Cluster.newBuilder()
             .setName("foo")
@@ -381,41 +345,32 @@ public class IncrementalDiscoveryServiceTest {
 
         when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenAnswer(inv -> {
             Predicate<String> filter = inv.getArgument(1);
-            IncrementalConfigBuilder.Resources.ResourcesBuilder<Cluster> builder = IncrementalConfigBuilder.Resources.builder();
+            List<IncrementalConfigBuilder.NamedMessage<Cluster>> resources = new ArrayList<>();
             if (filter.test("foo")) {
-                builder.resource(IncrementalConfigBuilder.NamedMessage.of(foo));
+                resources.add(IncrementalConfigBuilder.NamedMessage.of(foo));
             }
-            return builder.build();
+            return new IncrementalConfigBuilder.Resources<>(resources);
         });
 
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryService<>(TypeUrl.CDS, responseObserver, configBuilder, nodeConfig, new WildcardSubManager(nodeConfig));
         ds.init(initState);
 
-        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(TypeUrl.CDS.getTypeUrl())
-            .message(DeltaDiscoveryRequest.newBuilder()
+        ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.CDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                 .setTypeUrl(TypeUrl.CDS.getTypeUrl())
                 .addResourceNamesSubscribe("*")
-                .build())
-            .build());
+                .build(), null));
         verify(responseObserver).onNext(responseCaptor.capture());
-        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(TypeUrl.CDS.getTypeUrl())
-            .message(DeltaDiscoveryRequest.newBuilder()
+        ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.CDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                 .setTypeUrl(TypeUrl.CDS.getTypeUrl())
                 .setResponseNonce(responseCaptor.getValue().getNonce())
-                .build())
-            .build());
+                .build(), null));
 
         // On-demand style subscribe to a name that doesn't exist, without touching "*": the spec requires an answer
         // that removes it, or Envoy waits out initial_fetch_timeout.
-        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(TypeUrl.CDS.getTypeUrl())
-            .message(DeltaDiscoveryRequest.newBuilder()
+        ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.CDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                 .setTypeUrl(TypeUrl.CDS.getTypeUrl())
                 .addResourceNamesSubscribe("missing")
-                .build())
-            .build());
+                .build(), null));
 
         verify(responseObserver, times(2)).onNext(responseCaptor.capture());
         DeltaDiscoveryResponse resp = responseCaptor.getValue();
@@ -428,13 +383,13 @@ public class IncrementalDiscoveryServiceTest {
         @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
 
         final DummyUpdate initState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
 
         final Cluster newCluster = Cluster.newBuilder()
             .setName("foo")
             .build();
 
-        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().resource(IncrementalConfigBuilder.NamedMessage.of(newCluster)).build());
+        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(IncrementalConfigBuilder.NamedMessage.of(newCluster))));
 
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryService<>(TypeUrl.CDS, responseObserver, configBuilder, nodeConfig, new WildcardSubManager(nodeConfig));
 
@@ -443,16 +398,13 @@ public class IncrementalDiscoveryServiceTest {
 
         // Envoy sends a CDS request that asks for "*", this should cause it to sub to wildcard.
         // This time we also tell envoy we already now about foo, bar and baz - which is what happens when envoy already has state when it connects to ADS (e.g. it's reconnecting.)
-        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(TypeUrl.CDS.getTypeUrl())
-            .message(DeltaDiscoveryRequest.newBuilder()
+        ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.CDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                 .setTypeUrl(TypeUrl.CDS.getTypeUrl())
                 .addResourceNamesSubscribe("*")
                 .putInitialResourceVersions("foo", "1")
                 .putInitialResourceVersions("bar", "1")
                 .putInitialResourceVersions("baz", "1")
-                .build())
-            .build());
+                .build(), null));
 
         verify(responseObserver).onNext(responseCaptor.capture());
         // We should tell envoy about everything we know about (which is just foo)
@@ -471,13 +423,13 @@ public class IncrementalDiscoveryServiceTest {
         @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
 
         final DummyUpdate initState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
 
         final Cluster newCluster = Cluster.newBuilder()
             .setName("foo")
             .build();
 
-        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().resource(IncrementalConfigBuilder.NamedMessage.of(newCluster)).build());
+        when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(IncrementalConfigBuilder.NamedMessage.of(newCluster))));
 
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryService<>(TypeUrl.CDS, responseObserver, configBuilder, nodeConfig, new WildcardSubManager(nodeConfig));
 
@@ -486,17 +438,14 @@ public class IncrementalDiscoveryServiceTest {
 
         // Envoy sends a CDS request that asks for "foo", this should cause it to sub to the specific resource.
         // This time we also tell envoy we already now about foo, bar and baz - which is what happens when envoy already has state when it connects to ADS (e.g. it's reconnecting.)
-        ds.processUpdate(CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(TypeUrl.CDS.getTypeUrl())
-            .message(DeltaDiscoveryRequest.newBuilder()
+        ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.CDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                 .setTypeUrl(TypeUrl.CDS.getTypeUrl())
                 .addResourceNamesSubscribe("foo")
                 .addResourceNamesSubscribe("bar")
                 .putInitialResourceVersions("foo", "1")
                 .putInitialResourceVersions("bar", "1")
                 .putInitialResourceVersions("baz", "1")
-                .build())
-            .build());
+                .build(), null));
 
         verify(responseObserver).onNext(responseCaptor.capture());
         // We should tell envoy about the thing it asked for that still exists (foo)
@@ -517,20 +466,16 @@ public class IncrementalDiscoveryServiceTest {
         @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
 
         final DummyUpdate initState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder()
-            .xdsConfig(XdsConfig.builder().clientDetails(new Object()).build())
-            .build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
 
         final RouteConfiguration routeWithoutDeletedCluster = RouteConfiguration.newBuilder()
             .setName("route-x")
             .build();
 
         when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any()))
-            .thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
+            .thenReturn(IncrementalConfigBuilder.Resources.<Cluster>empty());
         when(routeConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any()))
-            .thenReturn(IncrementalConfigBuilder.Resources.<RouteConfiguration>builder()
-                .resource(IncrementalConfigBuilder.NamedMessage.of(routeWithoutDeletedCluster))
-                .build());
+            .thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(IncrementalConfigBuilder.NamedMessage.of(routeWithoutDeletedCluster))));
 
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> cds = new IncrementalDiscoveryService<>(
             TypeUrl.CDS,
@@ -603,12 +548,10 @@ public class IncrementalDiscoveryServiceTest {
         @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder) {
 
         final DummyUpdate initState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder()
-            .xdsConfig(XdsConfig.builder().clientDetails(new Object()).build())
-            .build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
 
         when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any()))
-            .thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
+            .thenReturn(IncrementalConfigBuilder.Resources.<Cluster>empty());
 
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> cds = new IncrementalDiscoveryService<>(
             TypeUrl.CDS,
@@ -648,7 +591,7 @@ public class IncrementalDiscoveryServiceTest {
     private DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> cdsEdsRds(StreamObserver<DeltaDiscoveryResponse> responseObserver,
         IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusters, IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpoints,
         IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routes) {
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
         return new DiscoveryServiceManager<>(
             Map.of(TypeUrl.CDS, new IncrementalDiscoveryService<>(TypeUrl.CDS, responseObserver, clusters, nodeConfig, new WildcardSubManager(nodeConfig)),
                 TypeUrl.EDS, new IncrementalDiscoveryService<>(TypeUrl.EDS, responseObserver, endpoints, nodeConfig, new SubListSubManager(nodeConfig)),
@@ -674,8 +617,8 @@ public class IncrementalDiscoveryServiceTest {
         @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpointConfigBuilder,
         @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
         final DummyUpdate initState = new DummyUpdate();
-        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
-        when(routeConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<RouteConfiguration>builder().build());
+        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>empty());
+        when(routeConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<RouteConfiguration>empty());
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(responseObserver, clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
         dsm.init(initState);
         InOrder inOrder = inOrder(responseObserver);
@@ -702,7 +645,7 @@ public class IncrementalDiscoveryServiceTest {
         @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpointConfigBuilder,
         @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
         final DummyUpdate initState = new DummyUpdate();
-        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
+        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>empty());
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(responseObserver, clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
         dsm.init(initState, null, Set.of(TypeUrl.CDS, TypeUrl.EDS)); // static routes
 
@@ -714,8 +657,8 @@ public class IncrementalDiscoveryServiceTest {
     public void testStaleClusterRemovalDoesNotWaitForTypesWeDoNotServe(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
         @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder) {
         final DummyUpdate initState = new DummyUpdate();
-        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder().xdsConfig(XdsConfig.builder().clientDetails(new Object()).build()).build();
+        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>empty());
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
         // As the factory builds it: every type has a service, with a NoOpConfigBuilder for those nobody configured.
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = new DiscoveryServiceManager<>(
             Map.of(TypeUrl.CDS, new IncrementalDiscoveryService<>(TypeUrl.CDS, responseObserver, clusterConfigBuilder, nodeConfig, new WildcardSubManager(nodeConfig)),
@@ -738,7 +681,7 @@ public class IncrementalDiscoveryServiceTest {
         @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpointConfigBuilder,
         @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
         final DummyUpdate initState = new DummyUpdate();
-        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
+        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>empty());
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(responseObserver, clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
         AtomicLong now = new AtomicLong();
         dsm.setClock(now::get);
@@ -760,12 +703,10 @@ public class IncrementalDiscoveryServiceTest {
         @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpointConfigBuilder,
         @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
         final DummyUpdate initState = new DummyUpdate();
-        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder()
-            .resource(IncrementalConfigBuilder.NamedMessage.of(Cluster.newBuilder().setName("new").build())).build());
-        when(endpointConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<ClusterLoadAssignment>builder()
-            .resource(IncrementalConfigBuilder.NamedMessage.of(ClusterLoadAssignment.newBuilder().setClusterName("new").build())).build());
-        when(routeConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<RouteConfiguration>builder()
-            .resource(IncrementalConfigBuilder.NamedMessage.of(RouteConfiguration.newBuilder().setName("routes").build())).build());
+        when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(IncrementalConfigBuilder.NamedMessage.of(Cluster.newBuilder().setName("new").build()))));
+        when(endpointConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any()))
+            .thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(IncrementalConfigBuilder.NamedMessage.of(ClusterLoadAssignment.newBuilder().setClusterName("new").build()))));
+        when(routeConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(IncrementalConfigBuilder.NamedMessage.of(RouteConfiguration.newBuilder().setName("routes").build()))));
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(responseObserver, clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
         dsm.init(initState);
         InOrder inOrder = inOrder(responseObserver);
@@ -794,9 +735,7 @@ public class IncrementalDiscoveryServiceTest {
 
         final DummyUpdate initState = new DummyUpdate();
         final DummyUpdate nextState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder()
-            .xdsConfig(XdsConfig.builder().clientDetails(new Object()).build())
-            .build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
 
         final RouteConfiguration routeWithoutDeletedCluster = RouteConfiguration.newBuilder()
             .setName("route-x")
@@ -806,15 +745,11 @@ public class IncrementalDiscoveryServiceTest {
             .build();
 
         when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any()))
-            .thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
+            .thenReturn(IncrementalConfigBuilder.Resources.<Cluster>empty());
         when(routeConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any()))
-            .thenReturn(IncrementalConfigBuilder.Resources.<RouteConfiguration>builder()
-                .resource(IncrementalConfigBuilder.NamedMessage.of(routeWithoutDeletedCluster))
-                .build());
+            .thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(IncrementalConfigBuilder.NamedMessage.of(routeWithoutDeletedCluster))));
         when(clusterConfigBuilder.addOrder(eq(nextState), any(), any()))
-            .thenReturn(IncrementalConfigBuilder.Response.<Cluster>builder()
-                .addAndUpdate(IncrementalConfigBuilder.NamedMessage.of(newCluster))
-                .build());
+            .thenReturn(new IncrementalConfigBuilder.Response<>(List.of(IncrementalConfigBuilder.NamedMessage.of(newCluster)), List.of()));
 
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> cds = new IncrementalDiscoveryService<>(
             TypeUrl.CDS,
@@ -886,22 +821,18 @@ public class IncrementalDiscoveryServiceTest {
         @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
 
         final DummyUpdate initState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder()
-            .xdsConfig(XdsConfig.builder().clientDetails(new Object()).build())
-            .build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
 
         final RouteConfiguration currentRoute = RouteConfiguration.newBuilder()
             .setName("route-current")
             .build();
 
         when(routeConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any()))
-            .thenReturn(IncrementalConfigBuilder.Resources.<RouteConfiguration>builder()
-                .resource(IncrementalConfigBuilder.NamedMessage.of(currentRoute))
-                .build());
+            .thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(IncrementalConfigBuilder.NamedMessage.of(currentRoute))));
         when(clusterConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any()))
-            .thenReturn(IncrementalConfigBuilder.Resources.<Cluster>builder().build());
+            .thenReturn(IncrementalConfigBuilder.Resources.<Cluster>empty());
         when(endpointConfigBuilder.getResourcesRemoveOrder(eq(initState), any(), any()))
-            .thenReturn(IncrementalConfigBuilder.Resources.<ClusterLoadAssignment>builder().build());
+            .thenReturn(IncrementalConfigBuilder.Resources.<ClusterLoadAssignment>empty());
 
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> cds = new IncrementalDiscoveryService<>(
             TypeUrl.CDS,
@@ -994,17 +925,13 @@ public class IncrementalDiscoveryServiceTest {
         @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
 
         final DummyUpdate initState = new DummyUpdate();
-        final NodeConfig<Object> nodeConfig = NodeConfig.builder()
-            .xdsConfig(XdsConfig.builder().clientDetails(new Object()).build())
-            .build();
+        final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
         final ClusterLoadAssignment currentEndpoint = ClusterLoadAssignment.newBuilder()
             .setClusterName("endpoint-current")
             .build();
 
         when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any()))
-            .thenReturn(IncrementalConfigBuilder.Resources.<ClusterLoadAssignment>builder()
-                .resource(IncrementalConfigBuilder.NamedMessage.of(currentEndpoint))
-                .build());
+            .thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(IncrementalConfigBuilder.NamedMessage.of(currentEndpoint))));
 
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryService<>(
             TypeUrl.EDS,
@@ -1030,10 +957,7 @@ public class IncrementalDiscoveryServiceTest {
     }
 
     private CommonDiscoveryRequest<DeltaDiscoveryRequest> deltaRequest(TypeUrl typeUrl, DeltaDiscoveryRequest request) {
-        return CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-            .typeUrl(typeUrl.getTypeUrl())
-            .message(request)
-            .build();
+        return new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, typeUrl.getTypeUrl(), request, null);
     }
 
     private CommonDiscoveryRequest<DeltaDiscoveryRequest> ackRequest(TypeUrl typeUrl, String nonce) {

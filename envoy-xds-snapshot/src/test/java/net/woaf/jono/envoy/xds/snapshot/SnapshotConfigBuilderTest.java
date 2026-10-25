@@ -44,8 +44,8 @@ public class SnapshotConfigBuilderTest {
         assertThat(removed(Cluster.class, update)).containsExactly("foo");
         assertThat(removed(ClusterLoadAssignment.class, update)).containsExactly("foo");
         // Mid-change (add order) the cluster still exists; once removes are applied it's gone.
-        assertThat(builder(Cluster.class).getResourcesAddOrder(update, SnapshotConfigBuilderTest::all, "c").getResources()).extracting(NamedMessage::getName).containsExactly("foo");
-        assertThat(builder(Cluster.class).getResourcesRemoveOrder(update, SnapshotConfigBuilderTest::all, "c").getResources()).isEmpty();
+        assertThat(builder(Cluster.class).getResourcesAddOrder(update, SnapshotConfigBuilderTest::all, "c").resources()).extracting(NamedMessage::name).containsExactly("foo");
+        assertThat(builder(Cluster.class).getResourcesRemoveOrder(update, SnapshotConfigBuilderTest::all, "c").resources()).isEmpty();
     }
 
     @Test
@@ -74,7 +74,7 @@ public class SnapshotConfigBuilderTest {
     public void unsubscribedNamesAreIgnored() {
         SnapshotUpdate<String> update = source.update(e -> e.put(cluster("foo")).put(cluster("bar")));
 
-        assertThat(builder(Cluster.class).addOrder(update, "foo"::equals, "c").getAddAndUpdates()).extracting(NamedMessage::getName).containsExactly("foo");
+        assertThat(builder(Cluster.class).addOrder(update, "foo"::equals, "c").addAndUpdates()).extracting(NamedMessage::name).containsExactly("foo");
     }
 
     @Test
@@ -119,11 +119,11 @@ public class SnapshotConfigBuilderTest {
     }
 
     private static <R extends Message> List<R> added(Class<R> type, SnapshotUpdate<String> update, String client) {
-        return builder(type).addOrder(update, SnapshotConfigBuilderTest::all, client).getAddAndUpdates().stream().map(NamedMessage::getMessage).collect(Collectors.toList());
+        return builder(type).addOrder(update, SnapshotConfigBuilderTest::all, client).addAndUpdates().stream().map(NamedMessage::message).collect(Collectors.toList());
     }
 
     private static <R extends Message> List<String> removed(Class<R> type, SnapshotUpdate<String> update) {
         Response<R> response = builder(type).removeOrder(update, SnapshotConfigBuilderTest::all, "c");
-        return response.getRemoves();
+        return response.removes();
     }
 }

@@ -2,16 +2,11 @@ package net.woaf.jono.envoy.xds.api.utils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import lombok.Value;
 import org.junit.jupiter.api.Test;
 
 public class QueueingStateBacklogTest {
 
-    @Value
-    private static class SimpleUpdate {
-
-        String name;
-
+    private record SimpleUpdate(String name) {
     }
 
     @Test

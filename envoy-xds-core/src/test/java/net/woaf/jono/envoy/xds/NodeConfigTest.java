@@ -31,7 +31,7 @@ public class NodeConfigTest {
                 .build())
             .build();
 
-        assertThat(NodeConfig.forNode(node, XdsConfig.builder().build()).isBugClientSendsResourceListOnReconnectToWildcard()).isEqualTo(isBug);
+        assertThat(NodeConfig.forNode(node, XdsConfig.of(new Object())).bugClientSendsResourceListOnReconnectToWildcard()).isEqualTo(isBug);
     }
 
 }

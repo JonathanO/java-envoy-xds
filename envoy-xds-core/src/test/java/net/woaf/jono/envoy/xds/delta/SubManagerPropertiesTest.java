@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.delta;
 
+import net.woaf.jono.envoy.xds.XdsConfig;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import dev.hegel.HegelTest;
@@ -70,7 +71,7 @@ public class SubManagerPropertiesTest {
     private static void run(TestCase tc, Consumer<Step> check) {
         boolean wildcardType = tc.draw(booleans(), "wildcardType");
         boolean preWildcardBugClient = wildcardType && tc.draw(booleans(), "preWildcardBugClient");
-        NodeConfig<Object> nodeConfig = NodeConfig.builder().bugClientSendsResourceListOnReconnectToWildcard(preWildcardBugClient).build();
+        NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), preWildcardBugClient);
         SubManager manager = wildcardType ? new WildcardSubManager(nodeConfig) : new SubListSubManager(nodeConfig);
         Model model = new Model(wildcardType, preWildcardBugClient);
         List<String> names = wildcardType ? List.of("a", "b", "c", WILDCARD) : NAMES;

@@ -1,7 +1,8 @@
 package net.woaf.jono.envoy.xds.sotw;
 
 import com.google.common.annotations.VisibleForTesting;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -9,8 +10,9 @@ import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-@Slf4j
 class WildcardSubManager implements SubManager {
+
+    private static final Logger log = LoggerFactory.getLogger(WildcardSubManager.class);
 
     private static final String WILDCARD = "*";
 

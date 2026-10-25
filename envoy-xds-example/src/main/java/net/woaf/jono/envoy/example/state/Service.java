@@ -2,20 +2,16 @@ package net.woaf.jono.envoy.example.state;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.net.HostAndPort;
-import lombok.Builder;
-import lombok.Singular;
-import lombok.Value;
 
 /**
  * A very simple representation of a service. In our example a service (cluster) has a name, and a set of endpoints
+ *
+ * @param name the service (cluster) name
+ * @param endpoints where it runs
  */
-@Value
-@Builder
-public class Service {
+public record Service(String name, ImmutableSet<HostAndPort> endpoints) {
 
-    String name;
-
-    @Singular
-    ImmutableSet<HostAndPort> endpoints;
-
+    public Service(String name, Iterable<HostAndPort> endpoints) {
+        this(name, ImmutableSet.copyOf(endpoints));
+    }
 }

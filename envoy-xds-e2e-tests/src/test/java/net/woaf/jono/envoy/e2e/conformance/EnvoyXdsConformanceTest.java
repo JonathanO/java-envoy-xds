@@ -59,7 +59,7 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
             return new AggregatedDiscoveryService<>(
                 source,
                 SnapshotConfigBuilder.forTypes(Cluster.class, ClusterLoadAssignment.class, Listener.class, RouteConfiguration.class),
-                node -> XdsConfig.<String>builder().clientDetails(node.getId()).build(),
+                node -> XdsConfig.<String>of(node.getId()),
                 ImmutableList.of(new XdsEventListener<>() {
                     @Override
                     public void onNewClient(ClientHandle clientHandle, Node node, XdsConfig<String> config) {

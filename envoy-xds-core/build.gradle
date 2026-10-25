@@ -27,16 +27,10 @@ dependencies {
     api 'com.google.errorprone:error_prone_annotations:2.51.0'
     implementation 'io.grpc:grpc-api:1.85.1'
     implementation 'org.slf4j:slf4j-api:2.0.20'
-    compileOnly 'javax.annotation:javax.annotation-api:1.3.2' // lombok adds @Generated
     compileOnly 'com.transferwise.envoy:envoy-api:1.17.0' // Users are expected to provide a compatible envoy api
-    compileOnly 'org.projectlombok:lombok:1.18.48'
-    annotationProcessor 'org.projectlombok:lombok:1.18.48'
-    testAnnotationProcessor 'org.projectlombok:lombok:1.18.48'
     pitest 'org.pitest:pitest-junit5-plugin:1.2.3'
     testImplementation 'com.transferwise.envoy:envoy-api:1.17.0'
-    testImplementation 'org.projectlombok:lombok:1.18.48'
     testImplementation 'com.github.spotbugs:spotbugs-annotations:4.10.5'
-    testCompileOnly 'javax.annotation:javax.annotation-api:1.3.2' // lombok adds @Generated
     testImplementation 'dev.hegel:hegel:0.10.1'
 }
 

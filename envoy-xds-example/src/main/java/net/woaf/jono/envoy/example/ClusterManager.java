@@ -40,7 +40,7 @@ public class ClusterManager implements ClusterEventSource<SimpleUpdate> {
         // Subscribers may do heavy lifting in their onNetworkChange methods. To avoid this blocking the cluster manager we wrap them in a queue backed listener which will submit calls to an executor service.
         // This particular listener implementation takes advantage of the fact that SimpleUpdate implements Mergeable, so it will also compress the queue into a single call before executing it.
         targets.computeIfAbsent(listener, QueueingMergingEventListener::createAndStart);
-        return SimpleUpdate.builder().after(currentState).build();
+        return SimpleUpdate.initial(currentState);
     }
 
     @Override
@@ -54,7 +54,7 @@ public class ClusterManager implements ClusterEventSource<SimpleUpdate> {
     public synchronized void setEndpoints(String service, HostAndPort... endpoints) {
         ImmutableMap<String, Service> after = ImmutableMap.<String, Service>builder()
             .putAll(currentState)
-            .put(service, Service.builder().name(service).endpoints(Arrays.asList(endpoints)).build())
+            .put(service, new Service(service, Arrays.asList(endpoints)))
             .buildKeepingLast();
 
         applyUpdate(after);
@@ -65,7 +65,7 @@ public class ClusterManager implements ClusterEventSource<SimpleUpdate> {
             .putAll(currentState);
 
         for (Entry<String, ImmutableList<HostAndPort>> entry : services.entrySet()) {
-            after.put(entry.getKey(), Service.builder().name(entry.getKey()).endpoints(entry.getValue()).build());
+            after.put(entry.getKey(), new Service(entry.getKey(), entry.getValue()));
         }
 
         applyUpdate(after.buildKeepingLast());
@@ -75,7 +75,7 @@ public class ClusterManager implements ClusterEventSource<SimpleUpdate> {
         Service oldValue = currentState.get(service);
         final ImmutableSet<HostAndPort> addresses;
         if (oldValue != null) {
-            addresses = ImmutableSet.<HostAndPort>builder().addAll(oldValue.getEndpoints()).add(endpoint).build();
+            addresses = ImmutableSet.<HostAndPort>builder().addAll(oldValue.endpoints()).add(endpoint).build();
         } else {
             addresses = ImmutableSet.of(endpoint);
         }
@@ -87,7 +87,7 @@ public class ClusterManager implements ClusterEventSource<SimpleUpdate> {
         if (oldValue == null) {
             return;
         }
-        ImmutableSet<HostAndPort> addresses = oldValue.getEndpoints().stream().filter(e -> !e.equals(endpoint)).collect(ImmutableSet.toImmutableSet());
+        ImmutableSet<HostAndPort> addresses = oldValue.endpoints().stream().filter(e -> !e.equals(endpoint)).collect(ImmutableSet.toImmutableSet());
         setEndpoints(service, addresses.toArray(new HostAndPort[0]));
     }
 
@@ -112,10 +112,7 @@ public class ClusterManager implements ClusterEventSource<SimpleUpdate> {
 
     @GuardedBy("this")
     private void applyUpdate(ImmutableMap<String, Service> newState) {
-        SimpleUpdate update = SimpleUpdate.builder()
-            .before(currentState)
-            .after(newState)
-            .build();
+        SimpleUpdate update = new SimpleUpdate(currentState, newState);
 
         currentState = newState;
         sendUpdate(update);

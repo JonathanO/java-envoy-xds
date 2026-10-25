@@ -3,6 +3,8 @@ package net.woaf.jono.envoy.xds.snapshot;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.Message;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
@@ -45,7 +47,7 @@ public final class SnapshotConfigBuilder<R extends Message, D> implements Increm
 
     @Override
     public Response<R> addOrder(SnapshotUpdate<D> diff, Predicate<String> resourceInSubListChange, D clientDetails) {
-        Response.ResponseBuilder<R> response = Response.builder();
+        List<NamedMessage<R>> addAndUpdates = new ArrayList<>();
         for (String name : diff.candidates(type, clientDetails)) {
             if (!resourceInSubListChange.test(name)) {
                 continue;
@@ -53,23 +55,23 @@ public final class SnapshotConfigBuilder<R extends Message, D> implements Increm
             R after = diff.after(type, name, clientDetails);
             R before = diff.before(type, name, clientDetails);
             if (after != null && !after.equals(before)) { // protobuf equals() checks identity first, so shared resources are cheap
-                response.addAndUpdate(new NamedMessage<>(name, after));
+                addAndUpdates.add(new NamedMessage<>(name, after));
             }
         }
-        return response.build();
+        return new Response<>(addAndUpdates, List.of());
     }
 
     @Override
     public Response<R> removeOrder(SnapshotUpdate<D> diff, Predicate<String> resourceInSubListChange, D clientDetails) {
-        Response.ResponseBuilder<R> response = Response.builder();
+        List<String> removes = new ArrayList<>();
         for (String name : diff.candidates(type, clientDetails)) {
             if (resourceInSubListChange.test(name)
                 && diff.after(type, name, clientDetails) == null
                 && diff.before(type, name, clientDetails) != null) {
-                response.remove(name);
+                removes.add(name);
             }
         }
-        return response.build();
+        return new Response<>(List.of(), removes);
     }
 
     /** Mid-change state: everything new is in, nothing old has been removed yet. */
@@ -77,27 +79,27 @@ public final class SnapshotConfigBuilder<R extends Message, D> implements Increm
     public Resources<R> getResourcesAddOrder(SnapshotUpdate<D> services, Predicate<String> resourceInSubListChange, D clientDetails) {
         Set<String> names = new HashSet<>(services.namesBefore(type, clientDetails));
         names.addAll(services.namesAfter(type, clientDetails));
-        Resources.ResourcesBuilder<R> resources = Resources.builder();
+        List<NamedMessage<R>> resources = new ArrayList<>();
         for (String name : names) {
             if (!resourceInSubListChange.test(name)) {
                 continue;
             }
             R value = services.after(type, name, clientDetails);
             // Named before or after, so one of them has it.
-            resources.resource(new NamedMessage<>(name, value != null ? value : Preconditions.checkNotNull(services.before(type, name, clientDetails))));
+            resources.add(new NamedMessage<>(name, value != null ? value : Preconditions.checkNotNull(services.before(type, name, clientDetails))));
         }
-        return resources.build();
+        return new Resources<>(resources);
     }
 
     @Override
     public Resources<R> getResourcesRemoveOrder(SnapshotUpdate<D> services, Predicate<String> resourceInSubListChange, D clientDetails) {
-        Resources.ResourcesBuilder<R> resources = Resources.builder();
+        List<NamedMessage<R>> resources = new ArrayList<>();
         for (String name : services.namesAfter(type, clientDetails)) {
             if (resourceInSubListChange.test(name)) {
-                resources.resource(new NamedMessage<>(name, Preconditions.checkNotNull(services.after(type, name, clientDetails))));
+                resources.add(new NamedMessage<>(name, Preconditions.checkNotNull(services.after(type, name, clientDetails))));
             }
         }
-        return resources.build();
+        return new Resources<>(resources);
     }
 
     @Override

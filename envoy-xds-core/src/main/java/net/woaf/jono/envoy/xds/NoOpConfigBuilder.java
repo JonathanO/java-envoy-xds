@@ -17,22 +17,22 @@ public final class NoOpConfigBuilder<ResourceT extends Message, StateUpdT, Detai
 
     @Override
     public Response<ResourceT> addOrder(StateUpdT diff, Predicate<String> resourceInSubListChange, DetailsT clientDetails) {
-        return Response.<ResourceT>builder().build();
+        return Response.empty();
     }
 
     @Override
     public Response<ResourceT> removeOrder(StateUpdT diff, Predicate<String> resourceInSubListChange, DetailsT clientDetails) {
-        return Response.<ResourceT>builder().build();
+        return Response.empty();
     }
 
     @Override
     public Resources<ResourceT> getResourcesAddOrder(StateUpdT services, Predicate<String> resourceInSubListChange, DetailsT clientDetails) {
-        return Resources.<ResourceT>builder().build();
+        return Resources.empty();
     }
 
     @Override
     public Resources<ResourceT> getResourcesRemoveOrder(StateUpdT services, Predicate<String> resourceInSubListChange, DetailsT clientDetails) {
-        return Resources.<ResourceT>builder().build();
+        return Resources.empty();
     }
 
     @Override

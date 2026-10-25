@@ -10,7 +10,8 @@ import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder.NamedMessage;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import io.grpc.stub.StreamObserver;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -19,8 +20,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
 
-@Slf4j
 class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends AbstractDiscoveryService<DiscoveryRequest, E, StateUpdT, DetailsT> {
+
+    private static final Logger log = LoggerFactory.getLogger(SotwDiscoveryService.class);
 
     private final StreamObserver<DiscoveryResponse> responseObserver;
 
@@ -50,7 +52,7 @@ class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends Abstr
         // Remove state for anything we're no longer subscribed to.
         resourceState.keySet().removeIf(n -> !subManager.isSubscribedTo(n));
 
-        getResources(subChanged).getResources().forEach(msg -> resourceState.put(msg.getName(), msg));
+        getResources(subChanged).resources().forEach(msg -> resourceState.put(msg.name(), msg));
         applyCurrentState();
         // Answer even if nothing changed: Envoy waits for a response to its first request of each type, e.g. CDS when
         // there are no clusters yet, and to tell it that names it asked for don't exist.
@@ -91,10 +93,10 @@ class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends Abstr
             // Nothing to do :)
             return false;
         }
-        response.getAddAndUpdates().forEach(msg ->
-                resourceState.put(msg.getName(), msg)
+        response.addAndUpdates().forEach(msg ->
+                resourceState.put(msg.name(), msg)
         );
-        response.getRemoves().forEach(name ->
+        response.removes().forEach(name ->
                 resourceState.remove(name)
         );
         return true;
@@ -111,8 +113,8 @@ class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends Abstr
         log.debug("Sending {} of {}", version, getTypeUrl());
         List<String> names = new ArrayList<>(resources.size());
         for (IncrementalConfigBuilder.NamedMessage<? extends Message> namedMessage : resources) {
-            responseBuilder.addResources(pack(namedMessage.getMessage()));
-            names.add(namedMessage.getName());
+            responseBuilder.addResources(pack(namedMessage.message()));
+            names.add(namedMessage.name());
         }
         responseBuilder.setTypeUrl(getTypeUrl().getTypeUrl());
         responseBuilder.setVersionInfo(version);

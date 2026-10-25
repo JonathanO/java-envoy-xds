@@ -45,11 +45,7 @@ public class DeltaAggregatedDiscoveryService<StateUpdT, DetailsT> {
     }
 
     private CommonDiscoveryRequest<DeltaDiscoveryRequest> convertToCommonDiscoveryRequest(DeltaDiscoveryRequest request) {
-        return CommonDiscoveryRequest.<DeltaDiscoveryRequest>builder()
-                .typeUrl(request.getTypeUrl())
-                .errorDetail(request.hasErrorDetail() ? request.getErrorDetail() : null)
-                .node(request.getNode())
-                .message(request)
-                .build();
+        return new CommonDiscoveryRequest<>(request.getNode(), request.getTypeUrl(), request,
+            request.hasErrorDetail() ? request.getErrorDetail() : null);
     }
 }

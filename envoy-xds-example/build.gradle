@@ -17,7 +17,4 @@ dependencies {
     implementation 'io.grpc:grpc-api:1.85.1'
     implementation project(':envoy-xds-snapshot')
     runtimeOnly 'ch.qos.logback:logback-classic:1.6.5'
-    compileOnly 'javax.annotation:javax.annotation-api:1.3.2' // lombok adds @Generated
-    compileOnly 'org.projectlombok:lombok:1.18.48'
-    annotationProcessor 'org.projectlombok:lombok:1.18.48'
 }

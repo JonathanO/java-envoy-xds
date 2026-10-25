@@ -47,11 +47,7 @@ public class SotwAggregatedDiscoveryService<StateUpdT, DetailsT> {
     }
 
     private CommonDiscoveryRequest<DiscoveryRequest> convertToCommonDiscoveryRequest(DiscoveryRequest request) {
-        return CommonDiscoveryRequest.<DiscoveryRequest>builder()
-                .typeUrl(request.getTypeUrl())
-                .errorDetail(request.hasErrorDetail() ? request.getErrorDetail() : null)
-                .node(request.getNode())
-                .message(request)
-                .build();
+        return new CommonDiscoveryRequest<>(request.getNode(), request.getTypeUrl(), request,
+            request.hasErrorDetail() ? request.getErrorDetail() : null);
     }
 }

@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.example.configbuilder;
 
+import java.util.List;
 import net.woaf.jono.envoy.example.config.ClientConfig;
 import net.woaf.jono.envoy.example.state.Service;
 import net.woaf.jono.envoy.example.state.SimpleUpdate;
@@ -23,19 +24,19 @@ public class RouteConfigurationConfigBuilder extends AbstractConfigBuilder<Route
             .setName(ROUTE_NAME);
 
         if (includeRemoved) {
-            for (Map.Entry<String, Service> entry : diff.getBefore().entrySet()) {
+            for (Map.Entry<String, Service> entry : diff.before().entrySet()) {
                 // In add order we haven't removed any clusters yet.
-                if (diff.getAfter().containsKey(entry.getKey())) {
+                if (diff.after().containsKey(entry.getKey())) {
                     continue;
                 }
                 routeBuilder.addVirtualHosts(toVirtualHost(entry.getValue(), clientDetails));
             }
         }
-        for (Map.Entry<String, Service> entry : diff.getAfter().entrySet()) {
+        for (Map.Entry<String, Service> entry : diff.after().entrySet()) {
             routeBuilder.addVirtualHosts(toVirtualHost(entry.getValue(), clientDetails));
         }
 
-        return Response.<RouteConfiguration>builder().addAndUpdate(NamedMessage.of(routeBuilder.build())).build();
+        return new Response<>(List.of(NamedMessage.of(routeBuilder.build())), List.of());
     }
 
     @Override
@@ -43,12 +44,12 @@ public class RouteConfigurationConfigBuilder extends AbstractConfigBuilder<Route
         // Our toy example has a single route config with routes to every service. If a service is added/removed we have to update the route config to add a route to it, but we need to preserve all the existing routes too!
 
         if (!resourceInSubListChange.test(ROUTE_NAME)) {
-            return Response.<RouteConfiguration>builder().build();
+            return Response.empty();
         }
 
-        if (diff.getBefore().keySet().containsAll(diff.getAfter().keySet())) {
+        if (diff.before().keySet().containsAll(diff.after().keySet())) {
             // If no services got added then there are no changes.
-            return Response.<RouteConfiguration>builder().build();
+            return Response.empty();
         }
 
         return eitherWay(diff, resourceInSubListChange, clientDetails, true);
@@ -59,12 +60,12 @@ public class RouteConfigurationConfigBuilder extends AbstractConfigBuilder<Route
         // Our toy example has a single route config with routes to every service. If a service is added/removed we have to update the route config to add a route to it, but we need to preserve all the existing routes too!
 
         if (!resourceInSubListChange.test(ROUTE_NAME)) {
-            return Response.<RouteConfiguration>builder().build();
+            return Response.empty();
         }
 
-        if (diff.getAfter().keySet().containsAll(diff.getBefore().keySet())) {
+        if (diff.after().keySet().containsAll(diff.before().keySet())) {
             // If no services got removed then there are no changes.
-            return Response.<RouteConfiguration>builder().build();
+            return Response.empty();
         }
 
         return eitherWay(diff, resourceInSubListChange, clientDetails, false);
@@ -73,7 +74,7 @@ public class RouteConfigurationConfigBuilder extends AbstractConfigBuilder<Route
     @Override
     public Resources<RouteConfiguration> getResources(Collection<Service> services, Predicate<String> resourceInSubListChange, ClientConfig clientDetails) {
         if (!resourceInSubListChange.test(ROUTE_NAME)) {
-            return Resources.<RouteConfiguration>builder().build();
+            return Resources.empty();
         }
 
         RouteConfiguration.Builder routeBuilder = RouteConfiguration.newBuilder()
@@ -83,21 +84,21 @@ public class RouteConfigurationConfigBuilder extends AbstractConfigBuilder<Route
             routeBuilder.addVirtualHosts(toVirtualHost(service, clientDetails));
         }
 
-        return Resources.<RouteConfiguration>builder().resource(NamedMessage.of(routeBuilder.build())).build();
+        return new Resources<>(List.of(NamedMessage.of(routeBuilder.build())));
 
     }
 
     private VirtualHost toVirtualHost(Service service, ClientConfig clientDetails) {
         return VirtualHost.newBuilder()
-            .setName(service.getName())
-            .addDomains(service.getName())
-            .addDomains(service.getName() + ":" + clientDetails.getListenPort())
+            .setName(service.name())
+            .addDomains(service.name())
+            .addDomains(service.name() + ":" + clientDetails.listenPort())
             .addRoutes(Route.newBuilder()
                 .setMatch(RouteMatch.newBuilder()
                     .setPrefix("/")
                     .build())
                 .setRoute(RouteAction.newBuilder()
-                    .setCluster(service.getName())
+                    .setCluster(service.name())
                     .build())
                 .build())
             .build();
