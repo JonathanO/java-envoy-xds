@@ -3,6 +3,7 @@ package net.woaf.jono.envoy.xds.snapshot;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Message;
@@ -105,10 +106,12 @@ public final class Snapshot {
         private Editor() {
         }
 
+        @CanIgnoreReturnValue // returns the editor for chaining
         public Editor put(Message resource) {
             return put(nameOf(resource), resource);
         }
 
+        @CanIgnoreReturnValue // returns the editor for chaining
         public Editor put(String name, Message resource) {
             Class<? extends Message> type = resource.getClass();
             if (resource.equals(current(type).get(name))) {
@@ -119,6 +122,7 @@ public final class Snapshot {
             return this;
         }
 
+        @CanIgnoreReturnValue // returns the editor for chaining
         public Editor remove(Class<? extends Message> type, String name) {
             if (!current(type).containsKey(name)) {
                 return this;

@@ -6,7 +6,7 @@
   "packageRules": [
     {
       "description": "Compile against the oldest supported Envoy API; users supply their own version",
-      "matchPackageNames": ["com.transferwise.envoy:envoy-api"],
+      "matchPackageNames": ["net.woaf.jono.envoy:envoy-api"],
       "enabled": false
     }
   ]
