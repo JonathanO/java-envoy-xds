@@ -31,6 +31,6 @@ dependencies {
     pitest 'org.pitest:pitest-junit5-plugin:1.2.3'
     testImplementation 'net.woaf.jono.envoy:envoy-api:1.36.0'
     testImplementation 'com.github.spotbugs:spotbugs-annotations:4.10.5'
-    testImplementation 'dev.hegel:hegel:0.10.1'
+    testImplementation 'dev.hegel:hegel:0.10.3'
 }
 
