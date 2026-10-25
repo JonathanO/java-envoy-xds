@@ -16,14 +16,25 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * The xDS resource types we can serve, and the order we send them in.
+ */
 public enum TypeUrl {
+    /** Listeners. */
     LDS(Listener.getDescriptor().getFullName(), Listener.class, true),
+    /** Route configurations. */
     RDS(RouteConfiguration.getDescriptor().getFullName(), RouteConfiguration.class, false),
+    /** Scoped route configurations. */
     SRDS(ScopedRouteConfiguration.getDescriptor().getFullName(), ScopedRouteConfiguration.class, false),
+    /** Virtual hosts. */
     VHDS(VirtualHost.getDescriptor().getFullName(), VirtualHost.class, false),
+    /** Clusters. */
     CDS(Cluster.getDescriptor().getFullName(), Cluster.class, true),
+    /** Cluster load assignments: endpoints. */
     EDS(ClusterLoadAssignment.getDescriptor().getFullName(), ClusterLoadAssignment.class, false),
+    /** Secrets. */
     SDS(Secret.getDescriptor().getFullName(), Secret.class, false),
+    /** Runtime layers. */
     RTDS(Runtime.getDescriptor().getFullName(), Runtime.class, false);
 
     private final String typeUrl;
@@ -40,10 +51,17 @@ public enum TypeUrl {
         this.wildcard = wildcard;
     }
 
+    /**
+     * {@return the type URL, e.g. {@code type.googleapis.com/envoy.config.cluster.v3.Cluster}}
+     */
     public String getTypeUrl() {
         return typeUrl;
     }
 
+    /**
+     * {@return its type, or null for one we don't serve}
+     * @param typeUrl a type URL from a request
+     */
     public static @Nullable TypeUrl of(String typeUrl) {
         return Arrays.stream(TypeUrl.values()).filter(
                 t -> t.getTypeUrl().equals(typeUrl)
@@ -61,14 +79,23 @@ public enum TypeUrl {
      */
     public static final List<TypeUrl> REMOVE_ORDER = List.of(LDS, RDS, SRDS, VHDS, CDS, EDS, RTDS, SDS);
 
+    /**
+     * {@return the resource's message class}
+     */
     public Class<? extends Message> getMessageClazz() {
         return messageClazz;
     }
 
+    /**
+     * {@return the message classes of every type we serve}
+     */
     public static Set<Class<? extends Message>> getMessageClazzes() {
         return messageClazzes;
     }
 
+    /**
+     * {@return whether clients may subscribe to every resource of this type with a wildcard (LDS and CDS)}
+     */
     public boolean isWildcard() {
         return wildcard;
     }

@@ -10,6 +10,8 @@ package net.woaf.jono.envoy.xds.api;
  * The simplest way to meet both is to wrap each listener in
  * {@link net.woaf.jono.envoy.xds.api.utils.SerialEventListener}, as {@code SnapshotSource} does, so
  * broadcasting only hands updates to an executor.</p>
+ *
+ * @param <StateUpdT> the state updates it publishes
  */
 public interface ClusterEventSource<StateUpdT> {
 

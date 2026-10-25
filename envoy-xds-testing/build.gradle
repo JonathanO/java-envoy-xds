@@ -25,3 +25,7 @@ dependencies {
     compileOnly 'net.woaf.jono.envoy:envoy-api:1.36.0' // Users are expected to provide a compatible envoy api
     testImplementation 'net.woaf.jono.envoy:envoy-api:1.36.0'
 }
+
+javadoc {
+    options.addBooleanOption('Werror', true) // every public API documented
+}

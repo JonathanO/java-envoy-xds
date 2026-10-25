@@ -18,15 +18,29 @@ import java.util.Set;
 import org.assertj.core.api.AssertFactory;
 import org.assertj.core.api.InstanceOfAssertFactory;
 
+/**
+ * Checks on a recorded delta xDS conversation.
+ */
 public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert> {
 
 
+    /**
+     * For AssertJ's {@code asInstanceOf} and {@code extracting}.
+     */
     public static final InstanceOfAssertFactory<Conversation, DeltaConversationAssert> DELTA_CONVERSATION = new InstanceOfAssertFactory<>(Conversation.class, new Factory());
 
+    /**
+     * Use {@link #assertThat}.
+     * @param actual the conversation
+     */
     protected DeltaConversationAssert(Conversation actual) {
         super(actual, DeltaConversationAssert.class);
     }
 
+    /**
+     * {@return checks on this conversation}
+     * @param actual the conversation
+     */
     public static DeltaConversationAssert assertThat(Conversation actual) {
         return new DeltaConversationAssert(actual);
     }
@@ -249,7 +263,12 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
         return this;
     }
 
+    /** An AssertJ factory for these checks. */
     public static class Factory implements AssertFactory<Conversation, DeltaConversationAssert> {
+
+        /** Creates the factory. */
+        public Factory() {
+        }
 
         @Override
         public DeltaConversationAssert createAssert(Conversation conversation) {

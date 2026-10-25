@@ -7,8 +7,18 @@ import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
 import org.assertj.core.api.AbstractAssert;
 
+/**
+ * Checks on a recorded xDS conversation, either protocol.
+ *
+ * @param <SelfT> the concrete assert
+ */
 public abstract class EnvoyAssert<SelfT extends EnvoyAssert<SelfT>> extends AbstractAssert<SelfT, Conversation> {
 
+    /**
+     * For subclasses.
+     * @param conversation the conversation
+     * @param selfType the concrete assert's class
+     */
     protected EnvoyAssert(Conversation conversation, Class<SelfT> selfType) {
         super(conversation, selfType);
     }
@@ -23,18 +33,42 @@ public abstract class EnvoyAssert<SelfT extends EnvoyAssert<SelfT>> extends Abst
         return delta ? DeltaConversationAssert.assertThat(conversation) : SotwConversationAssert.assertThat(conversation);
     }
 
+    /**
+     * Envoy ACKed every response we sent.
+     * @return this
+     */
     @CanIgnoreReturnValue
     public abstract SelfT allWereAcked();
 
+    /**
+     * As {@link #nothingSentUnasked()}, allowing Envoy before 1.19's reconnect behaviour: a resource list on its first request for a wildcard type.
+     * @return this
+     */
     @CanIgnoreReturnValue
     public abstract SelfT nothingSentUnaskedPre119Reconnect();
 
+    /**
+     * We never sent a resource Envoy hadn't subscribed to.
+     * @return this
+     */
     @CanIgnoreReturnValue
     public abstract SelfT nothingSentUnasked();
 
+    /**
+     * We never sent a resource Envoy hadn't subscribed to.
+     * @param allowBrokenReconnectWildcardBehaviourPre119 allow a resource list on Envoy's first request for a wildcard
+     *     type, as Envoy before 1.19 sends when reconnecting
+     * @return this
+     */
     @CanIgnoreReturnValue
     public abstract SelfT nothingSentUnasked(boolean allowBrokenReconnectWildcardBehaviourPre119);
 
+    /**
+     * Envoy subscribed to a resource, then unsubscribed from it.
+     * @param typeUrl the type, e.g. {@link net.woaf.jono.envoy.testing.XdsTypes#RDS}
+     * @param resourceName the resource
+     * @return this
+     */
     @CanIgnoreReturnValue
     public abstract SelfT unsubscribedFrom(String typeUrl, String resourceName);
 
@@ -76,6 +110,11 @@ public abstract class EnvoyAssert<SelfT extends EnvoyAssert<SelfT>> extends Abst
     @CanIgnoreReturnValue
     public abstract SelfT answeredEveryType();
 
+    /**
+     * Envoy sent requests for each of these types.
+     * @param typeUrls e.g. {@link net.woaf.jono.envoy.testing.XdsTypes#CDS}
+     * @return this
+     */
     @CanIgnoreReturnValue
     public abstract SelfT hadConversationsWith(String... typeUrls);
 

@@ -2,6 +2,11 @@ package net.woaf.jono.envoy.xds.api;
 
 import java.io.Closeable;
 
+/**
+ * Receives state updates from a {@link ClusterEventSource}.
+ *
+ * @param <StateUpdT> the state updates it receives
+ */
 public interface ClusterManagerEventListener<StateUpdT> extends Closeable {
 
     /**
