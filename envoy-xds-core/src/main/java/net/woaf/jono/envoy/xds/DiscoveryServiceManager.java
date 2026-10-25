@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds;
 
+import org.jspecify.annotations.Nullable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.google.protobuf.Message;
@@ -35,13 +36,13 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     /**
      * Iterator for obtaining the next discovery service we need to send messages from.
      */
-    private Iterator<DiscoveryService<RequestT, StateUpdT>> current = null;
+    private @Nullable Iterator<DiscoveryService<RequestT, StateUpdT>> current = null;
 
     /**
      * The discovery service we're waiting on envoy to ack messages from to allow the current push to continue.
      * null if we are not waiting on anything.
      */
-    private DiscoveryService<RequestT, StateUpdT> waitingOn = null;
+    private @Nullable DiscoveryService<RequestT, StateUpdT> waitingOn = null;
 
     /**
      * The set of discovery services, aside from waitingOn, that are awaiting ack messages from envoy.
@@ -64,7 +65,7 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      * The change set we're currently trying to send to envoy.
      * null if we're not currently waiting on acks from envoy for a change.
      */
-    private StateUpdT currentChange = null;
+    private @Nullable StateUpdT currentChange = null;
 
     private boolean closed = false;
     private boolean initialized = false;
@@ -74,7 +75,7 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      */
     private boolean frozen = false;
 
-    private TypeUrl delayUpdatesUntilAckOf = null;
+    private @Nullable TypeUrl delayUpdatesUntilAckOf = null;
 
     /**
      * Types that refer to clusters. Envoy re-subscribes to everything at once when it reconnects, so their answers wait
@@ -94,7 +95,7 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     /**
      * Types this client gets from us, or null for all we serve. See XdsConfig.subscribesTo.
      */
-    private Set<TypeUrl> subscribesTo = null;
+    private @Nullable Set<TypeUrl> subscribesTo = null;
 
     private LongSupplier clock = System::nanoTime;
 
@@ -126,7 +127,7 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     }
 
 
-    public void init(StateUpdT initialStateChange, TypeUrl delayUpdatesUntilAckOf) {
+    public void init(StateUpdT initialStateChange, @Nullable TypeUrl delayUpdatesUntilAckOf) {
         init(initialStateChange, delayUpdatesUntilAckOf, null);
     }
 
@@ -144,7 +145,7 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      * @param delayUpdatesUntilAckOf see XdsConfig, or null
      * @param subscribesTo see XdsConfig, or null for every type we serve
      */
-    public void init(StateUpdT initialStateChange, TypeUrl delayUpdatesUntilAckOf, Set<TypeUrl> subscribesTo) {
+    public void init(StateUpdT initialStateChange, @Nullable TypeUrl delayUpdatesUntilAckOf, @Nullable Set<TypeUrl> subscribesTo) {
         this.delayUpdatesUntilAckOf = delayUpdatesUntilAckOf;
         this.subscribesTo = subscribesTo;
         if (delayUpdatesUntilAckOf != null && subscribesTo != null && !subscribesTo.contains(delayUpdatesUntilAckOf)) {
@@ -181,8 +182,9 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     public void processUpdate(CommonDiscoveryRequest<RequestT> value) {
         assertPostInitState();
 
-        TypeUrl typeUrl = TypeUrl.of(value.getTypeUrl());
-        DiscoveryService<RequestT, StateUpdT> discoveryService = discoveryServices.get(typeUrl);
+        // The stream observer drops unknown types, and the factory builds a service for every type.
+        TypeUrl typeUrl = Preconditions.checkNotNull(TypeUrl.of(value.getTypeUrl()), "Unknown type URL %s", value.getTypeUrl());
+        DiscoveryService<RequestT, StateUpdT> discoveryService = Preconditions.checkNotNull(discoveryServices.get(typeUrl), "No discovery service for %s", typeUrl);
         if (USE_CLUSTERS.contains(typeUrl) && value.getErrorDetail() == null && !discoveryService.awaitingAck() && clustersAwaitingAck()) {
             // Answer later, in add order: see USE_CLUSTERS. Never hold an ACK this service is waiting for.
             heldRequests.add(value);
@@ -346,8 +348,8 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
         }
     }
 
-    private DiscoveryService<RequestT, StateUpdT> nextOrNull() {
-        if (current.hasNext()) {
+    private @Nullable DiscoveryService<RequestT, StateUpdT> nextOrNull() {
+        if (current != null && current.hasNext()) {
             return current.next();
         }
         return null;

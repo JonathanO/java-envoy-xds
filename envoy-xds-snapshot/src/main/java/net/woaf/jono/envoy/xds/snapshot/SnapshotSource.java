@@ -1,7 +1,7 @@
 package net.woaf.jono.envoy.xds.snapshot;
 
 import com.google.errorprone.annotations.concurrent.GuardedBy;
-import edu.umd.cs.findbugs.annotations.Nullable;
+import org.jspecify.annotations.Nullable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;

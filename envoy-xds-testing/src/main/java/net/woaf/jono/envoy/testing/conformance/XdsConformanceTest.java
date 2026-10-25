@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 
+import org.jspecify.annotations.Nullable;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.protobuf.Any;
@@ -114,7 +115,7 @@ public abstract class XdsConformanceTest {
          * suite waits for every response to be answered and a quiet period.
          * @return hook, or null if the control plane can't tell
          */
-        default Settled.Hook idleHook() {
+        default Settled.@Nullable Hook idleHook() {
             return null;
         }
 
@@ -327,9 +328,9 @@ public abstract class XdsConformanceTest {
         private final boolean rateLimitedAds;
         private final EnvoyContainer envoy;
         private final ConversationLogger conversations = new ConversationLogger();
-        private BindableService service;
-        private Server server;
-        private Checkpoint checkpoint;
+        private @Nullable BindableService service;
+        private @Nullable Server server;
+        private @Nullable Checkpoint checkpoint;
 
         Harness(Supplier<ControlPlane> newControlPlane, String envoyImage, Protocol protocol, boolean rateLimitedAds) {
             this.newControlPlane = newControlPlane;
@@ -344,6 +345,10 @@ public abstract class XdsConformanceTest {
                 .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(XdsConformanceTest.class)));
         }
 
+        private Checkpoint checkpoint() {
+            return Preconditions.checkNotNull(checkpoint, "start() first");
+        }
+
         void stop() throws InterruptedException {
             envoy.stop();
             stopServer();
@@ -354,10 +359,10 @@ public abstract class XdsConformanceTest {
             controlPlane.setConfig(List.of());
             start();
             Conversation conversation = synced(1);
-            checkpoint.assertSane();
+            checkpoint().assertSane();
 
             change(conversation, services("foo"));
-            checkpoint.assertSane();
+            checkpoint().assertSane();
             assertStatus("foo", 200);
         }
 
@@ -369,7 +374,7 @@ public abstract class XdsConformanceTest {
 
             // empty has no endpoints: it still needs an answer, an empty assignment, or Envoy leaves it warming
             change(conversation, withEmptyCluster(services("foo", "bar")));
-            checkpoint.assertSane();
+            checkpoint().assertSane();
             assertStatus("bar", 200);
             assertStatus("empty", 503);
 
@@ -377,7 +382,7 @@ public abstract class XdsConformanceTest {
             // Envoy drops its EDS subscription for bar, which needs no response.
             await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> envoyAssert(conversation).unsubscribedFrom(XdsTypes.EDS, "bar"));
             await().atMost(10, TimeUnit.SECONDS).until(settled(conversation));
-            checkpoint.assertSane();
+            checkpoint().assertSane();
             assertStatus("bar", 404);
             assertStatus("foo", 200);
         }
@@ -390,7 +395,7 @@ public abstract class XdsConformanceTest {
             EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v1");
 
             change(conversation, service("foo", "foo-v2"));
-            checkpoint.assertSane();
+            checkpoint().assertSane();
             EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v2");
         }
 
@@ -418,7 +423,7 @@ public abstract class XdsConformanceTest {
 
             if (controlPlane.resync()) {
                 synced(2);
-                checkpoint.assertSaneAfterReconnect();
+                checkpoint().assertSaneAfterReconnect();
                 assertStatus("bar", 200);
             }
         }
@@ -438,7 +443,7 @@ public abstract class XdsConformanceTest {
             start();
             synced(2);
             assertRateLimitedIfAsked();
-            checkpoint.assertSaneAfterReconnect(before);
+            checkpoint().assertSaneAfterReconnect(before);
             EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v2");
             // and foo-v1 goes, once nothing uses it
             await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> MatcherAssert.assertThat(conversations.getConversations().get(1),
@@ -455,12 +460,12 @@ public abstract class XdsConformanceTest {
             Conversation conversation = synced(1);
 
             change(conversation, withListener(services("foo")));
-            checkpoint.assertSane();
+            checkpoint().assertSane();
             EnvoyChecks.assertRoutedVia(envoy, DYNAMIC_LISTENER_PORT, "dynamic", "dynamic");
 
             change(conversation, services("foo"));
             await().atMost(10, TimeUnit.SECONDS).until(settled(conversation));
-            checkpoint.assertSane();
+            checkpoint().assertSane();
             await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> assertThat(envoy.admin().stats())
                 .as("listeners").containsEntry("listener_manager.total_listeners_active", 1L)); // just the static one
             assertStatus("foo", 200);
@@ -476,8 +481,8 @@ public abstract class XdsConformanceTest {
                 controlPlane.setConfig(service("foo", "foo-v" + i));
                 Thread.sleep(25); // so some changes arrive while others are on their way
             }
-            await().atMost(60, TimeUnit.SECONDS).until(Settled.settledAfter(conversation, checkpoint.message(), settled(conversation)));
-            checkpoint.assertSane();
+            await().atMost(60, TimeUnit.SECONDS).until(Settled.settledAfter(conversation, checkpoint().message(), settled(conversation)));
+            checkpoint().assertSane();
             EnvoyChecks.assertRoutedVia(envoy, LISTENER_PORT, "foo", "foo-v20");
             await().atMost(60, TimeUnit.SECONDS).untilAsserted(() -> MatcherAssert.assertThat("no stale clusters left",
                 envoy.admin().configDump(), XdsMatchers.activeClusterNames(Matchers.contains("foo-v20"))));
@@ -501,7 +506,7 @@ public abstract class XdsConformanceTest {
             start();
             synced(2);
             assertRateLimitedIfAsked();
-            checkpoint.assertSaneAfterReconnect(before);
+            checkpoint().assertSaneAfterReconnect(before);
             assertStatus("foo", 200);
             assertStatus("baz", 200);
             assertStatus("bar", 404);
@@ -521,12 +526,12 @@ public abstract class XdsConformanceTest {
             start();
             final Conversation conversation = synced(2); // Ignores Envoy's warnings about the disconnect.
             assertRateLimitedIfAsked();
-            checkpoint.assertSaneAfterReconnect();
+            checkpoint().assertSaneAfterReconnect();
             assertStatus("foo", 200);
             assertStatus("bar", 404);
 
             change(conversation, services("foo", "baz"));
-            checkpoint.assertSaneAfterReconnect();
+            checkpoint().assertSaneAfterReconnect();
             assertStatus("baz", 200);
         }
 

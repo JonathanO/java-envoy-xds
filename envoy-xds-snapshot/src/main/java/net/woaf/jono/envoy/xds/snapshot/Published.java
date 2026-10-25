@@ -1,7 +1,7 @@
 package net.woaf.jono.envoy.xds.snapshot;
 
 import com.google.protobuf.Message;
-import edu.umd.cs.findbugs.annotations.Nullable;
+import org.jspecify.annotations.Nullable;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;

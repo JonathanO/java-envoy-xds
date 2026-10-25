@@ -31,6 +31,8 @@ dependencies {
     testImplementation 'org.mockito:mockito-junit-jupiter:5.24.0'
     spotbugs 'com.github.spotbugs:spotbugs:4.10.5'
     errorprone "com.google.errorprone:error_prone_core:2.51.0"
+    errorprone "com.uber.nullaway:nullaway:0.14.3"
+    api "org.jspecify:jspecify:1.0.1"
 }
 
 java {
@@ -83,6 +85,20 @@ tasks.withType(Checkstyle) {
 
 tasks.withType(JavaCompile).configureEach {
     options.errorprone.disableWarningsInGeneratedCode = true
+    options.compilerArgs << '-Werror'
+}
+
+compileJava {
+    // Every main package is @NullMarked (see its package-info.java), and NullAway checks it strictly.
+    options.errorprone {
+        error("NullAway")
+        option("NullAway:OnlyNullMarked", "true")
+        option("NullAway:JSpecifyMode", "true")
+    }
+}
+
+compileTestJava {
+    options.errorprone.disable("NullAway")
 }
 
 clean.doFirst {

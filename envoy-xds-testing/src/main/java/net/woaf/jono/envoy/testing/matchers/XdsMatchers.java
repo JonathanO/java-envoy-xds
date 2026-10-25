@@ -2,6 +2,7 @@ package net.woaf.jono.envoy.testing.matchers;
 
 import static net.woaf.jono.envoy.testing.configdump.EnvoyAdminClient.sneakyUnpack;
 
+import org.jspecify.annotations.Nullable;
 import com.google.protobuf.Message;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.core.v3.SocketAddress;
@@ -53,9 +54,9 @@ public final class XdsMatchers {
      * @return matcher
      */
     public static Matcher<Message> named(String name) {
-        return new FeatureMatcher<>(Matchers.equalTo(name), "named", "name") {
+        return new FeatureMatcher<Message, @Nullable String>(Matchers.equalTo(name), "named", "name") {
             @Override
-            protected String featureValueOf(Message actual) {
+            protected @Nullable String featureValueOf(Message actual) {
                 return XdsTypes.nameOf(actual);
             }
         };
@@ -341,7 +342,7 @@ public final class XdsMatchers {
         };
     }
 
-    private static <T, U> Matcher<T> feature(String description, String name, Function<T, U> value, Matcher<? super U> matcher) {
+    private static <T, U extends @Nullable Object> Matcher<T> feature(String description, String name, Function<T, U> value, Matcher<? super U> matcher) {
         return new FeatureMatcher<T, U>(matcher, description, name) {
             @Override
             protected U featureValueOf(T actual) {

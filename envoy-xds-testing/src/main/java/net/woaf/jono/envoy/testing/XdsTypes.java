@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.testing;
 
+import org.jspecify.annotations.Nullable;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.Message;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
@@ -52,7 +53,7 @@ public final class XdsTypes {
      * @param resource an xDS resource
      * @return its name, or null if it has neither field
      */
-    public static String nameOf(Message resource) {
+    public static @Nullable String nameOf(Message resource) {
         for (String field : new String[] {"name", "cluster_name"}) {
             Descriptors.FieldDescriptor f = resource.getDescriptorForType().findFieldByName(field);
             if (f != null && f.getJavaType() == Descriptors.FieldDescriptor.JavaType.STRING) {
@@ -67,7 +68,7 @@ public final class XdsTypes {
      * @param typeUrl xDS type URL
      * @return the class, or null if it isn't an xDS resource type we know
      */
-    public static Class<? extends Message> messageClass(String typeUrl) {
+    public static @Nullable Class<? extends Message> messageClass(String typeUrl) {
         return CLASSES.get(typeUrl);
     }
 }

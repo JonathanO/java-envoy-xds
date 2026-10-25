@@ -12,16 +12,19 @@ import io.envoyproxy.envoy.admin.v3.ScopedRoutesConfigDump;
 import io.envoyproxy.envoy.admin.v3.SecretsConfigDump;
 import lombok.Getter;
 
+/**
+ * The typed sections of an Envoy config dump. A section Envoy left out is empty.
+ */
 @Getter
 public class TypedEnvoyConfigDump {
 
-    private BootstrapConfigDump bootstrapConfigDump = null;
-    private ClustersConfigDump clustersConfigDump = null;
-    private EndpointsConfigDump endpointsConfigDump = null;
-    private ListenersConfigDump listenersConfigDump = null;
-    private ScopedRoutesConfigDump scopedRoutesConfigDump = null;
-    private RoutesConfigDump routesConfigDump = null;
-    private SecretsConfigDump secretsConfigDump = null;
+    private BootstrapConfigDump bootstrapConfigDump = BootstrapConfigDump.getDefaultInstance();
+    private ClustersConfigDump clustersConfigDump = ClustersConfigDump.getDefaultInstance();
+    private EndpointsConfigDump endpointsConfigDump = EndpointsConfigDump.getDefaultInstance();
+    private ListenersConfigDump listenersConfigDump = ListenersConfigDump.getDefaultInstance();
+    private ScopedRoutesConfigDump scopedRoutesConfigDump = ScopedRoutesConfigDump.getDefaultInstance();
+    private RoutesConfigDump routesConfigDump = RoutesConfigDump.getDefaultInstance();
+    private SecretsConfigDump secretsConfigDump = SecretsConfigDump.getDefaultInstance();
 
     public TypedEnvoyConfigDump(ConfigDump dump) throws InvalidProtocolBufferException {
         for (Any any : dump.getConfigsList()) {

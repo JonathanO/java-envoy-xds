@@ -85,11 +85,11 @@ public class ConversationLogger implements ServerInterceptor {
 
         private final Conversation conversation;
 
-        public ConversationCallInterceptor(Conversation conversation) {
+        ConversationCallInterceptor(Conversation conversation) {
             this.conversation = conversation;
         }
 
-        public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(ServerCall<ReqT, RespT> call, Metadata headers, ServerCallHandler<ReqT, RespT> next) {
+        <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(ServerCall<ReqT, RespT> call, Metadata headers, ServerCallHandler<ReqT, RespT> next) {
 
             var interceptingCall = new ForwardingServerCall.SimpleForwardingServerCall<>(call) {
                 @Override

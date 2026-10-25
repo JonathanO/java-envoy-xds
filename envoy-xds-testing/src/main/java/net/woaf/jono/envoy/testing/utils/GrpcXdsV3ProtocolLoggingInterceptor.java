@@ -28,7 +28,7 @@ public class GrpcXdsV3ProtocolLoggingInterceptor extends SimpleGRpcInterceptor {
         );
     }
 
-    void discoveryRequest(Object message) {
+    private void discoveryRequest(Object message) {
         var concrete = (DiscoveryRequest) message;
         var prefix = "?";
         var typeUrl = concrete.getTypeUrl();
@@ -48,7 +48,7 @@ public class GrpcXdsV3ProtocolLoggingInterceptor extends SimpleGRpcInterceptor {
         ));
     }
 
-    void deltaDiscoveryRequest(Object message) {
+    private void deltaDiscoveryRequest(Object message) {
         var concrete = (DeltaDiscoveryRequest) message;
         var prefix = "?++";
         var typeUrl = concrete.getTypeUrl();
@@ -72,7 +72,7 @@ public class GrpcXdsV3ProtocolLoggingInterceptor extends SimpleGRpcInterceptor {
         ));
     }
 
-    void discoveryResponse(Object message) {
+    private void discoveryResponse(Object message) {
         var concrete = (DiscoveryResponse) message;
         var prefix = "=";
         var typeUrl = concrete.getTypeUrl();
@@ -107,7 +107,7 @@ public class GrpcXdsV3ProtocolLoggingInterceptor extends SimpleGRpcInterceptor {
         ));
     }
 
-    void deltaDiscoveryResponse(Object message) {
+    private void deltaDiscoveryResponse(Object message) {
         var concrete = (DeltaDiscoveryResponse) message;
         var prefix = "=++";
         var typeUrl = concrete.getTypeUrl();

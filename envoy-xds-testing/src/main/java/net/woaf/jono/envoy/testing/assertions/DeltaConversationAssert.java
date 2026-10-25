@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.testing.assertions;
 
+import org.jspecify.annotations.Nullable;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultimap;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
@@ -169,7 +170,7 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
 
     @Override
     @CanIgnoreReturnValue
-    public DeltaConversationAssert wasMakeBeforeBreak(int fromMessage, Conversation before) {
+    public DeltaConversationAssert wasMakeBeforeBreak(int fromMessage, @Nullable Conversation before) {
         isNotNull();
         AckedState state = new AckedState();
         if (before != null) {
