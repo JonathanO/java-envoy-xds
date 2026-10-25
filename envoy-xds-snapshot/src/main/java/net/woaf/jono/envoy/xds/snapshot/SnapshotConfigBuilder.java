@@ -25,6 +25,10 @@ public final class SnapshotConfigBuilder<R extends Message, D> implements Increm
 
     private final Class<R> type;
 
+    /**
+     * Serves one type from the snapshot and each client's overlay.
+     * @param type the resource class to serve, e.g. Cluster.class
+     */
     public SnapshotConfigBuilder(Class<R> type) {
         this.type = type;
     }

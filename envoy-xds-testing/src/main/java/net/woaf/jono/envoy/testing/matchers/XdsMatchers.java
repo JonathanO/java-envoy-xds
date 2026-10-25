@@ -73,6 +73,11 @@ public final class XdsMatchers {
         return resource(Cluster.class, "a Cluster", matchers);
     }
 
+    /**
+     * A cluster of this discovery type.
+     * @param type e.g. EDS
+     * @return matcher
+     */
     public static Matcher<Cluster> ofType(Cluster.DiscoveryType type) {
         return feature("of type", "type", Cluster::getType, Matchers.equalTo(type));
     }
@@ -128,6 +133,12 @@ public final class XdsMatchers {
         return resource(ClusterLoadAssignment.class, "a ClusterLoadAssignment", matchers);
     }
 
+    /**
+     * An endpoint assignment with this endpoint.
+     * @param address the endpoint's address
+     * @param port its port
+     * @return matcher
+     */
     public static Matcher<ClusterLoadAssignment> withEndpoint(String address, int port) {
         return any("with endpoint", "endpoints", cla -> cla.getEndpointsList().stream()
             .flatMap(l -> l.getLbEndpointsList().stream())
@@ -172,6 +183,11 @@ public final class XdsMatchers {
             Stream.concat(Stream.of(feature("that is", "NACK", XdsMessage.Request::isNack, Matchers.is(true))), Arrays.stream(matchers)).toList());
     }
 
+    /**
+     * A response with a matching resource.
+     * @param resource e.g. cluster(named("foo"))
+     * @return matcher
+     */
     public static Matcher<XdsMessage.Response> containing(Matcher<? super Message> resource) {
         return any("containing", "resources", XdsMessage.Response::resources, resource);
     }
@@ -202,6 +218,11 @@ public final class XdsMatchers {
         };
     }
 
+    /**
+     * A request subscribing to this name.
+     * @param name resource name
+     * @return matcher
+     */
     public static Matcher<XdsMessage.Request> subscribingTo(String name) {
         return any("subscribing to", "names", XdsMessage.Request::subscribe, Matchers.equalTo(name));
     }
@@ -216,12 +237,22 @@ public final class XdsMatchers {
         return any("unsubscribing from", "unsubscribes", XdsMessage.Request::unsubscribe, Matchers.equalTo(name));
     }
 
+    /**
+     * A NACK whose error message matches.
+     * @param message e.g. containsString("unknown cluster")
+     * @return matcher
+     */
     public static Matcher<XdsMessage.Request> withMessage(Matcher<? super String> message) {
         return feature("with error", "error", XdsMessage.Request::errorMessage, message);
     }
 
     // Conversations
 
+    /**
+     * A conversation with a matching message.
+     * @param message e.g. nack()
+     * @return matcher
+     */
     public static Matcher<Conversation> hasMessage(Matcher<Object> message) {
         return any("a conversation with", "messages", Conversation::getMessages, message);
     }
@@ -273,6 +304,11 @@ public final class XdsMatchers {
 
     // What Envoy holds
 
+    /**
+     * Envoy has a matching active dynamic cluster.
+     * @param cluster e.g. named("foo")
+     * @return matcher
+     */
     public static Matcher<TypedEnvoyConfigDump> hasActiveCluster(Matcher<? super Cluster> cluster) {
         return any("Envoy with an active cluster", "active clusters", XdsMatchers::activeClusters, cluster);
     }
@@ -286,6 +322,11 @@ public final class XdsMatchers {
         return feature("Envoy with active clusters", "active clusters", d -> activeClusters(d).stream().map(Cluster::getName).toList(), names);
     }
 
+    /**
+     * Envoy has a matching dynamic route config.
+     * @param route e.g. named("routes")
+     * @return matcher
+     */
     public static Matcher<TypedEnvoyConfigDump> hasRouteConfig(Matcher<? super RouteConfiguration> route) {
         return feature("Envoy with a dynamic route config", "dynamic route configs",
             d -> d.routesConfigDump().getDynamicRouteConfigsList().stream().map(r -> sneakyUnpack(r.getRouteConfig(), RouteConfiguration.class)).toList(),

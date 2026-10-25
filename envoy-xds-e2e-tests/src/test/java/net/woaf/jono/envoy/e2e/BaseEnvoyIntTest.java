@@ -3,6 +3,11 @@ package net.woaf.jono.envoy.e2e;
 import static net.woaf.jono.envoy.testing.configdump.EnvoyAdminClient.sneakyUnpack;
 import static org.assertj.core.api.Assertions.assertThat;
 import static net.woaf.jono.envoy.testing.matchers.XdsMatchers.activeClusterNames;
+import static net.woaf.jono.envoy.testing.matchers.XdsMatchers.containing;
+import static net.woaf.jono.envoy.testing.matchers.XdsMatchers.endpointAssignment;
+import static net.woaf.jono.envoy.testing.matchers.XdsMatchers.hasMessage;
+import static net.woaf.jono.envoy.testing.matchers.XdsMatchers.response;
+import static net.woaf.jono.envoy.testing.matchers.XdsMatchers.withEndpoint;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
@@ -336,6 +341,34 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
         assertThat(httpStatus("baz")).isEqualTo(200);
 
         assertThat(conversationInterceptor.getConversations()).hasSize(1);
+    }
+
+    @Test
+    public void changesDuringAPushAreMerged() throws IOException {
+        ClusterManager clusterManager = new ClusterManager();
+
+        List<DiscoveryServiceManagerEventListener> conversations = Collections.synchronizedList(new ArrayList<>());
+
+        AggregatedDiscoveryService<SimpleUpdate, ClientConfig> ads = configureAds(clusterManager, conversations);
+
+        ConversationLogger conversationInterceptor = new ConversationLogger();
+        startServer(ads, conversationInterceptor);
+        await().atMost(30, TimeUnit.SECONDS).until(() -> !conversations.isEmpty() && conversations.get(0).isIdle());
+        final DiscoveryServiceManagerEventListener listener = conversations.get(0);
+        final Conversation conversation = conversationInterceptor.getConversations().get(0);
+        startChecking(conversation);
+
+        // Back to back: they all arrive long before Envoy can ACK the first, so the rest wait in the backlog.
+        int mark = conversation.size();
+        for (int i = 1; i <= 20; i++) {
+            clusterManager.setEndpoints("foo", HostAndPort.fromString("127.0.0." + i + ":9901"));
+        }
+        awaitChange(conversation, mark, listener);
+        assertSettled(false);
+        MatcherAssert.assertThat(conversation, hasMessage(response(containing(endpointAssignment(withEndpoint("127.0.0.20", 9901))))));
+        assertThat(httpStatus("foo")).isEqualTo(200);
+        // A FIFO backlog would push all 20.
+        assertThat(listener.getPushed()).isLessThan(20);
     }
 
 }

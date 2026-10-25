@@ -1,5 +1,10 @@
 package net.woaf.jono.envoy.xds.api;
 
+/**
+ * A state update that can be combined with the next one, so a connection that falls behind sends one update, not many.
+ *
+ * @param <StateUpdT> the implementing type
+ */
 public interface Mergeable<StateUpdT extends Mergeable<StateUpdT>> {
 
     /**

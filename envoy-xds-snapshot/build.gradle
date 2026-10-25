@@ -8,12 +8,23 @@ ext.projectArtifactName = "envoy-xds-snapshot"
 apply from: "${rootDir}/build.common.gradle"
 apply from: "${rootDir}/publishing.gradle"
 apply plugin: 'org.pastalab.fray.gradle'
+apply plugin: 'me.champeau.jmh'
 
 // ./gradlew :envoy-xds-snapshot:frayTest explores thread interleavings of the @FrayTest tests on Fray's instrumented
 // JDK. It takes minutes, so it isn't part of check: CI runs it as a job of its own.
-tasks.matching { it.name == 'frayTest' }.configureEach { // the plugin adds it after evaluation
-    // envoy-api 1.17's generated code warns on every load, which is most of the time each interleaving takes.
-    systemProperty 'com.google.protobuf.use_unsafe_pre22_gencode', 'true'
+
+// ./gradlew :envoy-xds-snapshot:jmh runs the benchmarks in src/jmh; not part of the build.
+jmh {
+    jmhVersion = '1.37'
+    fork = 1
+    warmupIterations = 3
+    warmup = '2s'
+    iterations = 5
+    timeOnIteration = '2s'
+}
+
+tasks.named('compileJmhJava') {
+    options.errorprone.disable('NullAway') // benchmarks aren't @NullMarked
 }
 
 dependencies {
@@ -22,7 +33,11 @@ dependencies {
     api 'com.google.protobuf:protobuf-java:4.36.2'
     api "com.google.guava:guava:33.7.2-jre"
     api 'com.google.errorprone:error_prone_annotations:2.51.0'
-    compileOnly 'com.transferwise.envoy:envoy-api:1.17.0' // Users are expected to provide a compatible envoy api
-    testImplementation 'com.transferwise.envoy:envoy-api:1.17.0'
+    compileOnly 'net.woaf.jono.envoy:envoy-api:1.36.0' // Users are expected to provide a compatible envoy api
+    testImplementation 'net.woaf.jono.envoy:envoy-api:1.36.0'
     testImplementation 'dev.hegel:hegel:0.10.1'
+}
+
+javadoc {
+    options.addBooleanOption('Werror', true) // every public API documented
 }

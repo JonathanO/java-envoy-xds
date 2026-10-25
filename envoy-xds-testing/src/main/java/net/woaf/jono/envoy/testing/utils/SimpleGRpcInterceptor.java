@@ -17,22 +17,50 @@ public abstract class SimpleGRpcInterceptor implements ServerInterceptor {
 
     private static final Logger log = LoggerFactory.getLogger(SimpleGRpcInterceptor.class);
 
+    /** For subclasses. */
+    protected SimpleGRpcInterceptor() {
+    }
+
+    /**
+     * A message went past.
+     * @param callRole our side of the call
+     * @param dir whether we received or sent it
+     * @param message the message
+     */
     protected void onMessage(CallRole callRole, MessageDirection dir, Object message) {
         // noop
     }
 
+    /**
+     * A call started.
+     * @param callRole our side of the call
+     * @param method the method called
+     */
     protected void onCallStart(CallRole callRole, MethodDescriptor<?, ?> method) {
         // noop
     }
 
+    /**
+     * A server call started; by default passes it on as {@link #onCallStart(CallRole, MethodDescriptor)}.
+     * @param call the call
+     */
     protected void onCallStart(ServerCall<?, ?> call) {
         onCallStart(CallRole.SERVER, call.getMethodDescriptor());
     }
 
+    /**
+     * A call ended.
+     * @param callRole our side of the call
+     * @param method the method called
+     */
     protected void onCallEnd(CallRole callRole, MethodDescriptor<?, ?> method) {
         // noop
     }
 
+    /**
+     * A server call ended; by default passes it on as {@link #onCallEnd(CallRole, MethodDescriptor)}.
+     * @param call the call
+     */
     protected void onCallEnd(ServerCall<?, ?> call) {
         onCallEnd(CallRole.SERVER, call.getMethodDescriptor());
     }
@@ -96,11 +124,19 @@ public abstract class SimpleGRpcInterceptor implements ServerInterceptor {
         };
     }
 
+    /** Which side of a call we are. */
     public enum CallRole {
-        CLIENT, SERVER
+        /** We made the call. */
+        CLIENT,
+        /** We received it. */
+        SERVER
     }
 
+    /** Which way a message went. */
     public enum MessageDirection {
-        IN, OUT
+        /** We received it. */
+        IN,
+        /** We sent it. */
+        OUT
     }
 }

@@ -11,10 +11,11 @@ apply from: "${rootDir}/publishing.gradle"
 dependencies {
     api "com.google.guava:guava:33.7.2-jre"
     api 'com.google.protobuf:protobuf-java:4.36.2'
-    api 'com.transferwise.envoy:envoy-api:1.17.0'
+    api 'net.woaf.jono.envoy:envoy-api:1.36.0'
     api project(':envoy-xds-core')
     implementation 'com.google.errorprone:error_prone_annotations:2.51.0'
     implementation 'io.grpc:grpc-api:1.85.1'
     implementation project(':envoy-xds-snapshot')
     runtimeOnly 'ch.qos.logback:logback-classic:1.6.5'
+    runtimeOnly 'io.grpc:grpc-netty-shaded:1.85.1' // a gRPC server transport; envoy-api doesn't bring one
 }
