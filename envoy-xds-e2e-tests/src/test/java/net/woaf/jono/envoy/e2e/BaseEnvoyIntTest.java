@@ -156,10 +156,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
             ),
             node -> {
                 XdsConfig<ClientConfig> staticConfig = staticClientConfigSource.lookup(node);
-                return XdsConfig.<ClientConfig>builder()
-                    .clientDetails(staticConfig.getClientDetails())
-                    .delayUpdatesUntilAckOf(delayUpdatesUntilAckOf)
-                    .build();
+                return XdsConfig.<ClientConfig>of(staticConfig.clientDetails()).withDelayUpdatesUntilAckOf(delayUpdatesUntilAckOf);
             }, // ClientConfigProviders provide per-client configuration to the config builders
             ImmutableList.of(), // Our example has no event listeners, but you can use these for things like tracking connected clients
             MergingStateBacklog.factory(), // Strategy for handling a backlog of network state updates.
@@ -205,7 +202,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
 
         TypedEnvoyConfigDump dump = adminClient.configDump();
 
-        assertThat(dump.getRoutesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
+        assertThat(dump.routesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
         MatcherAssert.assertThat(dump, activeClusterNames(containsInAnyOrder("foo")));
 
     }
@@ -227,8 +224,8 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
             envoyAssertThat(conversationInterceptor.getConversations().get(0)).nothingSentUnasked().allWereAcked();
 
             TypedEnvoyConfigDump dump = adminClient.configDump();
-            assertThat(dump.getRoutesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
-            assertThat(dump.getClustersConfigDump().getDynamicActiveClustersCount()).isEqualTo(0);
+            assertThat(dump.routesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
+            assertThat(dump.clustersConfigDump().getDynamicActiveClustersCount()).isEqualTo(0);
             assertThat(conversations.get(0).getPushed()).isZero();
             startChecking(conversationInterceptor.getConversations().get(0));
         }
@@ -247,7 +244,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
             assertSettled(false);
 
             TypedEnvoyConfigDump dump = adminClient.configDump();
-            assertThat(dump.getRoutesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
+            assertThat(dump.routesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
             MatcherAssert.assertThat(dump, activeClusterNames(containsInAnyOrder("foo", "bar")));
         }
 
@@ -269,7 +266,7 @@ public abstract class BaseEnvoyIntTest<AsserterT extends EnvoyAssert<AsserterT>>
             envoyAssertThat(conversationInterceptor.getConversations().get(1)).nothingSentUnasked().allWereAcked();
 
             TypedEnvoyConfigDump dump = adminClient.configDump();
-            assertThat(dump.getRoutesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
+            assertThat(dump.routesConfigDump().getDynamicRouteConfigsCount()).isEqualTo(1);
             MatcherAssert.assertThat(dump, activeClusterNames(containsInAnyOrder("foo")));
             assertThat(conversations.get(1).getPushed()).isZero();
             startChecking(conversationInterceptor.getConversations().get(1)); // We caused the disconnect, so ignore Envoy's warnings about it.

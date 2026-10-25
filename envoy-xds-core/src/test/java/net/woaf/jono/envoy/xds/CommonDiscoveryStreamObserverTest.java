@@ -31,8 +31,8 @@ public class CommonDiscoveryStreamObserverTest {
             responseObserver,
             source,
             factory,
-            r -> CommonDiscoveryRequest.<DiscoveryRequest>builder().node(r.getNode()).typeUrl(r.getTypeUrl()).message(r).build(),
-            node -> XdsConfig.builder().clientDetails(new Object()).build(),
+            r -> new CommonDiscoveryRequest<DiscoveryRequest>(r.getNode(), r.getTypeUrl(), r, null),
+            node -> XdsConfig.of(new Object()),
             ImmutableList.of(),
             DiscoveryServiceManagerMetrics.NOOP_METRICS
         );

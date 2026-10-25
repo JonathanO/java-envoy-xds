@@ -11,6 +11,8 @@ import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import io.envoyproxy.envoy.config.endpoint.v3.Endpoint;
 import io.envoyproxy.envoy.config.endpoint.v3.LbEndpoint;
 import io.envoyproxy.envoy.config.endpoint.v3.LocalityLbEndpoints;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Collection;
 import java.util.Map;
 import java.util.function.Predicate;
@@ -23,48 +25,46 @@ public class ClusterLoadAssignmentConfigBuilder extends AbstractConfigBuilder<Cl
         // We're going to assume that endpoints should not be removed in add order, and we have to combine old and new together.
         // This may or may not make any sense, but it provides a more complex example.
 
-        Response.ResponseBuilder<ClusterLoadAssignment> responseBuilder = Response.builder();
+        List<NamedMessage<ClusterLoadAssignment>> addAndUpdates = new ArrayList<>();
 
-        for (Map.Entry<String, Service> entry : diff.getAfter().entrySet()) {
+        for (Map.Entry<String, Service> entry : diff.after().entrySet()) {
             if (!resourceInSubListChange.test(entry.getKey())) {
                 // This simple example only produces 1 resource per service, named after the service, so this check is easy.
                 continue;
             }
 
-            Service before = diff.getBefore().get(entry.getKey());
+            Service before = diff.before().get(entry.getKey());
             Service after = entry.getValue();
 
             if (before == null) {
                 // Cluster is being added
-                responseBuilder.addAndUpdate(clusterLoadAssignmentForService(entry.getValue(), clientDetails));
+                addAndUpdates.add(clusterLoadAssignmentForService(entry.getValue(), clientDetails));
                 continue;
             }
 
-            if (!before.getEndpoints().containsAll(after.getEndpoints())) {
+            if (!before.endpoints().containsAll(after.endpoints())) {
                 // Endpoints are being added, combine the two sets.
                 ImmutableSet<HostAndPort> combinedEndpoints = ImmutableSet.<HostAndPort>builder()
-                    .addAll(after.getEndpoints())
-                    .addAll(before.getEndpoints())
+                    .addAll(after.endpoints())
+                    .addAll(before.endpoints())
                     .build();
 
-                Service combinedService = Service.builder()
-                    .name(entry.getKey())
-                    .endpoints(combinedEndpoints)
-                    .build();
+                Service combinedService = new Service(entry.getKey(), combinedEndpoints);
 
-                responseBuilder.addAndUpdate(clusterLoadAssignmentForService(combinedService, clientDetails));
+                addAndUpdates.add(clusterLoadAssignmentForService(combinedService, clientDetails));
             }
         }
 
-        return responseBuilder.build();
+        return new Response<>(addAndUpdates, List.of());
     }
 
     @Override
     public Response<ClusterLoadAssignment> removeOrder(SimpleUpdate diff, Predicate<String> resourceInSubListChange, ClientConfig clientDetails) {
         // We're going to assume that all endpoint removals happen in remove order.
-        Response.ResponseBuilder<ClusterLoadAssignment> responseBuilder = Response.builder();
+        List<NamedMessage<ClusterLoadAssignment>> addAndUpdates = new ArrayList<>();
+        List<String> removes = new ArrayList<>();
 
-        for (Map.Entry<String, Service> entry : diff.getBefore().entrySet()) {
+        for (Map.Entry<String, Service> entry : diff.before().entrySet()) {
 
             if (!resourceInSubListChange.test(entry.getKey())) {
                 // This simple example only produces 1 resource per service, named after the service, so this check is easy.
@@ -72,28 +72,28 @@ public class ClusterLoadAssignmentConfigBuilder extends AbstractConfigBuilder<Cl
             }
 
             Service before = entry.getValue();
-            Service after = diff.getAfter().get(entry.getKey());
+            Service after = diff.after().get(entry.getKey());
 
             if (after == null) {
                 // Cluster is being removed entirely
-                responseBuilder.remove(entry.getKey());
+                removes.add(entry.getKey());
                 continue;
             }
 
-            if (!after.getEndpoints().containsAll(before.getEndpoints())) {
+            if (!after.endpoints().containsAll(before.endpoints())) {
                 // Some endpoints got removed, we need to inform envoy since in add order we sent the union of old and new.
-                responseBuilder.addAndUpdate(clusterLoadAssignmentForService(after, clientDetails));
+                addAndUpdates.add(clusterLoadAssignmentForService(after, clientDetails));
             }
         }
 
-        return responseBuilder.build();
+        return new Response<>(addAndUpdates, removes);
     }
 
     private NamedMessage<ClusterLoadAssignment> clusterLoadAssignmentForService(Service service, ClientConfig unusedClientDetails) {
         return NamedMessage.of(ClusterLoadAssignment.newBuilder()
-            .setClusterName(service.getName())
+            .setClusterName(service.name())
             .addEndpoints(LocalityLbEndpoints.newBuilder()
-                .addAllLbEndpoints(service.getEndpoints().stream().map(e -> LbEndpoint.newBuilder()
+                .addAllLbEndpoints(service.endpoints().stream().map(e -> LbEndpoint.newBuilder()
                     .setEndpoint(Endpoint.newBuilder()
                         .setAddress(Address.newBuilder()
                             .setSocketAddress(SocketAddress.newBuilder()
@@ -112,16 +112,16 @@ public class ClusterLoadAssignmentConfigBuilder extends AbstractConfigBuilder<Cl
     public Resources<ClusterLoadAssignment> getResources(Collection<Service> services, Predicate<String> resourceInSubListChange, ClientConfig clientDetails) {
         // In this toy example the output resource name == the service name, so we can pre-apply resourceInSubListChange. This might not be true in a real service mesh, so don't assume you can do this, think about it!
 
-        Resources.ResourcesBuilder<ClusterLoadAssignment> resourcesBuilder = Resources.builder();
+        List<NamedMessage<ClusterLoadAssignment>> resources = new ArrayList<>();
         for (Service service : services) {
-            if (!resourceInSubListChange.test(service.getName())) {
+            if (!resourceInSubListChange.test(service.name())) {
                 // This simple example only produces 1 resource per service, named after the service, so this check is easy.
                 continue;
             }
 
-            resourcesBuilder.resource(clusterLoadAssignmentForService(service, clientDetails));
+            resources.add(clusterLoadAssignmentForService(service, clientDetails));
         }
-        return resourcesBuilder.build();
+        return new Resources<>(resources);
     }
 
     @Override

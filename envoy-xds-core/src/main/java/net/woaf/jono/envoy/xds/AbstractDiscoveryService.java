@@ -2,19 +2,22 @@ package net.woaf.jono.envoy.xds;
 
 import org.jspecify.annotations.Nullable;
 import com.google.common.base.Preconditions;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.protobuf.Any;
 import com.google.protobuf.Message;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
 import java.util.function.Predicate;
 
-@Slf4j
 public abstract class AbstractDiscoveryService<T extends Message, E extends Message, StateUpdT, DetailsT> implements DiscoveryService<T, StateUpdT> {
+
+    private static final Logger log = LoggerFactory.getLogger(AbstractDiscoveryService.class);
 
     // SotW re-sends every unchanged resource on each push, and builders that share messages (e.g. snapshots) send one
     // instance to every client, so serialise each instance once. Weak keys compare by identity and drop the entry once
@@ -46,12 +49,12 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
     @Override
     public void processUpdate(CommonDiscoveryRequest<T> value) {
         Preconditions.checkState(currentState != null, "Discovery must be initialized");
-        TypeUrl typeUrl = TypeUrl.of(value.getTypeUrl());
+        TypeUrl typeUrl = TypeUrl.of(value.typeUrl());
         if (!myTypeUrl.equals(typeUrl)) {
-            throw new IllegalArgumentException(myTypeUrl.name() + " discovery service got called for request of type " + value.getTypeUrl());
+            throw new IllegalArgumentException(myTypeUrl.name() + " discovery service got called for request of type " + value.typeUrl());
         }
         active = true;
-        processRequest(value.getMessage());
+        processRequest(value.message());
     }
 
     /**
@@ -76,18 +79,18 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
     }
 
     protected void checkSubNames(IncrementalConfigBuilder.Resources<E> resources, Predicate<String> resourceInSubListChange) {
-        if (resources.getResources().stream()
-                .anyMatch(m -> !resourceInSubListChange.test(m.getName()))) {
+        if (resources.resources().stream()
+                .anyMatch(m -> !resourceInSubListChange.test(m.name()))) {
             log.warn("Config builder for {} returned unasked for resources!", myTypeUrl.getTypeUrl());
         }
     }
 
     protected void checkSubNames(IncrementalConfigBuilder.Response<E> response, Predicate<String> resourceInSubListChange) {
         if (
-                response.getRemoves().stream()
+                response.removes().stream()
                         .anyMatch(m -> !resourceInSubListChange.test(m))
-                || response.getAddAndUpdates().stream()
-                        .anyMatch(m -> !resourceInSubListChange.test(m.getName()))
+                || response.addAndUpdates().stream()
+                        .anyMatch(m -> !resourceInSubListChange.test(m.name()))
         ) {
             log.warn("Config builder for {} returned unasked for messages!", myTypeUrl.getTypeUrl());
         }
@@ -100,9 +103,9 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
     protected IncrementalConfigBuilder.Resources<E> getResources(Predicate<String> resourceInSubListChange) {
         final IncrementalConfigBuilder.Resources<E> resources;
         if (SubState.PRE.equals(currentSubState)) {
-            resources = configBuilder.getResourcesAddOrder(state(), resourceInSubListChange, nodeConfig.getXdsConfig().getClientDetails());
+            resources = configBuilder.getResourcesAddOrder(state(), resourceInSubListChange, nodeConfig.xdsConfig().clientDetails());
         } else {
-            resources = configBuilder.getResourcesRemoveOrder(state(), resourceInSubListChange, nodeConfig.getXdsConfig().getClientDetails());
+            resources = configBuilder.getResourcesRemoveOrder(state(), resourceInSubListChange, nodeConfig.xdsConfig().clientDetails());
         }
         checkSubNames(resources, resourceInSubListChange);
         return resources;
@@ -136,6 +139,7 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
         return true;
     }
 
+    @CanIgnoreReturnValue // SotW keeps the result through updateState
     protected Optional<IncrementalConfigBuilder.Response<E>> applyPre() {
         if (!SubState.PRE.equals(currentSubState)) {
             return Optional.empty();
@@ -147,7 +151,7 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
             // b) It might return stuff. Envoy gets really angry if ADS returns a message type that it never requested.
             return Optional.empty();
         }
-        IncrementalConfigBuilder.Response<E> resources = configBuilder.addOrder(state(), subFilter(), nodeConfig.getXdsConfig().getClientDetails());
+        IncrementalConfigBuilder.Response<E> resources = configBuilder.addOrder(state(), subFilter(), nodeConfig.xdsConfig().clientDetails());
         checkSubNames(resources, subFilter());
         if (updateState(resources)) {
             return Optional.of(resources);
@@ -163,6 +167,7 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
         applyPre().ifPresent(this::pushNewState);
     }
 
+    @CanIgnoreReturnValue // SotW keeps the result through updateState
     protected Optional<IncrementalConfigBuilder.Response<E>> applyPost() {
         if (!SubState.POST.equals(currentSubState)) {
             return Optional.empty();
@@ -174,7 +179,7 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
             // b) It might return stuff. Envoy gets really angry if ADS returns a message type that it never requested.
             return Optional.empty();
         }
-        IncrementalConfigBuilder.Response<E> resources = configBuilder.removeOrder(state(), subFilter(), nodeConfig.getXdsConfig().getClientDetails());
+        IncrementalConfigBuilder.Response<E> resources = configBuilder.removeOrder(state(), subFilter(), nodeConfig.xdsConfig().clientDetails());
         checkSubNames(resources, subFilter());
         if (updateState(resources)) {
             return Optional.of(resources);

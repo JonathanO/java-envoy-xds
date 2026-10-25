@@ -17,7 +17,8 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 import java.util.stream.Stream;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Co-ordinates ordering of messages between discovery services.
@@ -25,8 +26,9 @@ import lombok.extern.slf4j.Slf4j;
  *
  * @param <RequestT> The discovery Request type (DeltaDiscoveryRequest or DiscoveryRequest)
  */
-@Slf4j
 public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
+
+    private static final Logger log = LoggerFactory.getLogger(DiscoveryServiceManager.class);
 
     private final List<DiscoveryService<RequestT, StateUpdT>> preOrder;
     private final List<DiscoveryService<RequestT, StateUpdT>> postOrder;
@@ -183,15 +185,15 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
         assertPostInitState();
 
         // The stream observer drops unknown types, and the factory builds a service for every type.
-        TypeUrl typeUrl = Preconditions.checkNotNull(TypeUrl.of(value.getTypeUrl()), "Unknown type URL %s", value.getTypeUrl());
+        TypeUrl typeUrl = Preconditions.checkNotNull(TypeUrl.of(value.typeUrl()), "Unknown type URL %s", value.typeUrl());
         DiscoveryService<RequestT, StateUpdT> discoveryService = Preconditions.checkNotNull(discoveryServices.get(typeUrl), "No discovery service for %s", typeUrl);
-        if (USE_CLUSTERS.contains(typeUrl) && value.getErrorDetail() == null && !discoveryService.awaitingAck() && clustersAwaitingAck()) {
+        if (USE_CLUSTERS.contains(typeUrl) && value.errorDetail() == null && !discoveryService.awaitingAck() && clustersAwaitingAck()) {
             // Answer later, in add order: see USE_CLUSTERS. Never hold an ACK this service is waiting for.
             heldRequests.add(value);
             return;
         }
         discoveryService.processUpdate(value);
-        if (value.getErrorDetail() != null) {
+        if (value.errorDetail() != null) {
             freeze();
         }
         updateOutstandingAckState(typeUrl, discoveryService);
@@ -375,14 +377,12 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      * Start pushing any waiting changes to envoy.
      * Can only be called if there is no current change in progress.
      */
-    private boolean pushWaitingChangeIfAny() {
+    private void pushWaitingChangeIfAny() {
         Preconditions.checkState(currentChange == null, "Should not start pushing waiting change if we already have a current change to push.");
         currentChange = waitingStateBacklog.take();
         if (currentChange != null) {
             beginPush();
-            return true;
         }
-        return false;
     }
 
     private boolean pushDeferredReconnectRemovalsIfAny() {

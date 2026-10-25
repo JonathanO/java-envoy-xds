@@ -7,13 +7,15 @@ import io.grpc.MethodDescriptor;
 import io.grpc.ServerCall;
 import io.grpc.ServerCallHandler;
 import io.grpc.ServerInterceptor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Easy GRPC interceptors: just override the relevant onSomething methods.
  */
-@Slf4j
 public abstract class SimpleGRpcInterceptor implements ServerInterceptor {
+
+    private static final Logger log = LoggerFactory.getLogger(SimpleGRpcInterceptor.class);
 
     protected void onMessage(CallRole callRole, MessageDirection dir, Object message) {
         // noop

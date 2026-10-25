@@ -15,14 +15,16 @@ import io.envoyproxy.envoy.config.core.v3.Node;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.util.function.Function;
 
-@Slf4j
 public class CommonDiscoveryStreamObserver<T extends Message, R extends Message, StateUpdT, DetailsT>
         implements StreamObserver<T>, ClusterManagerEventListener<StateUpdT>, ClientHandle {
+
+    private static final Logger log = LoggerFactory.getLogger(CommonDiscoveryStreamObserver.class);
 
     @GuardedBy("this")
     private boolean isDead = false;
@@ -89,7 +91,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
         xdsConfig = NodeConfig.forNode(node, config);
         notifyClientConnected(node, config);
 
-        delayUpdatesUntilAckOf = config.getDelayUpdatesUntilAckOf();
+        delayUpdatesUntilAckOf = config.delayUpdatesUntilAckOf();
         nodeId = node.getId();
         clusterId = node.getCluster();
     }
@@ -101,30 +103,30 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             CommonDiscoveryRequest<T> value = commonDiscoveryRequestConverter.apply(concreteValue);
 
             if (node == null) {
-                log.debug("New envoy connected: {}", value.getNode().getId());
-                extractNodeData(value.getNode());
+                log.debug("New envoy connected: {}", value.node().getId());
+                extractNodeData(value.node());
             }
             final Node node = Preconditions.checkNotNull(this.node);
             final NodeConfig<DetailsT> nodeConfig = Preconditions.checkNotNull(xdsConfig);
 
-            if (value.getErrorDetail() != null) {
-                log.warn("Client {} rejected {}, so we'll send it no more changes on this stream: {}", nodeId, value.getTypeUrl(), value.getErrorDetail());
+            if (value.errorDetail() != null) {
+                log.warn("Client {} rejected {}, so we'll send it no more changes on this stream: {}", nodeId, value.typeUrl(), value.errorDetail());
             }
 
-            TypeUrl typeUrl = TypeUrl.of(value.getTypeUrl());
+            TypeUrl typeUrl = TypeUrl.of(value.typeUrl());
             if (typeUrl == null) {
                 // Leave it unanswered, like a type nobody serves: closing the stream would take every other type down
                 // with it, and Envoy would reconnect and ask again.
-                log.warn("Client {} in cluster {} asked for unknown type URL {}, ignoring", nodeId, clusterId, value.getTypeUrl());
+                log.warn("Client {} in cluster {} asked for unknown type URL {}, ignoring", nodeId, clusterId, value.typeUrl());
                 return;
             }
-            log.debug("DiscoveryRequest T={}", value.getTypeUrl());
-            if (value.getErrorDetail() != null) {
-                notifyClientNack(node, typeUrl, value.getErrorDetail());
+            log.debug("DiscoveryRequest T={}", value.typeUrl());
+            if (value.errorDetail() != null) {
+                notifyClientNack(node, typeUrl, value.errorDetail());
             }
             if (discoveryServiceManager == null) {
                 discoveryServiceManager = discoveryServiceManagerFactory.build(responseObserver, nodeConfig, metrics);
-                discoveryServiceManager.init(clusterManager.subscribe(this), delayUpdatesUntilAckOf, nodeConfig.getXdsConfig().getSubscribesTo());
+                discoveryServiceManager.init(clusterManager.subscribe(this), delayUpdatesUntilAckOf, nodeConfig.xdsConfig().subscribesTo());
             }
 
             discoveryServiceManager.processUpdate(value);

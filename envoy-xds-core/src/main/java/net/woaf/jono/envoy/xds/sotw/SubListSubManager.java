@@ -2,7 +2,8 @@ package net.woaf.jono.envoy.xds.sotw;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Sets;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashSet;
 import java.util.List;
@@ -12,8 +13,9 @@ import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-@Slf4j
 class SubListSubManager implements SubManager {
+
+    private static final Logger log = LoggerFactory.getLogger(SubListSubManager.class);
 
     private Set<String> subs = new HashSet<>();
 

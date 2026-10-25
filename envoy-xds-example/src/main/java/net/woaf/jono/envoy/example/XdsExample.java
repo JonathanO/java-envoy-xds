@@ -78,7 +78,7 @@ public class XdsExample {
         if (service == null) {
             System.out.println("\tNot Found");
         } else {
-            service.getEndpoints().forEach(e -> {
+            service.endpoints().forEach(e -> {
                 System.out.print('\t');
                 System.out.println(e);
             });

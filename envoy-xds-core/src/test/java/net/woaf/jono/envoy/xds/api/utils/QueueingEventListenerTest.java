@@ -9,7 +9,6 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import net.woaf.jono.envoy.xds.api.ClusterManagerEventListener;
 import java.util.concurrent.TimeUnit;
-import lombok.Value;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -19,9 +18,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 public class QueueingEventListenerTest {
 
-    @Value
-    private static class SimpleUpdate {
-        String name;
+    private record SimpleUpdate(String name) {
     }
 
     @Test

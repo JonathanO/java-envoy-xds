@@ -2,7 +2,6 @@ package net.woaf.jono.envoy.xds.api.utils;
 
 import net.woaf.jono.envoy.xds.api.ClusterManagerEventListener;
 import java.util.concurrent.BlockingQueue;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * An event listener that accepts network changes, and queues them to be executed asynchronously against a delegate.
@@ -11,7 +10,6 @@ import lombok.extern.slf4j.Slf4j;
  * It will attempt to drain the queue fully after close() is called.
  * @param <StateUpdT> Update type
  */
-@Slf4j
 public class QueueingEventListener<StateUpdT> extends ThreadedQueuingEventListener<StateUpdT> {
 
     public QueueingEventListener(ClusterManagerEventListener<StateUpdT> delegate) {

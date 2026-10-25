@@ -7,6 +7,7 @@ import com.google.common.net.HostAndPort;
 import com.google.common.reflect.ClassPath;
 import com.google.protobuf.Any;
 import com.google.protobuf.Descriptors;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
 import com.google.protobuf.util.JsonFormat;
 import com.google.protobuf.util.JsonFormat.TypeRegistry;
@@ -21,7 +22,6 @@ import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
-import lombok.SneakyThrows;
 
 /**
  * Very simple client for the Envoy http admin interface.
@@ -47,9 +47,12 @@ public class EnvoyAdminClient {
      * @return The unpacked message
      * @throws RuntimeException if things go wrong.
      */
-    @SneakyThrows
     public static <T extends Message> T sneakyUnpack(Any thing, Class<T> clazz) {
-        return thing.unpack(clazz);
+        try {
+            return thing.unpack(clazz);
+        } catch (InvalidProtocolBufferException e) {
+            throw new IllegalArgumentException(e);
+        }
     }
 
     private static TypeRegistry buildTypeRegistry() {
@@ -88,7 +91,7 @@ public class EnvoyAdminClient {
     public TypedEnvoyConfigDump configDump() throws IOException {
         ConfigDump.Builder dumpBuilder = ConfigDump.newBuilder();
         PARSER.get().merge(get("/config_dump"), dumpBuilder);
-        return new TypedEnvoyConfigDump(dumpBuilder.build());
+        return TypedEnvoyConfigDump.of(dumpBuilder.build());
     }
 
     /**

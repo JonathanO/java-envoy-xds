@@ -95,9 +95,7 @@ public class DiscoveryServiceManagerTest {
         final var update = new DummyUpdate();
         final var update2 = new DummyUpdate();
         final var update3 = new DummyUpdate();
-        final var request = CommonDiscoveryRequest.builder()
-            .typeUrl(TypeUrl.EDS.getTypeUrl())
-            .build();
+        final var request = new CommonDiscoveryRequest<>(null, TypeUrl.EDS.getTypeUrl(), null, null);
 
         dsm.pushUpdates(update);
 
@@ -148,12 +146,8 @@ public class DiscoveryServiceManagerTest {
         dsm.init(new DummyUpdate());
         final var update = new DummyUpdate();
 
-        final var requestA = CommonDiscoveryRequest.builder()
-                .typeUrl(TypeUrl.EDS.getTypeUrl())
-                .build();
-        final var requestB = CommonDiscoveryRequest.builder()
-                .typeUrl(TypeUrl.CDS.getTypeUrl())
-                .build();
+        final var requestA = new CommonDiscoveryRequest<>(null, TypeUrl.EDS.getTypeUrl(), null, null);
+        final var requestB = new CommonDiscoveryRequest<>(null, TypeUrl.CDS.getTypeUrl(), null, null);
 
 
         dsm.pushUpdates(update);
@@ -211,12 +205,8 @@ public class DiscoveryServiceManagerTest {
 
         // The discovery service type isn't really relevant here, this should work with any types. I chose CDS and EDS simply because they really do interleave this way.
         // The requests are empty, the fake discovery service doesn't care about their contents, they're sufficient to cause a state transition.
-        final var cdsRequest = CommonDiscoveryRequest.builder()
-            .typeUrl(TypeUrl.CDS.getTypeUrl())
-            .build();
-        final var edsRequest = CommonDiscoveryRequest.builder()
-            .typeUrl(TypeUrl.EDS.getTypeUrl())
-            .build();
+        final var cdsRequest = new CommonDiscoveryRequest<>(null, TypeUrl.CDS.getTypeUrl(), null, null);
+        final var edsRequest = new CommonDiscoveryRequest<>(null, TypeUrl.EDS.getTypeUrl(), null, null);
 
         dsm.processUpdate(cdsRequest);
         dsm.processUpdate(edsRequest);
@@ -258,12 +248,8 @@ public class DiscoveryServiceManagerTest {
 
         // The discovery service type isn't really relevant here, this should work with any types.
         // The requests are empty, the fake discovery service doesn't care about their contents, they're sufficient to cause a state transition.
-        final var cdsRequest = CommonDiscoveryRequest.builder()
-            .typeUrl(TypeUrl.CDS.getTypeUrl())
-            .build();
-        final var rdsRequest = CommonDiscoveryRequest.builder()
-            .typeUrl(TypeUrl.RDS.getTypeUrl())
-            .build();
+        final var cdsRequest = new CommonDiscoveryRequest<>(null, TypeUrl.CDS.getTypeUrl(), null, null);
+        final var rdsRequest = new CommonDiscoveryRequest<>(null, TypeUrl.RDS.getTypeUrl(), null, null);
 
         final InOrder inOrder = Mockito.inOrder(mockDiscoveryServiceA, mockDiscoveryServiceB);
         dsm.processUpdate(cdsRequest);
@@ -306,10 +292,7 @@ public class DiscoveryServiceManagerTest {
 
         dsm.pushUpdates(update);
         dsm.pushUpdates(queued); // waits behind update
-        dsm.processUpdate(CommonDiscoveryRequest.builder()
-            .typeUrl(TypeUrl.EDS.getTypeUrl())
-            .errorDetail(com.google.rpc.Status.newBuilder().setMessage("rejected").build())
-            .build());
+        dsm.processUpdate(new CommonDiscoveryRequest<>(null, TypeUrl.EDS.getTypeUrl(), null, com.google.rpc.Status.newBuilder().setMessage("rejected").build()));
         dsm.pushUpdates(later);
 
         assertThat(dsm.isFrozen()).isTrue();
@@ -334,9 +317,7 @@ public class DiscoveryServiceManagerTest {
         dsm.init(new DummyUpdate(), TypeUrl.RDS);
 
         final var update = new DummyUpdate();
-        final var cdsRequest = CommonDiscoveryRequest.builder()
-            .typeUrl(TypeUrl.CDS.getTypeUrl())
-            .build();
+        final var cdsRequest = new CommonDiscoveryRequest<>(null, TypeUrl.CDS.getTypeUrl(), null, null);
 
         dsm.processUpdate(cdsRequest);
         dsm.processUpdate(cdsRequest);

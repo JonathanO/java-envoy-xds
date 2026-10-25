@@ -91,7 +91,7 @@ public class SnapshotExample {
             routes.addVirtualHosts(VirtualHost.newBuilder()
                 .setName(name)
                 .addDomains(name)
-                .addDomains(name + ":" + client.getListenPort())
+                .addDomains(name + ":" + client.listenPort())
                 .addRoutes(Route.newBuilder()
                     .setMatch(RouteMatch.newBuilder().setPrefix("/").build())
                     .setRoute(RouteAction.newBuilder().setCluster(name).build())

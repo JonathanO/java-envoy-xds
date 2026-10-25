@@ -2,6 +2,7 @@ package net.woaf.jono.envoy.xds.api;
 
 import org.jspecify.annotations.Nullable;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.Immutable;
 import com.google.errorprone.annotations.ImmutableTypeParameter;
 import com.google.protobuf.Message;
@@ -9,20 +10,9 @@ import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import io.envoyproxy.envoy.config.listener.v3.Listener;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
-import lombok.Builder;
-import lombok.Singular;
-import lombok.Value;
 
 import java.util.List;
-import java.util.Set;
-import java.util.function.BiConsumer;
-import java.util.function.BinaryOperator;
-import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
-import java.util.stream.Collector;
-
-import static java.util.stream.Collector.Characteristics.UNORDERED;
 
 /**
  * Builds envoy Resources in response to state changes.
@@ -86,13 +76,12 @@ public interface IncrementalConfigBuilder<ResourceT extends Message, StateUpdT, 
     /**
      * Holder for a resource message, and the envoy name of that resource.
      *
+     * @param name the resource's envoy name
+     * @param message the resource
      * @param <ResourceT> Type of envoy resource being held
      */
-    @Value
     @Immutable
-    class NamedMessage<@ImmutableTypeParameter ResourceT extends Message> {
-        String name;
-        ResourceT message;
+    record NamedMessage<@ImmutableTypeParameter ResourceT extends Message>(String name, ResourceT message) {
 
         public static NamedMessage<ClusterLoadAssignment> of(ClusterLoadAssignment cla) {
             return new NamedMessage<>(cla.getClusterName(), cla);
@@ -112,49 +101,22 @@ public interface IncrementalConfigBuilder<ResourceT extends Message, StateUpdT, 
 
     }
 
-    @Value
-    @Builder
-    class Response<ResourceT extends Message> {
+    /**
+     * Changes to send to envoy.
+     *
+     * @param addAndUpdates resources to add or replace
+     * @param removes names of resources to remove
+     * @param <ResourceT> Type of envoy resource
+     */
+    record Response<ResourceT extends Message>(List<NamedMessage<ResourceT>> addAndUpdates, List<String> removes) {
 
-        @Singular
-        List<NamedMessage<ResourceT>> addAndUpdates;
-        @Singular
-        List<String> removes;
+        public Response {
+            addAndUpdates = ImmutableList.copyOf(addAndUpdates);
+            removes = ImmutableList.copyOf(removes);
+        }
 
-        public static <ResourceT extends Message> Collector<Response<ResourceT>, Response.ResponseBuilder<ResourceT>, Response<ResourceT>> merge() {
-            return new Collector<>() {
-                @Override
-                public Supplier<ResponseBuilder<ResourceT>> supplier() {
-                    return Response::builder;
-                }
-
-                @Override
-                public BiConsumer<ResponseBuilder<ResourceT>, Response<ResourceT>> accumulator() {
-                    return (builder, res) -> {
-                        res.getAddAndUpdates().forEach(builder::addAndUpdate);
-                        res.getRemoves().forEach(builder::remove);
-                    };
-                }
-
-                @Override
-                public BinaryOperator<ResponseBuilder<ResourceT>> combiner() {
-                    return (left, right) -> {
-                        right.addAndUpdates.forEach(left::addAndUpdate);
-                        right.removes.forEach(left::remove);
-                        return left;
-                    };
-                }
-
-                @Override
-                public Function<ResponseBuilder<ResourceT>, Response<ResourceT>> finisher() {
-                    return ResponseBuilder::build;
-                }
-
-                @Override
-                public Set<Characteristics> characteristics() {
-                    return Set.of(UNORDERED);
-                }
-            };
+        public static <ResourceT extends Message> Response<ResourceT> empty() {
+            return new Response<>(List.of(), List.of());
         }
 
         /**
@@ -166,47 +128,25 @@ public interface IncrementalConfigBuilder<ResourceT extends Message, StateUpdT, 
         }
     }
 
-    @Value
-    @Builder
-    class Resources<ResourceT extends Message> {
-        @Singular
-        List<NamedMessage<ResourceT>> resources;
+    /**
+     * The full set of resources a client is subscribed to.
+     *
+     * @param resources the resources
+     * @param <ResourceT> Type of envoy resource
+     */
+    record Resources<ResourceT extends Message>(List<NamedMessage<ResourceT>> resources) {
 
-        public static <ResourceT extends Message> Collector<Resources<ResourceT>, Resources.ResourcesBuilder<ResourceT>, Resources<ResourceT>> merge() {
-            return new Collector<>() {
-                @Override
-                public Supplier<ResourcesBuilder<ResourceT>> supplier() {
-                    return Resources::builder;
-                }
+        public Resources {
+            resources = ImmutableList.copyOf(resources);
+        }
 
-                @Override
-                public BiConsumer<ResourcesBuilder<ResourceT>, Resources<ResourceT>> accumulator() {
-                    return (builder, res) -> res.getResources().forEach(builder::resource);
-                }
-
-                @Override
-                public BinaryOperator<ResourcesBuilder<ResourceT>> combiner() {
-                    return (left, right) -> {
-                        right.resources.forEach(left::resource);
-                        return left;
-                    };
-                }
-
-                @Override
-                public Function<ResourcesBuilder<ResourceT>, Resources<ResourceT>> finisher() {
-                    return ResourcesBuilder::build;
-                }
-
-                @Override
-                public Set<Characteristics> characteristics() {
-                    return Set.of(UNORDERED);
-                }
-            };
+        public static <ResourceT extends Message> Resources<ResourceT> empty() {
+            return new Resources<>(List.of());
         }
 
         @VisibleForTesting
         public @Nullable ResourceT getByName(String name) {
-            return resources.stream().filter(r -> name.equals(r.getName())).findAny().map(NamedMessage::getMessage).orElse(null);
+            return resources.stream().filter(r -> name.equals(r.name())).findAny().map(NamedMessage::message).orElse(null);
         }
     }
 

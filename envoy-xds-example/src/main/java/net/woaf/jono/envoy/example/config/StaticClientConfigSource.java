@@ -9,21 +9,16 @@ public class StaticClientConfigSource implements ClientConfigProvider<ClientConf
     @Override
     public XdsConfig<ClientConfig> lookup(Node node) {
 
-        ClientConfig.ClientConfigBuilder clientConfigBuilder = ClientConfig.builder();
-
+        long listenPort = ClientConfig.DEFAULT_LISTEN_PORT;
         if (node.hasMetadata() && node.getMetadata().containsFields("my_listen_port")) {
             // As an example, we let the client pass us the port it claims to have a http connection manager listening on.
             // We use this in the RouteConfiguration.
-            clientConfigBuilder.listenPort(
-                (long) node.getMetadata().getFieldsOrThrow("my_listen_port").getNumberValue()
-            );
+            listenPort = (long) node.getMetadata().getFieldsOrThrow("my_listen_port").getNumberValue();
         }
         // A real client config provider would probably also look up a bunch of stuff from other
         // configuration sources too.
 
-        return XdsConfig.<ClientConfig>builder()
-            .clientDetails(clientConfigBuilder.build())
-            .build();
+        return XdsConfig.of(new ClientConfig(listenPort));
     }
 
 }

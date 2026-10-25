@@ -28,7 +28,7 @@ class WildcardSubManager implements SubManager {
         // However, some older versions of envoy also have a bug where they will send a list of resource names after reconnecting to an ADS, even though they really want a wildcard subscription.
         try {
             if (firstResourceListChange && resourceNamesUnsubscribe.isEmpty()
-                && (resourceNamesSubscribe.isEmpty() || nodeConfig.isBugClientSendsResourceListOnReconnectToWildcard())) {
+                && (resourceNamesSubscribe.isEmpty() || nodeConfig.bugClientSendsResourceListOnReconnectToWildcard())) {
                 inWildcardMode = true;
                 return Optional.of(s -> !s.equals(WILDCARD));
             }
