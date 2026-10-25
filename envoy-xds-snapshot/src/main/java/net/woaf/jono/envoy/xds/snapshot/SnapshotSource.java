@@ -43,6 +43,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
 
     /**
      * Use your own executor to deliver updates to clients, instead of {@link SerialEventListener#sharedExecutor()}.
+     * Overlays run there, so use this if yours block.
      * @param overlay per client overlay, or null
      * @param executor runs each client's updates, one at a time per client
      */

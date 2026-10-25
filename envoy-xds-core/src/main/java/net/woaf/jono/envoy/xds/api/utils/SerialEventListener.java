@@ -53,7 +53,9 @@ public final class SerialEventListener<StateUpdT> implements ClusterManagerEvent
 
     /**
      * {@return the executor listeners share by default: one daemon thread per core}
-     * Delivering an update only computes and sends messages, it never waits, so more threads than cores wouldn't help.
+     * Delivering an update runs your config builders and hands their messages to gRPC, which queues writes rather than
+     * blocking. Ours never wait, so more threads than cores wouldn't help. If your config builders block, e.g. on a
+     * database, pass your own executor instead.
      */
     public static Executor sharedExecutor() {
         return Shared.EXECUTOR;
