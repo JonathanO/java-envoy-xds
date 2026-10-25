@@ -7,6 +7,21 @@ ext.projectArtifactName = "envoy-xds-snapshot"
 
 apply from: "${rootDir}/build.common.gradle"
 apply from: "${rootDir}/publishing.gradle"
+apply plugin: 'me.champeau.jmh'
+
+// ./gradlew :envoy-xds-snapshot:jmh runs the benchmarks in src/jmh; not part of the build.
+jmh {
+    jmhVersion = '1.37'
+    fork = 1
+    warmupIterations = 3
+    warmup = '2s'
+    iterations = 5
+    timeOnIteration = '2s'
+}
+
+tasks.named('compileJmhJava') {
+    options.errorprone.disable('NullAway') // benchmarks aren't @NullMarked
+}
 
 dependencies {
     api project(':envoy-xds-core')
