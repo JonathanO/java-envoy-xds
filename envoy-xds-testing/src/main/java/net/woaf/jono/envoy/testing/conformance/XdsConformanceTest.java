@@ -89,7 +89,16 @@ import org.testcontainers.images.builder.Transferable;
 public abstract class XdsConformanceTest {
 
     /** Which ADS flavour Envoy uses. */
-    public enum Protocol { SOTW, DELTA }
+    public enum Protocol {
+        /** State of the world. */
+        SOTW,
+        /** Incremental. */
+        DELTA
+    }
+
+    /** For subclasses, one per library under test. */
+    protected XdsConformanceTest() {
+    }
 
     /** The Envoy versions conformance means: the oldest Envoy release upstream still supports, and the newest. */
     public static final List<String> ENVOY_IMAGES = List.of("envoyproxy/envoy:v1.36-latest", "envoyproxy/envoy:v1.40-latest");

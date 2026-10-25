@@ -10,6 +10,8 @@ package net.woaf.jono.envoy.xds.api;
  * The simplest way to meet both is to wrap each listener in
  * {@link net.woaf.jono.envoy.xds.api.utils.QueueingMergingEventListener}, as {@code SnapshotSource} does, so
  * broadcasting only enqueues.</p>
+ *
+ * @param <StateUpdT> the state updates it publishes
  */
 public interface ClusterEventSource<StateUpdT> {
 

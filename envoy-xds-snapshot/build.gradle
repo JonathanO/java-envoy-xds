@@ -18,3 +18,7 @@ dependencies {
     testImplementation 'com.transferwise.envoy:envoy-api:1.17.0'
     testImplementation 'dev.hegel:hegel:0.10.1'
 }
+
+javadoc {
+    options.addBooleanOption('Werror', true) // every public API documented
+}

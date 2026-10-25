@@ -13,11 +13,23 @@ import java.util.concurrent.BlockingQueue;
  */
 public class QueueingMergingEventListener<StateUpdT extends Mergeable<StateUpdT>> extends ThreadedQueuingEventListener<StateUpdT> {
 
+    /**
+     * Call {@link #start()} before use, or use {@link #createAndStart}.
+     * @param delegate receives the updates, on this listener's thread
+     */
     public QueueingMergingEventListener(ClusterManagerEventListener<StateUpdT> delegate) {
         super(new MergingStrategy<>(), delegate);
     }
 
-    public static class MergingStrategy<StateUpdT extends Mergeable<StateUpdT>> implements QueueTakeStrategy<StateUpdT> {
+    /**
+     * Takes everything queued, merged into one update.
+     *
+     * @param <StateUpdT> Update type
+     */
+    public static final class MergingStrategy<StateUpdT extends Mergeable<StateUpdT>> implements QueueTakeStrategy<StateUpdT> {
+
+        private MergingStrategy() {
+        }
 
         @Override
         public StateUpdT take(BlockingQueue<StateUpdT> queue) throws InterruptedException {
@@ -31,6 +43,11 @@ public class QueueingMergingEventListener<StateUpdT extends Mergeable<StateUpdT>
         }
     }
 
+    /**
+     * {@return a started listener}
+     * @param delegate receives the updates, on this listener's thread
+     * @param <StateUpdT> Update type
+     */
     public static <StateUpdT extends Mergeable<StateUpdT>> QueueingMergingEventListener<StateUpdT> createAndStart(ClusterManagerEventListener<StateUpdT> delegate) {
         QueueingMergingEventListener<StateUpdT> runner = new QueueingMergingEventListener<>(delegate);
         runner.start();

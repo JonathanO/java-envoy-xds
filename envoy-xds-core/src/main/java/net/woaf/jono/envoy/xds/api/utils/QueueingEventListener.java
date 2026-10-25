@@ -12,6 +12,10 @@ import java.util.concurrent.BlockingQueue;
  */
 public class QueueingEventListener<StateUpdT> extends ThreadedQueuingEventListener<StateUpdT> {
 
+    /**
+     * Call {@link #start()} before use, or use {@link #createAndStart}.
+     * @param delegate receives the updates, on this listener's thread
+     */
     public QueueingEventListener(ClusterManagerEventListener<StateUpdT> delegate) {
         super(new FifoStrategy<>(), delegate);
     }
@@ -23,6 +27,11 @@ public class QueueingEventListener<StateUpdT> extends ThreadedQueuingEventListen
         }
     }
 
+    /**
+     * {@return a started listener}
+     * @param delegate receives the updates, on this listener's thread
+     * @param <StateUpdT> Update type
+     */
     public static <StateUpdT> QueueingEventListener<StateUpdT> createAndStart(ClusterManagerEventListener<StateUpdT> delegate) {
         QueueingEventListener<StateUpdT> runner = new QueueingEventListener<>(delegate);
         runner.start();

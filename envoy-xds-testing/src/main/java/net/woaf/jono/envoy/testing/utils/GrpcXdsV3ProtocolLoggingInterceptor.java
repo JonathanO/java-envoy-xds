@@ -15,12 +15,16 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Logs every xDS message at debug, with its type, nonce, version and resource names.
+ */
 public class GrpcXdsV3ProtocolLoggingInterceptor extends SimpleGRpcInterceptor {
 
     private static final Logger log = LoggerFactory.getLogger(GrpcXdsV3ProtocolLoggingInterceptor.class);
 
     private final Map<Class<?>, MessageLogger> messageLoggers;
 
+    /** Logs to this class's logger. */
     public GrpcXdsV3ProtocolLoggingInterceptor() {
         messageLoggers = Map.of(
             DiscoveryRequest.class, this::discoveryRequest,
