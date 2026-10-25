@@ -14,6 +14,14 @@ import io.envoyproxy.envoy.admin.v3.SecretsConfigDump;
 
 /**
  * The typed sections of an Envoy config dump. A section Envoy left out is empty.
+ *
+ * @param bootstrapConfigDump Envoy's bootstrap
+ * @param clustersConfigDump its clusters, static and dynamic
+ * @param endpointsConfigDump its endpoints
+ * @param listenersConfigDump its listeners
+ * @param scopedRoutesConfigDump its scoped route configs
+ * @param routesConfigDump its route configs
+ * @param secretsConfigDump its secrets
  */
 public record TypedEnvoyConfigDump(
     BootstrapConfigDump bootstrapConfigDump,
@@ -24,6 +32,11 @@ public record TypedEnvoyConfigDump(
     RoutesConfigDump routesConfigDump,
     SecretsConfigDump secretsConfigDump) {
 
+    /**
+     * {@return the typed sections of a dump}
+     * @param dump from Envoy's {@code /config_dump}
+     * @throws InvalidProtocolBufferException if a section doesn't parse
+     */
     public static TypedEnvoyConfigDump of(ConfigDump dump) throws InvalidProtocolBufferException {
         return new TypedEnvoyConfigDump(
             section(dump, BootstrapConfigDump.getDefaultInstance()),

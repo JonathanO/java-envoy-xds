@@ -30,15 +30,24 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
     @GuardedBy("this")
     private Published<D> current;
 
+    /** A source with no overlay: every client gets the snapshot as published. */
     public SnapshotSource() {
         this(null);
     }
 
+    /**
+     * A source whose clients may each get some resources of their own.
+     * @param overlay given the snapshot and a client's details, the resources that client gets instead of or as well as
+     *     the snapshot's; null for none
+     */
     public SnapshotSource(@Nullable BiFunction<Snapshot, ? super D, Snapshot> overlay) {
         this.overlay = overlay;
         this.current = new Published<>(Snapshot.empty(), overlay);
     }
 
+    /**
+     * {@return the last snapshot published}
+     */
     public synchronized Snapshot current() {
         return current.base();
     }

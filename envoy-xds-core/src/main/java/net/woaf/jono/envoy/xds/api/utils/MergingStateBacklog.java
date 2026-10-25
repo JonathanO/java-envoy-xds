@@ -39,11 +39,23 @@ public class MergingStateBacklog<StateUpdT extends Mergeable<StateUpdT>> impleme
         return value;
     }
 
+    /**
+     * {@return a factory of backlogs that merges updates, for AggregatedDiscoveryService}
+     * @param <StateUpdT> State update type
+     */
     public static <StateUpdT extends Mergeable<StateUpdT>> MergingStateBacklogFactory<StateUpdT> factory() {
         return new MergingStateBacklogFactory<>();
     }
 
-    public static class MergingStateBacklogFactory<StateUpdT extends Mergeable<StateUpdT>> implements StateBacklogFactory<StateUpdT> {
+    /**
+     * Builds a MergingStateBacklog per connection.
+     *
+     * @param <StateUpdT> State update type
+     */
+    public static final class MergingStateBacklogFactory<StateUpdT extends Mergeable<StateUpdT>> implements StateBacklogFactory<StateUpdT> {
+
+        private MergingStateBacklogFactory() {
+        }
 
         @Override
         public MergingStateBacklog<StateUpdT> build() {

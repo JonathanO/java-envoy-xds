@@ -33,3 +33,7 @@ dependencies {
     testImplementation 'net.woaf.jono.envoy:envoy-api:1.36.0'
     testImplementation 'dev.hegel:hegel:0.10.1'
 }
+
+javadoc {
+    options.addBooleanOption('Werror', true) // every public API documented
+}

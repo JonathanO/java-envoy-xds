@@ -45,6 +45,9 @@ public final class Snapshot {
         this.touched = touched;
     }
 
+    /**
+     * {@return the snapshot with no resources, to edit from}
+     */
     public static Snapshot empty() {
         return EMPTY;
     }
@@ -60,10 +63,16 @@ public final class Snapshot {
         return (ImmutableMap<String, R>) resources.getOrDefault(type, ImmutableMap.of());
     }
 
+    /**
+     * {@return the resource classes this snapshot has resources of}
+     */
     public ImmutableSet<Class<? extends Message>> types() {
         return resources.keySet();
     }
 
+    /**
+     * {@return an editor whose result shares everything you don't change with this snapshot}
+     */
     public Editor edit() {
         return new Editor();
     }
@@ -106,11 +115,22 @@ public final class Snapshot {
         private Editor() {
         }
 
+        /**
+         * Add or replace a resource, named as Envoy names it (a cluster load assignment by its cluster name).
+         * @param resource the resource
+         * @return this editor
+         */
         @CanIgnoreReturnValue // returns the editor for chaining
         public Editor put(Message resource) {
             return put(nameOf(resource), resource);
         }
 
+        /**
+         * Add or replace a resource under a name you choose.
+         * @param name the resource's name
+         * @param resource the resource
+         * @return this editor
+         */
         @CanIgnoreReturnValue // returns the editor for chaining
         public Editor put(String name, Message resource) {
             Class<? extends Message> type = resource.getClass();
@@ -122,6 +142,11 @@ public final class Snapshot {
             return this;
         }
 
+        /**
+         * {@return this editor}
+         * @param type resource class, e.g. Cluster.class
+         * @param name the resource's name; nothing happens if there's none
+         */
         @CanIgnoreReturnValue // returns the editor for chaining
         public Editor remove(Class<? extends Message> type, String name) {
             if (!current(type).containsKey(name)) {
@@ -132,6 +157,9 @@ public final class Snapshot {
             return this;
         }
 
+        /**
+         * {@return the edited snapshot, which records the names you touched so clients only compare those}
+         */
         public Snapshot build() {
             Map<Class<? extends Message>, ImmutableMap<String, Message>> merged = new HashMap<>(resources);
             edited.forEach((type, values) -> merged.put(type, ImmutableMap.copyOf(values)));
