@@ -14,7 +14,7 @@ import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import javax.annotation.concurrent.GuardedBy;
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 
 /**
  * Our cluster manager keeps track of the current network state. It's responsible for informing subscribers about changes to the system state. In this example we expose a handful of public methods that are used to allow XdsExample to add/remove

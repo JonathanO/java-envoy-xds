@@ -24,13 +24,16 @@ import java.util.function.Function;
 public class CommonDiscoveryStreamObserver<T extends Message, R extends Message, StateUpdT, DetailsT>
         implements StreamObserver<T>, ClusterManagerEventListener<StateUpdT>, ClientHandle {
 
+    @GuardedBy("this")
     private boolean isDead = false;
 
     private final StreamObserver<R> responseObserver;
     private final ClusterEventSource<StateUpdT> clusterManager;
+    @GuardedBy("this")
     private @Nullable NodeConfig<DetailsT> xdsConfig = null;
 
     private final DiscoveryServiceManagerFactory<T, R, StateUpdT, DetailsT> discoveryServiceManagerFactory;
+    @GuardedBy("this")
     private @Nullable DiscoveryServiceManager<T, StateUpdT> discoveryServiceManager = null;
 
     private final Function<T, CommonDiscoveryRequest<T>> commonDiscoveryRequestConverter;
@@ -50,11 +53,15 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
      * If null then we don't delay the updates.
      * Implementation detail: this will be set to null once the expected ack is received.
      */
+    @GuardedBy("this")
     private @Nullable TypeUrl delayUpdatesUntilAckOf = null;
 
+    @GuardedBy("this")
     private @Nullable String nodeId = null;
+    @GuardedBy("this")
     private @Nullable String clusterId = null;
 
+    @GuardedBy("this")
     private @Nullable Node node = null;
 
     public CommonDiscoveryStreamObserver(

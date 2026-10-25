@@ -3,6 +3,7 @@ package net.woaf.jono.envoy.xds.snapshot;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.errorprone.annotations.Immutable;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Message;
 import org.jspecify.annotations.Nullable;
@@ -19,6 +20,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * parent, and the names you do touch are recorded, so working out what changed costs as much as the change rather than
  * the whole config.
  */
+@Immutable
 public final class Snapshot {
 
     private static final AtomicLong IDS = new AtomicLong();
