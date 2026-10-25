@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.snapshot;
 
+import com.google.protobuf.Any;
 import com.google.protobuf.Duration;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.core.v3.Address;
@@ -11,11 +12,16 @@ import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import io.envoyproxy.envoy.config.endpoint.v3.Endpoint;
 import io.envoyproxy.envoy.config.endpoint.v3.LbEndpoint;
 import io.envoyproxy.envoy.config.endpoint.v3.LocalityLbEndpoints;
+import io.envoyproxy.envoy.config.listener.v3.Filter;
+import io.envoyproxy.envoy.config.listener.v3.FilterChain;
+import io.envoyproxy.envoy.config.listener.v3.Listener;
 import io.envoyproxy.envoy.config.route.v3.Route;
 import io.envoyproxy.envoy.config.route.v3.RouteAction;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
 import io.envoyproxy.envoy.config.route.v3.RouteMatch;
 import io.envoyproxy.envoy.config.route.v3.VirtualHost;
+import io.envoyproxy.envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager;
+import io.envoyproxy.envoy.extensions.filters.network.http_connection_manager.v3.Rds;
 
 final class TestResources {
 
@@ -52,5 +58,24 @@ final class TestResources {
                 .setRoute(RouteAction.newBuilder().setCluster(cluster)));
         }
         return RouteConfiguration.newBuilder().setName(name).addVirtualHosts(vhost).build();
+    }
+
+    /** A listener whose HTTP connection manager gets its routes over RDS. */
+    static Listener listener(String name, String routeConfig) {
+        HttpConnectionManager hcm = HttpConnectionManager.newBuilder()
+            .setStatPrefix(name)
+            .setRds(Rds.newBuilder()
+                .setRouteConfigName(routeConfig)
+                .setConfigSource(ConfigSource.newBuilder()
+                    .setResourceApiVersion(ApiVersion.V3)
+                    .setAds(AggregatedConfigSource.getDefaultInstance())))
+            .build();
+        return Listener.newBuilder()
+            .setName(name)
+            .setAddress(Address.newBuilder().setSocketAddress(SocketAddress.newBuilder().setAddress("0.0.0.0").setPortValue(8080)))
+            .addFilterChains(FilterChain.newBuilder().addFilters(Filter.newBuilder()
+                .setName("envoy.filters.network.http_connection_manager")
+                .setTypedConfig(Any.pack(hcm))))
+            .build();
     }
 }
