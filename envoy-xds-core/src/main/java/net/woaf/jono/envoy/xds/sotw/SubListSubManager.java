@@ -1,6 +1,7 @@
 package net.woaf.jono.envoy.xds.sotw;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Sets;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashSet;
@@ -23,22 +24,14 @@ class SubListSubManager implements SubManager {
 
     @Override
     public Optional<Predicate<String>> processResourceListChange(List<String> resourceNames) {
-
-        boolean subsUpdated = false;
-
-        Set<String> newSubs = new HashSet<>();
-        for (String resourceName: resourceNames) {
-            if (!subs.contains(resourceName)) {
-                newSubs.add(resourceName);
-                subsUpdated = true;
-            }
+        Set<String> next = new HashSet<>(resourceNames);
+        if (next.equals(subs)) {
+            return Optional.empty();
         }
-        if (subsUpdated || subs.size() != resourceNames.size()) {
-            log.debug("Subscribed to {}", resourceNames);
-            subs = new HashSet<>(resourceNames);
-            return Optional.of(newSubs::contains);
-        }
-        return Optional.empty();
+        log.debug("Subscribed to {}", resourceNames);
+        Set<String> newSubs = Sets.difference(next, subs).immutableCopy();
+        subs = next;
+        return Optional.of(newSubs::contains);
     }
 
     @Override
