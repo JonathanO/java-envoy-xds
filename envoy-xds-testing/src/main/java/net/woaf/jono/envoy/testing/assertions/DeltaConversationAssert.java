@@ -21,7 +21,7 @@ import org.assertj.core.api.InstanceOfAssertFactory;
 public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert> {
 
 
-    public static InstanceOfAssertFactory<Conversation, DeltaConversationAssert> DELTA_CONVERSATION = new InstanceOfAssertFactory<>(Conversation.class, new Factory());
+    public static final InstanceOfAssertFactory<Conversation, DeltaConversationAssert> DELTA_CONVERSATION = new InstanceOfAssertFactory<>(Conversation.class, new Factory());
 
     protected DeltaConversationAssert(Conversation actual) {
         super(actual, DeltaConversationAssert.class);

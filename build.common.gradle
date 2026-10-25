@@ -94,11 +94,16 @@ compileJava {
         error("NullAway")
         option("NullAway:OnlyNullMarked", "true")
         option("NullAway:JSpecifyMode", "true")
+        option("NullAway:CheckOptionalEmptiness", "true")
+        option("NullAway:AcknowledgeRestrictiveAnnotations", "true")
+        // Off by default in Error Prone, but each found something here.
+        error("NonFinalStaticField", "RedundantNullCheck", "ThrowSpecificExceptions")
     }
 }
 
 compileTestJava {
-    options.errorprone.disable("NullAway")
+    // Tests aren't @NullMarked, and often call a method for its side effect alone.
+    options.errorprone.disable("NullAway", "CheckReturnValue")
 }
 
 clean.doFirst {

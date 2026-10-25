@@ -1,6 +1,5 @@
 package net.woaf.jono.envoy.example.configbuilder;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.net.HostAndPort;
 import net.woaf.jono.envoy.example.config.ClientConfig;
@@ -21,8 +20,6 @@ public class ClusterLoadAssignmentConfigBuilder extends AbstractConfigBuilder<Cl
 
     @Override
     public Response<ClusterLoadAssignment> addOrder(SimpleUpdate diff, Predicate<String> resourceInSubListChange, ClientConfig clientDetails) {
-        Preconditions.checkArgument(clientDetails != null);
-
         // We're going to assume that endpoints should not be removed in add order, and we have to combine old and new together.
         // This may or may not make any sense, but it provides a more complex example.
 
@@ -64,8 +61,6 @@ public class ClusterLoadAssignmentConfigBuilder extends AbstractConfigBuilder<Cl
 
     @Override
     public Response<ClusterLoadAssignment> removeOrder(SimpleUpdate diff, Predicate<String> resourceInSubListChange, ClientConfig clientDetails) {
-        Preconditions.checkArgument(clientDetails != null);
-
         // We're going to assume that all endpoint removals happen in remove order.
         Response.ResponseBuilder<ClusterLoadAssignment> responseBuilder = Response.builder();
 
@@ -115,7 +110,6 @@ public class ClusterLoadAssignmentConfigBuilder extends AbstractConfigBuilder<Cl
 
     @Override
     public Resources<ClusterLoadAssignment> getResources(Collection<Service> services, Predicate<String> resourceInSubListChange, ClientConfig clientDetails) {
-        Preconditions.checkArgument(clientDetails != null);
         // In this toy example the output resource name == the service name, so we can pre-apply resourceInSubListChange. This might not be true in a real service mesh, so don't assume you can do this, think about it!
 
         Resources.ResourcesBuilder<ClusterLoadAssignment> resourcesBuilder = Resources.builder();

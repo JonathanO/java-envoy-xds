@@ -66,7 +66,7 @@ public class EnvoyAdminClient {
             try {
                 clazz = Class.forName(classinfo.getName());
             } catch (ClassNotFoundException e) {
-                throw new RuntimeException(e);
+                throw new IllegalStateException(e);
             }
             try {
                 Method gd = clazz.getMethod("getDescriptor");

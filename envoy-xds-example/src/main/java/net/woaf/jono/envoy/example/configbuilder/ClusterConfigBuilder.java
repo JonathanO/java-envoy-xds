@@ -1,6 +1,5 @@
 package net.woaf.jono.envoy.example.configbuilder;
 
-import com.google.common.base.Preconditions;
 import com.google.protobuf.Duration;
 import net.woaf.jono.envoy.example.config.ClientConfig;
 import net.woaf.jono.envoy.example.state.Service;
@@ -17,8 +16,6 @@ public class ClusterConfigBuilder extends AbstractConfigBuilder<Cluster> {
 
     @Override
     public Response<Cluster> addOrder(SimpleUpdate diff, Predicate<String> resourceInSubListChange, ClientConfig clientDetails) {
-        Preconditions.checkArgument(clientDetails != null);
-
         Response.ResponseBuilder<Cluster> responseBuilder = Response.builder();
 
         for (Map.Entry<String, Service> entry : diff.getAfter().entrySet()) {
@@ -41,8 +38,6 @@ public class ClusterConfigBuilder extends AbstractConfigBuilder<Cluster> {
 
     @Override
     public Response<Cluster> removeOrder(SimpleUpdate diff, Predicate<String> resourceInSubListChange, ClientConfig clientDetails) {
-        Preconditions.checkArgument(clientDetails != null);
-
         Response.ResponseBuilder<Cluster> responseBuilder = Response.builder();
 
         for (Map.Entry<String, Service> entry : diff.getBefore().entrySet()) {
@@ -61,8 +56,6 @@ public class ClusterConfigBuilder extends AbstractConfigBuilder<Cluster> {
 
     @Override
     public Resources<Cluster> getResources(Collection<Service> services, Predicate<String> resourceInSubListChange, ClientConfig clientDetails) {
-        Preconditions.checkArgument(clientDetails != null);
-
         Resources.ResourcesBuilder<Cluster> resourcesBuilder = Resources.builder();
 
         for (Service service : services) {

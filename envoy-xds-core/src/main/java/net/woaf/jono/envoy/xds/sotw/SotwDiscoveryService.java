@@ -38,12 +38,12 @@ class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends Abstr
         this.versionManager = versionManager;
     }
 
-    private boolean applyCurrentState() {
-        return switch (getCurrentSubState()) {
-            case PRE -> applyPre().isPresent();
-            case POST -> applyPost().isPresent();
-            default -> applyPre().isPresent() || applyPost().isPresent();
-        };
+    private void applyCurrentState() {
+        switch (getCurrentSubState()) {
+            case PRE -> applyPre();
+            case POST -> applyPost();
+            default -> { } // COMPLETED: nothing left to apply
+        }
     }
 
     private void processSubUpdate(Predicate<String> subChanged) {

@@ -389,13 +389,13 @@ public final class XdsMatchers {
         Matcher<M> all = Matchers.<M>allOf(matchers);
         return new BaseMatcher<>() {
             @Override
-            public boolean matches(Object item) {
+            public boolean matches(@Nullable Object item) {
                 Optional<M> message = XdsMessage.of(item).filter(type::isInstance).map(type::cast);
                 return message.isPresent() && all.matches(message.get());
             }
 
             @Override
-            public void describeMismatch(Object item, Description mismatch) {
+            public void describeMismatch(@Nullable Object item, Description mismatch) {
                 Optional<M> message = XdsMessage.of(item).filter(type::isInstance).map(type::cast);
                 if (message.isEmpty()) {
                     mismatch.appendText("was ").appendText(item == null ? "null" : item.getClass().getSimpleName());
