@@ -7,6 +7,14 @@ ext.projectArtifactName = "envoy-xds-snapshot"
 
 apply from: "${rootDir}/build.common.gradle"
 apply from: "${rootDir}/publishing.gradle"
+apply plugin: 'org.pastalab.fray.gradle'
+
+// ./gradlew :envoy-xds-snapshot:frayTest explores thread interleavings of the @FrayTest tests on Fray's instrumented
+// JDK. It takes minutes, so it isn't part of check: CI runs it as a job of its own.
+tasks.matching { it.name == 'frayTest' }.configureEach { // the plugin adds it after evaluation
+    // envoy-api 1.17's generated code warns on every load, which is most of the time each interleaving takes.
+    systemProperty 'com.google.protobuf.use_unsafe_pre22_gencode', 'true'
+}
 
 dependencies {
     api project(':envoy-xds-core')
