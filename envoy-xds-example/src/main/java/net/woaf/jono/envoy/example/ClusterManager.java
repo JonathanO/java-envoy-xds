@@ -6,7 +6,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.net.HostAndPort;
 import net.woaf.jono.envoy.xds.api.ClusterEventSource;
 import net.woaf.jono.envoy.xds.api.ClusterManagerEventListener;
-import net.woaf.jono.envoy.xds.api.utils.QueueingMergingEventListener;
+import net.woaf.jono.envoy.xds.api.utils.SerialEventListener;
 import net.woaf.jono.envoy.example.state.Service;
 import net.woaf.jono.envoy.example.state.SimpleUpdate;
 import java.util.Arrays;
@@ -23,9 +23,9 @@ import com.google.errorprone.annotations.concurrent.GuardedBy;
 public class ClusterManager implements ClusterEventSource<SimpleUpdate> {
 
     /**
-     * Maps ClustermanagerEventListeners that actually subscribed to this source to the QueueingMergingEventListener that we've wrapped them in.
+     * Maps ClustermanagerEventListeners that actually subscribed to this source to the SerialEventListener that we've wrapped them in.
      */
-    private final ConcurrentHashMap<ClusterManagerEventListener<SimpleUpdate>, QueueingMergingEventListener<SimpleUpdate>> targets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<ClusterManagerEventListener<SimpleUpdate>, SerialEventListener<SimpleUpdate>> targets = new ConcurrentHashMap<>();
 
     @GuardedBy("this")
     private ImmutableMap<String, Service> currentState = ImmutableMap.of();
@@ -37,9 +37,9 @@ public class ClusterManager implements ClusterEventSource<SimpleUpdate> {
 
     @Override
     public synchronized SimpleUpdate subscribe(ClusterManagerEventListener<SimpleUpdate> listener) {
-        // Subscribers may do heavy lifting in their onNetworkChange methods. To avoid this blocking the cluster manager we wrap them in a queue backed listener which will submit calls to an executor service.
-        // This particular listener implementation takes advantage of the fact that SimpleUpdate implements Mergeable, so it will also compress the queue into a single call before executing it.
-        targets.computeIfAbsent(listener, QueueingMergingEventListener::createAndStart);
+        // Subscribers may do heavy lifting in their onNetworkChange methods. To avoid this blocking the cluster manager we wrap them in a listener that delivers on a shared executor.
+        // Updates that arrive while a client is busy wait in its StateBacklog, which merges them since SimpleUpdate implements Mergeable (see MergingStateBacklog in XdsExample).
+        targets.computeIfAbsent(listener, SerialEventListener::new);
         return SimpleUpdate.initial(currentState);
     }
 

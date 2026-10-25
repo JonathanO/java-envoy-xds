@@ -8,8 +8,8 @@ package net.woaf.jono.envoy.xds.api;
  * unsubscribe also take, or a client connecting while you broadcast deadlocks. A listener that fails during an update
  * unsubscribes itself from inside that call, so broadcasts must also tolerate unsubscribe while iterating listeners.
  * The simplest way to meet both is to wrap each listener in
- * {@link net.woaf.jono.envoy.xds.api.utils.QueueingMergingEventListener}, as {@code SnapshotSource} does, so
- * broadcasting only enqueues.</p>
+ * {@link net.woaf.jono.envoy.xds.api.utils.SerialEventListener}, as {@code SnapshotSource} does, so
+ * broadcasting only hands updates to an executor.</p>
  */
 public interface ClusterEventSource<StateUpdT> {
 
