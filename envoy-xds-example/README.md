@@ -30,8 +30,9 @@ This will create a cluster called foobar load balancing across those two endpoin
 ## Snapshot example
 
 `SnapshotExample` is the same CLI, built on [envoy-xds-snapshot](../envoy-xds-snapshot) instead of the hand-written
-config builders. It keeps the desired Envoy resources in a snapshot and edits it per command; the snapshot config
+config builders. It keeps the clusters and endpoints in one group and edits it per command; the snapshot config
 builders work out what changed and send it make-before-break. The route config depends on each Envoy's listen port, so
-it is built per client by an overlay.
+each port gets a group with its route config, and a view of that group and the clusters, made when the first Envoy on
+that port connects.
 
 Run `SnapshotExample` instead of `XdsExample`; everything else above is the same.

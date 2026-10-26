@@ -3,7 +3,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 ### Added
-* Experimental `envoy-xds-snapshot` module: snapshot-style config with automatic make-before-break ordering
+* Experimental `envoy-xds-snapshot` module: snapshot-style config with automatic make-before-break ordering. A `SnapshotSource` holds named groups of resources and named views, each an ordered list of groups, and picks each client's view from its details; changing a group only wakes the clients whose view has it
 * `envoy-xds-testing` module: helpers for testing a control plane against a real Envoy, and an xDS library conformance suite
 * Make before break across a reconnect: `wasMakeBeforeBreak(fromMessage, before)`, `Checkpoint.assertSaneAfterReconnect(before)`, and the `changesWhileDisconnected` conformance scenario
 * `Checkpoint` and `EnvoyChecks.assertRoutedVia` in `envoy-xds-testing`: one call to check everything since a mark, and which cluster served a request

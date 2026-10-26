@@ -43,31 +43,46 @@ Envoy release.
 ### Snapshots (experimental)
 
 `envoy-xds-snapshot` lets you describe the whole desired config instead of writing `IncrementalConfigBuilder`s.
-Publish snapshots to a `SnapshotSource` and serve them with `SnapshotConfigBuilder.forTypes(...)`. Each change is
-still applied make-before-break: added and changed resources go out in add order, deleted ones in remove order.
+Publish groups of resources, and views made of them, to a `SnapshotSource`, and serve them with
+`SnapshotConfigBuilder.forTypes(...)`. Each change is still applied make-before-break: added and changed resources go
+out in add order, deleted ones in remove order.
+
+A group is a `Snapshot`: any resources, of any types. A view is an ordered list of groups, and a client sees every
+resource in its view's groups; where two groups have a resource of the same type and name, the first one's wins. You
+pick each client's view from the client details your `ClientConfigProvider` returned, so clients with the same details
+share a view.
 
 ```java
-SnapshotSource<ClientConfig> source = new SnapshotSource<>();
+SnapshotSource<ClientConfig> source = new SnapshotSource<>(client -> client.callingService());
 AggregatedDiscoveryService<SnapshotUpdate<ClientConfig>, ClientConfig> ads = new AggregatedDiscoveryService<>(
     source,
     SnapshotConfigBuilder.forTypes(Cluster.class, ClusterLoadAssignment.class, Listener.class, RouteConfiguration.class),
     clientConfigProvider, ImmutableList.of(), MergingStateBacklog.factory(), metricsFactory);
 
-// Route, cluster and endpoints in one change: Envoy gets the cluster and endpoints before the route.
-source.update(e -> e.put(cluster).put(endpoints).put(routes));
+// A service mesh: a group per service, and a view per caller of its own listener and routes, then what it calls.
+source.update(c -> c
+    .group("svc-b", g -> g.put(clusterB).put(endpointsB))
+    .group("caller-a", g -> g.put(listener).put(routesForA).put(clusterBWithLongerTimeout)) // overrides svc-b's cluster
+    .view("caller-a", "caller-a", "svc-b"));
+
+// Only callers of svc-b are woken, and they compare only the names touched.
+source.update(c -> c.group("svc-b", g -> g.put(newEndpointsB)));
 ```
 
-Edit the current snapshot (`update()` or `current().edit()`) so only the names you touch are compared. For per-client
-resources, pass `new SnapshotSource<>((base, clientDetails) -> overlay)`: the overlay adds or replaces resources by name,
-and is computed once per snapshot for each distinct `clientDetails` value.
+Everyone seeing the same config is one group in one view: `new SnapshotSource<>(client -> "all")` and
+`source.update(c -> c.view("all", "all").group("all", g -> g.put(cluster)))`. Edit groups (`group(name, edit)`) so only
+the names you touch are compared; a group replaced whole (`group(name, snapshot)`) compares everything in it. Groups
+and views changed in one `update()` reach each client as one change, so a new cluster in one group arrives before the
+route to it in another. A client whose view doesn't exist sees nothing until you add it, which you can do when it
+connects, from an `XdsEventListener`.
 
 `SnapshotExample` in [envoy-xds-example](envoy-xds-example/README.md) is a runnable version of the toy example built this way.
 
 ### Threads
 
 Each client's updates are delivered in order, one at a time, on a shared pool with one thread per core, so thousands
-of Envoys don't need thousands of threads. Your config builders and overlays run there. If they block, give
-`SnapshotSource` your own executor (`new SnapshotSource<>(overlay, executor)`), or wrap your listeners in
+of Envoys don't need thousands of threads. Your config builders run there. If they block, give
+`SnapshotSource` your own executor (`new SnapshotSource<>(viewOf, executor)`), or wrap your listeners in
 `SerialEventListener` with one if you write your own `ClusterEventSource`. `SnapshotSource`'s executor must run tasks on
 threads of its own: with a same-thread one such as `MoreExecutors.directExecutor()` it deadlocks.
 

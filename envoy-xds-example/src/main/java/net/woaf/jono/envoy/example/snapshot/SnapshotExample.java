@@ -10,6 +10,7 @@ import io.envoyproxy.envoy.config.core.v3.Address;
 import io.envoyproxy.envoy.config.core.v3.AggregatedConfigSource;
 import io.envoyproxy.envoy.config.core.v3.ApiVersion;
 import io.envoyproxy.envoy.config.core.v3.ConfigSource;
+import io.envoyproxy.envoy.config.core.v3.Node;
 import io.envoyproxy.envoy.config.core.v3.SocketAddress;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import io.envoyproxy.envoy.config.endpoint.v3.Endpoint;
@@ -27,10 +28,16 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.UnaryOperator;
 import net.woaf.jono.envoy.example.config.ClientConfig;
 import net.woaf.jono.envoy.example.config.StaticClientConfigSource;
 import net.woaf.jono.envoy.xds.AggregatedDiscoveryService;
+import net.woaf.jono.envoy.xds.XdsConfig;
+import net.woaf.jono.envoy.xds.api.ClientHandle;
+import net.woaf.jono.envoy.xds.api.XdsEventListener;
 import net.woaf.jono.envoy.xds.api.DiscoveryServiceManagerMetrics;
 import net.woaf.jono.envoy.xds.api.utils.MergingStateBacklog;
 import net.woaf.jono.envoy.xds.snapshot.Snapshot;
@@ -41,29 +48,45 @@ import net.woaf.jono.envoy.xds.snapshot.SnapshotUpdate;
 /**
  * The same CLI driven mesh as XdsExample, built on envoy-xds-snapshot instead of hand-written config builders.
  *
- * <p>We just describe the config we want as a snapshot of Envoy resources. The snapshot config builders work out what
+ * <p>We just describe the config we want as groups of Envoy resources. The snapshot config builders work out what
  * changed and send it in a make-before-break order: a new cluster and its endpoints reach Envoy before the route that
  * uses it, and a removed cluster goes only after the route has stopped using it.
+ *
+ * <p>Every Envoy sees the "clusters" group: clusters and their endpoints. The route config depends on the port each
+ * Envoy listens on, so each port gets a group with its route config and a view of that group and "clusters". Envoys on
+ * the same port share a view; the first to connect on a port creates it.
  */
 public class SnapshotExample {
 
     // The route config name the http connection manager in envoy-delta.yaml asks for.
     private static final String ROUTE_NAME = "all_routes";
 
+    private static final String CLUSTERS = "clusters";
+
     private static final Splitter argSplitter = Splitter.on(' ').trimResults().omitEmptyStrings();
+
+    /** The ports Envoys have told us they listen on, each with a view. */
+    private static final Set<Long> ports = ConcurrentHashMap.newKeySet();
 
     public static void main(String[] args) throws IOException, InterruptedException {
 
-        // The snapshot holds what every client shares: clusters and their endpoints.
-        // The route config depends on the port each Envoy listens on, so an overlay builds it per client. Overlays are
-        // built once per distinct ClientConfig, so all Envoys with the same port share one.
-        SnapshotSource<ClientConfig> source = new SnapshotSource<>(SnapshotExample::routesFor);
+        // Each Envoy sees the view for the port it listens on.
+        SnapshotSource<ClientConfig> source = new SnapshotSource<>(client -> view(client.listenPort()));
 
         AggregatedDiscoveryService<SnapshotUpdate<ClientConfig>, ClientConfig> ads = new AggregatedDiscoveryService<>(
             source, // The snapshot source tells every connected Envoy when the snapshot changes
             SnapshotConfigBuilder.forTypes(Cluster.class, ClusterLoadAssignment.class, RouteConfiguration.class), // One config builder per type we serve
-            new StaticClientConfigSource(), // ClientConfigProviders provide per-client configuration, which the overlay uses
-            ImmutableList.of(), // Our example has no event listeners, but you can use these for things like tracking connected clients
+            new StaticClientConfigSource(), // ClientConfigProviders provide per-client configuration: here, the port it listens on
+            ImmutableList.of(new XdsEventListener<>() { // Event listeners hear of clients coming and going
+                @Override
+                public void onNewClient(ClientHandle clientHandle, Node node, XdsConfig<ClientConfig> config) {
+                    addPort(source, config.clientDetails().listenPort());
+                }
+
+                @Override
+                public void onClientDisconnected(ClientHandle clientHandle, Node node) {
+                }
+            }),
             MergingStateBacklog.factory(), // Strategy for handling a backlog of snapshot updates.
             DiscoveryServiceManagerMetrics.METRICS_DISABLED // Use the NOOP metrics factory.
         );
@@ -82,23 +105,48 @@ public class SnapshotExample {
         server.awaitTermination();
     }
 
+    private static String view(long port) {
+        return "port-" + port;
+    }
+
+    private static String routesGroup(long port) {
+        return "routes-" + port;
+    }
+
+    /** Give a new port its route config and view. Adding one that already exists changes nothing. */
+    private static void addPort(SnapshotSource<ClientConfig> source, long port) {
+        ports.add(port);
+        source.update(c -> c.view(view(port), routesGroup(port), CLUSTERS)
+            .group(routesGroup(port), e -> e.put(routesFor(c.group(CLUSTERS), port))));
+    }
+
+    /** Change the clusters, and every port's routes to match, in one update. */
+    private static void changeClusters(SnapshotSource<ClientConfig> source, UnaryOperator<Snapshot.Editor> edit) {
+        source.update(c -> {
+            c.group(CLUSTERS, edit);
+            for (long port : ports) {
+                c.group(routesGroup(port), e -> e.put(routesFor(c.group(CLUSTERS), port)));
+            }
+        });
+    }
+
     /**
-     * The overlay: a route config for one client, with a virtual host per cluster in the snapshot.
+     * A route config for Envoys listening on one port, with a virtual host per cluster.
      */
-    private static Snapshot routesFor(Snapshot base, ClientConfig client) {
+    private static RouteConfiguration routesFor(Snapshot clusters, long port) {
         RouteConfiguration.Builder routes = RouteConfiguration.newBuilder().setName(ROUTE_NAME);
-        for (String name : base.get(Cluster.class).keySet()) {
+        for (String name : clusters.get(Cluster.class).keySet()) {
             routes.addVirtualHosts(VirtualHost.newBuilder()
                 .setName(name)
                 .addDomains(name)
-                .addDomains(name + ":" + client.listenPort())
+                .addDomains(name + ":" + port)
                 .addRoutes(Route.newBuilder()
                     .setMatch(RouteMatch.newBuilder().setPrefix("/").build())
                     .setRoute(RouteAction.newBuilder().setCluster(name).build())
                     .build())
                 .build());
         }
-        return Snapshot.empty().edit().put(routes.build()).build();
+        return routes.build();
     }
 
     private static Cluster cluster(String name) {
@@ -151,7 +199,7 @@ public class SnapshotExample {
 
     private static void cmdList(SnapshotSource<ClientConfig> source) {
         System.out.println("Services:");
-        source.current().get(Cluster.class).keySet().forEach(name -> {
+        source.group(CLUSTERS).get(Cluster.class).keySet().forEach(name -> {
             System.out.print('\t');
             System.out.println(name);
         });
@@ -159,7 +207,7 @@ public class SnapshotExample {
 
     private static void cmdShow(SnapshotSource<ClientConfig> source, String name) {
         System.out.println("Service: " + name);
-        Snapshot current = source.current();
+        Snapshot current = source.group(CLUSTERS);
         if (!current.get(Cluster.class).containsKey(name)) {
             System.out.println("\tNot Found");
             return;
@@ -173,27 +221,27 @@ public class SnapshotExample {
 
     private static void cmdAdd(SnapshotSource<ClientConfig> source, String name, String endpoint) {
         LbEndpoint added = lbEndpoint(parseEndpoint(endpoint));
-        List<LbEndpoint> endpoints = endpoints(source.current(), name);
+        List<LbEndpoint> endpoints = endpoints(source.group(CLUSTERS), name);
         if (endpoints.contains(added)) {
             return;
         }
-        // Put the cluster and its endpoints in one edit; Envoy gets the cluster before the route that uses it.
-        // Putting a resource equal to the one already there is a no-op, so re-putting the cluster costs nothing.
-        source.update(e -> e.put(cluster(name)).put(withEndpoints(name, ImmutableList.<LbEndpoint>builder().addAll(endpoints).add(added).build())));
+        // Put the cluster, its endpoints and the routes in one update; Envoy gets the cluster before the route that uses it.
+        // Putting a resource equal to the one already there is a no-op, so re-putting the cluster and routes costs nothing.
+        changeClusters(source, e -> e.put(cluster(name)).put(withEndpoints(name, ImmutableList.<LbEndpoint>builder().addAll(endpoints).add(added).build())));
     }
 
     private static void cmdRemove(SnapshotSource<ClientConfig> source, String name, String endpoint) {
         LbEndpoint removed = lbEndpoint(parseEndpoint(endpoint));
-        List<LbEndpoint> endpoints = endpoints(source.current(), name);
+        List<LbEndpoint> endpoints = endpoints(source.group(CLUSTERS), name);
         if (!endpoints.contains(removed)) {
             return;
         }
-        source.update(e -> e.put(withEndpoints(name, endpoints.stream().filter(ep -> !ep.equals(removed)).toList())));
+        source.update(c -> c.group(CLUSTERS, e -> e.put(withEndpoints(name, endpoints.stream().filter(ep -> !ep.equals(removed)).toList()))));
     }
 
     private static void cmdRemove(SnapshotSource<ClientConfig> source, String name) {
         // Removing the cluster drops it from every client's route config too; Envoy gets the new routes first.
-        source.update(e -> e.remove(Cluster.class, name).remove(ClusterLoadAssignment.class, name));
+        changeClusters(source, e -> e.remove(Cluster.class, name).remove(ClusterLoadAssignment.class, name));
     }
 
     private static void mainLoop(SnapshotSource<ClientConfig> source) throws IOException {
