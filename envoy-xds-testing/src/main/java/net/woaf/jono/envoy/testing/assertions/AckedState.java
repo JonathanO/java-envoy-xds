@@ -8,6 +8,8 @@ import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import io.envoyproxy.envoy.config.listener.v3.Listener;
 import io.envoyproxy.envoy.config.route.v3.RouteAction;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
+import io.envoyproxy.envoy.config.route.v3.ScopedRouteConfiguration;
+import io.envoyproxy.envoy.config.route.v3.VirtualHost;
 import io.envoyproxy.envoy.config.route.v3.WeightedCluster.ClusterWeight;
 import io.envoyproxy.envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager;
 import java.util.ArrayList;
@@ -29,6 +31,8 @@ final class AckedState {
     private final Set<String> endpoints = new HashSet<>();
     private final Map<String, Set<String>> routes = new HashMap<>();
     private final Map<String, Set<String>> listeners = new HashMap<>(); // route config names used, by listener
+    private final Map<String, String> scopes = new HashMap<>(); // the route config each scoped route config names
+    private final Map<String, Set<String>> virtualHosts = new HashMap<>(); // clusters used, by VHDS virtual host
     private final List<String> problems = new ArrayList<>();
 
     Set<String> clusters() {
@@ -53,14 +57,7 @@ final class AckedState {
         if (typeUrl.equals(XdsTypes.RDS)) {
             for (Any any : resources) {
                 RouteConfiguration route = sneakyUnpack(any, RouteConfiguration.class);
-                for (String cluster : referencedClusters(route)) {
-                    String edsName = edsClusters.get(cluster);
-                    if (!clusters.contains(cluster)) {
-                        problems.add("Route <" + route.getName() + "> sent using cluster <" + cluster + "> before Envoy ACKed the cluster");
-                    } else if (edsName != null && !endpoints.contains(edsName)) {
-                        problems.add("Route <" + route.getName() + "> sent using cluster <" + cluster + "> before Envoy ACKed its endpoints");
-                    }
-                }
+                checkClustersAcked("Route <" + route.getName() + ">", referencedClusters(route.getVirtualHostsList()));
             }
             for (String route : removed) {
                 listeners.forEach((name, used) -> {
@@ -68,6 +65,16 @@ final class AckedState {
                         problems.add("Route config <" + route + "> removed while Envoy's ACKed listener <" + name + "> still uses it");
                     }
                 });
+                scopes.forEach((name, used) -> {
+                    if (used.equals(route)) {
+                        problems.add("Route config <" + route + "> removed while Envoy's ACKed scoped route config <" + name + "> still uses it");
+                    }
+                });
+            }
+        } else if (typeUrl.equals(XdsTypes.VHDS)) {
+            for (Any any : resources) {
+                VirtualHost virtualHost = sneakyUnpack(any, VirtualHost.class);
+                checkClustersAcked("Virtual host <" + virtualHost.getName() + ">", referencedClusters(List.of(virtualHost)));
             }
         } else if (typeUrl.equals(XdsTypes.CDS)) {
             for (String cluster : removed) {
@@ -76,6 +83,22 @@ final class AckedState {
                         problems.add("Cluster <" + cluster + "> removed while Envoy's ACKed route <" + name + "> still uses it");
                     }
                 });
+                virtualHosts.forEach((name, used) -> {
+                    if (used.contains(cluster)) {
+                        problems.add("Cluster <" + cluster + "> removed while Envoy's ACKed virtual host <" + name + "> still uses it");
+                    }
+                });
+            }
+        }
+    }
+
+    private void checkClustersAcked(String what, Set<String> used) {
+        for (String cluster : used) {
+            String edsName = edsClusters.get(cluster);
+            if (!clusters.contains(cluster)) {
+                problems.add(what + " sent using cluster <" + cluster + "> before Envoy ACKed the cluster");
+            } else if (edsName != null && !endpoints.contains(edsName)) {
+                problems.add(what + " sent using cluster <" + cluster + "> before Envoy ACKed its endpoints");
             }
         }
     }
@@ -106,9 +129,27 @@ final class AckedState {
         } else if (typeUrl.equals(XdsTypes.RDS)) {
             resources.forEach(any -> {
                 RouteConfiguration route = sneakyUnpack(any, RouteConfiguration.class);
-                routes.put(route.getName(), referencedClusters(route));
+                routes.put(route.getName(), referencedClusters(route.getVirtualHostsList()));
             });
             removed.forEach(routes::remove);
+        } else if (typeUrl.equals(XdsTypes.VHDS)) {
+            resources.forEach(any -> {
+                VirtualHost virtualHost = sneakyUnpack(any, VirtualHost.class);
+                virtualHosts.put(virtualHost.getName(), referencedClusters(List.of(virtualHost)));
+            });
+            removed.forEach(virtualHosts::remove);
+        } else if (typeUrl.equals(XdsTypes.SRDS)) {
+            resources.forEach(any -> {
+                ScopedRouteConfiguration scope = sneakyUnpack(any, ScopedRouteConfiguration.class);
+                scopes.put(scope.getName(), scope.getRouteConfigurationName());
+            });
+            for (String gone : removed) {
+                // As for a removed listener: its route config is unused once nothing else names it.
+                String used = scopes.remove(gone);
+                if (used != null) {
+                    dropIfUnused(used);
+                }
+            }
         } else if (typeUrl.equals(XdsTypes.LDS)) {
             resources.forEach(any -> {
                 Listener listener = sneakyUnpack(any, Listener.class);
@@ -119,9 +160,16 @@ final class AckedState {
                 // configs only it used are now unused.
                 Set<String> used = listeners.remove(gone);
                 if (used != null) {
-                    used.stream().filter(r -> listeners.values().stream().noneMatch(l -> l.contains(r))).forEach(routes::remove);
+                    used.forEach(this::dropIfUnused);
                 }
             }
+        }
+    }
+
+    /** Forget a route config no listener or scoped route config names: what it routes to is unused. */
+    private void dropIfUnused(String routeConfig) {
+        if (listeners.values().stream().noneMatch(l -> l.contains(routeConfig)) && !scopes.containsValue(routeConfig)) {
+            routes.remove(routeConfig);
         }
     }
 
@@ -139,9 +187,9 @@ final class AckedState {
         return used;
     }
 
-    private static Set<String> referencedClusters(RouteConfiguration route) {
+    private static Set<String> referencedClusters(List<VirtualHost> virtualHosts) {
         Set<String> used = new HashSet<>();
-        route.getVirtualHostsList().forEach(vh -> vh.getRoutesList().forEach(r -> {
+        virtualHosts.forEach(vh -> vh.getRoutesList().forEach(r -> {
             RouteAction action = r.getRoute();
             if (!action.getCluster().isEmpty()) {
                 used.add(action.getCluster());

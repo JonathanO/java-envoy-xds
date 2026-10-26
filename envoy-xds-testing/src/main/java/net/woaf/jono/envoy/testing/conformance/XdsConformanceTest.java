@@ -35,6 +35,12 @@ import io.envoyproxy.envoy.config.route.v3.RouteAction;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
 import io.envoyproxy.envoy.config.route.v3.RouteMatch;
 import io.envoyproxy.envoy.config.route.v3.VirtualHost;
+import io.envoyproxy.envoy.config.route.v3.ScopedRouteConfiguration;
+import io.envoyproxy.envoy.config.route.v3.Vhds;
+import io.envoyproxy.envoy.extensions.filters.http.on_demand.v3.OnDemand;
+import io.envoyproxy.envoy.extensions.filters.http.on_demand.v3.OnDemandCds;
+import io.envoyproxy.envoy.extensions.filters.network.http_connection_manager.v3.ScopedRds;
+import io.envoyproxy.envoy.extensions.filters.network.http_connection_manager.v3.ScopedRoutes;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import io.grpc.BindableService;
@@ -116,7 +122,8 @@ public abstract class XdsConformanceTest {
 
         /**
          * Make these resources the whole desired config for every Envoy, replacing what was there before.
-         * @param resources Clusters, ClusterLoadAssignments and RouteConfigurations
+         * @param resources Clusters, ClusterLoadAssignments, Listeners, RouteConfigurations, ScopedRouteConfigurations
+         *     and VirtualHosts (for VHDS, named {@code <route config>/<host>})
          */
         void setConfig(Collection<? extends Message> resources);
 
@@ -166,21 +173,36 @@ public abstract class XdsConformanceTest {
     private static final Map<String, Scenario> SCENARIOS = scenarios();
 
     @FunctionalInterface
-    private interface Scenario {
+    private interface Steps {
         void run(Harness harness) throws Exception;
+    }
+
+    /**
+     * A scenario, the protocols Envoy supports it on, and whether Envoy subscribes to every cluster (else it only
+     * asks for clusters on demand).
+     */
+    private record Scenario(Steps steps, Set<Protocol> protocols, boolean allClusters) {
+        static Scenario everywhere(Steps steps) {
+            return new Scenario(steps, EnumSet.allOf(Protocol.class), true);
+        }
     }
 
     private static Map<String, Scenario> scenarios() {
         Map<String, Scenario> scenarios = new LinkedHashMap<>();
-        scenarios.put("startsEmpty", Harness::startsEmpty);
-        scenarios.put("addsAndRemovesServices", Harness::addsAndRemovesServices);
-        scenarios.put("movesRouteToNewCluster", Harness::movesRouteToNewCluster);
-        scenarios.put("addsAndRemovesListener", Harness::addsAndRemovesListener);
-        scenarios.put("churns", Harness::churns);
-        scenarios.put("containsRejectedConfig", Harness::containsRejectedConfig);
-        scenarios.put("reconnects", Harness::reconnects);
-        scenarios.put("changesWhileDisconnected", Harness::changesWhileDisconnected);
-        scenarios.put("controlPlaneRestarts", Harness::controlPlaneRestarts);
+        scenarios.put("startsEmpty", Scenario.everywhere(Harness::startsEmpty));
+        scenarios.put("addsAndRemovesServices", Scenario.everywhere(Harness::addsAndRemovesServices));
+        scenarios.put("movesRouteToNewCluster", Scenario.everywhere(Harness::movesRouteToNewCluster));
+        scenarios.put("addsAndRemovesListener", Scenario.everywhere(Harness::addsAndRemovesListener));
+        scenarios.put("churns", Scenario.everywhere(Harness::churns));
+        scenarios.put("containsRejectedConfig", Scenario.everywhere(Harness::containsRejectedConfig));
+        scenarios.put("reconnects", Scenario.everywhere(Harness::reconnects));
+        scenarios.put("changesWhileDisconnected", Scenario.everywhere(Harness::changesWhileDisconnected));
+        scenarios.put("controlPlaneRestarts", Scenario.everywhere(Harness::controlPlaneRestarts));
+        scenarios.put("scopedRoutes", Scenario.everywhere(Harness::scopedRoutes));
+        scenarios.put("onDemandScopes", Scenario.everywhere(Harness::onDemandScopes));
+        // Envoy only does on-demand clusters and virtual hosts over delta.
+        scenarios.put("onDemandClusters", new Scenario(Harness::onDemandClusters, EnumSet.of(Protocol.DELTA), false));
+        scenarios.put("onDemandVirtualHosts", new Scenario(Harness::onDemandVirtualHosts, EnumSet.of(Protocol.DELTA), true));
         return Collections.unmodifiableMap(scenarios);
     }
 
@@ -192,7 +214,7 @@ public abstract class XdsConformanceTest {
     @TestFactory
     public Stream<DynamicTest> conformance() {
         return protocols().stream().flatMap(protocol -> ENVOY_IMAGES.stream().flatMap(image -> Stream.of(false, true).flatMap(rateLimited ->
-            SCENARIOS.entrySet().stream().map(scenario -> {
+            SCENARIOS.entrySet().stream().filter(scenario -> scenario.getValue().protocols().contains(protocol)).map(scenario -> {
                 List<String> path = List.of(protocol.name().toLowerCase(Locale.ROOT), version(image), rateLimited ? "rate-limited" : "normal", scenario.getKey());
                 return dynamicTest(String.join("/", path), () -> run(path, protocol, image, rateLimited, scenario.getValue()));
             }))));
@@ -204,9 +226,9 @@ public abstract class XdsConformanceTest {
                 Assumptions.abort(deviation.getValue());
             }
         }
-        Harness harness = new Harness(this::newControlPlane, image, protocol, rateLimited);
+        Harness harness = new Harness(this::newControlPlane, image, protocol, rateLimited, scenario.allClusters());
         try {
-            scenario.run(harness);
+            scenario.steps().run(harness);
         } finally {
             harness.stop();
         }
@@ -223,13 +245,18 @@ public abstract class XdsConformanceTest {
     private static final int DYNAMIC_LISTENER_PORT = 10001; // the listener addsAndRemovesListener adds
     private static final String ROUTES = "all_routes"; // Envoy's static listener asks for this
 
-    private static String bootstrap(Protocol protocol, boolean rateLimitedAds) {
+    private static String bootstrap(Protocol protocol, boolean rateLimitedAds, boolean allClusters) {
         String resource = "net/woaf/jono/envoy/testing/conformance/envoy-" + protocol.name().toLowerCase(Locale.ROOT) + ".yaml";
         String yaml;
         try (InputStream in = Objects.requireNonNull(XdsConformanceTest.class.getClassLoader().getResourceAsStream(resource), resource)) {
             yaml = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        }
+        if (!allClusters) {
+            String noCds = yaml.replace("  cds_config:\n    ads: { }\n    resource_api_version: V3\n", "");
+            Preconditions.checkState(!noCds.equals(yaml), "couldn't remove cds_config from %s", resource);
+            yaml = noCds;
         }
         if (!rateLimitedAds) {
             return yaml;
@@ -290,6 +317,105 @@ public abstract class XdsConformanceTest {
         return withListener;
     }
 
+    private static ConfigSource ads() {
+        return ConfigSource.newBuilder().setResourceApiVersion(ApiVersion.V3).setAds(AggregatedConfigSource.getDefaultInstance()).build();
+    }
+
+    private static HttpFilter router() {
+        return HttpFilter.newBuilder().setName("envoy.filters.http.router").setTypedConfig(Any.pack(Router.getDefaultInstance())).build();
+    }
+
+    /** Holds a request while Envoy fetches what it needs on demand: a scope's route config, a virtual host, or a cluster. */
+    private static HttpFilter onDemand(OnDemand config) {
+        return HttpFilter.newBuilder().setName("envoy.filters.http.on_demand").setTypedConfig(Any.pack(config)).build();
+    }
+
+    /** Listener name on port 10001, with this HTTP connection manager. */
+    private static Listener listener(String name, HttpConnectionManager hcm) {
+        return Listener.newBuilder()
+            .setName(name)
+            .setAddress(Address.newBuilder().setSocketAddress(SocketAddress.newBuilder().setAddress("0.0.0.0").setPortValue(DYNAMIC_LISTENER_PORT)))
+            .addFilterChains(FilterChain.newBuilder().addFilters(Filter.newBuilder()
+                .setName("envoy.filters.network.http_connection_manager").setTypedConfig(Any.pack(hcm))))
+            .build();
+    }
+
+    /**
+     * Adds listener scoped on port 10001, which picks a scope by the Host header, and for each name a scope of that
+     * name whose route config scoped-name routes to the cluster of that name. On demand, Envoy only fetches a scope's
+     * route config once a request needs it.
+     */
+    private static List<Message> withScopes(List<Message> config, boolean onDemand, String... names) {
+        HttpConnectionManager.Builder hcm = HttpConnectionManager.newBuilder()
+            .setStatPrefix("scoped")
+            .setScopedRoutes(ScopedRoutes.newBuilder()
+                .setName("scopes")
+                .setScopeKeyBuilder(ScopedRoutes.ScopeKeyBuilder.newBuilder().addFragments(ScopedRoutes.ScopeKeyBuilder.FragmentBuilder.newBuilder()
+                    .setHeaderValueExtractor(ScopedRoutes.ScopeKeyBuilder.FragmentBuilder.HeaderValueExtractor.newBuilder()
+                        .setName(":authority").setElementSeparator(":").setIndex(0))))
+                .setRdsConfigSource(ads())
+                .setScopedRds(ScopedRds.newBuilder().setScopedRdsConfigSource(ads())));
+        if (onDemand) {
+            hcm.addHttpFilters(onDemand(OnDemand.getDefaultInstance()));
+        }
+        hcm.addHttpFilters(router());
+        List<Message> scoped = new ArrayList<>(config);
+        scoped.add(listener("scoped", hcm.build()));
+        for (String name : names) {
+            scoped.add(ScopedRouteConfiguration.newBuilder().setName(name).setRouteConfigurationName("scoped-" + name).setOnDemand(onDemand)
+                .setKey(ScopedRouteConfiguration.Key.newBuilder().addFragments(ScopedRouteConfiguration.Key.Fragment.newBuilder().setStringKey(name)))
+                .build());
+            scoped.add(RouteConfiguration.newBuilder().setName("scoped-" + name).addVirtualHosts(virtualHost(name, name)).build());
+        }
+        return scoped;
+    }
+
+    /**
+     * Listener on-demand on port 10001, whose route config routes each name to the cluster of that name, plus those
+     * clusters and their endpoints, for an Envoy that only gets clusters when a request needs them. The static
+     * listener's route config is empty.
+     */
+    private static List<Message> clustersOnDemand(String... names) {
+        HttpConnectionManager hcm = HttpConnectionManager.newBuilder()
+            .setStatPrefix("on-demand")
+            .setRds(Rds.newBuilder().setRouteConfigName("on-demand").setConfigSource(ads()))
+            .addHttpFilters(onDemand(OnDemand.newBuilder().setOdcds(OnDemandCds.newBuilder().setSource(ads())
+                .setTimeout(Duration.newBuilder().setSeconds(5))).build()))
+            .addHttpFilters(router())
+            .build();
+        List<Message> config = new ArrayList<>();
+        config.add(RouteConfiguration.newBuilder().setName(ROUTES).build());
+        config.add(listener("on-demand", hcm));
+        RouteConfiguration.Builder routes = RouteConfiguration.newBuilder().setName("on-demand");
+        for (String name : names) {
+            config.add(cluster(name));
+            config.add(endpoints(name));
+            routes.addVirtualHosts(virtualHost(name, name));
+        }
+        config.add(routes.build());
+        return config;
+    }
+
+    /**
+     * Adds listener vhds on port 10001, whose route config vhds has no virtual hosts of its own: Envoy asks for one by
+     * VHDS, as vhds/name, when a request for that host arrives. Each routes to the cluster of that name.
+     */
+    private static List<Message> withVirtualHostsOnDemand(List<Message> config, String... names) {
+        HttpConnectionManager hcm = HttpConnectionManager.newBuilder()
+            .setStatPrefix("vhds")
+            .setRds(Rds.newBuilder().setRouteConfigName("vhds").setConfigSource(ads()))
+            .addHttpFilters(onDemand(OnDemand.getDefaultInstance()))
+            .addHttpFilters(router())
+            .build();
+        List<Message> withVhds = new ArrayList<>(config);
+        withVhds.add(listener("vhds", hcm));
+        withVhds.add(RouteConfiguration.newBuilder().setName("vhds").setVhds(Vhds.newBuilder().setConfigSource(ads())).build());
+        for (String name : names) {
+            withVhds.add(virtualHost(name, name).toBuilder().setName("vhds/" + name).build());
+        }
+        return withVhds;
+    }
+
     private static List<Message> withBadCluster(List<Message> config) {
         List<Message> bad = new ArrayList<>(config);
         bad.add(cluster("bad").toBuilder().setConnectTimeout(Duration.newBuilder().setSeconds(-1)).build());
@@ -336,19 +462,22 @@ public abstract class XdsConformanceTest {
         private ControlPlane controlPlane;
         private final Protocol protocol;
         private final boolean rateLimitedAds;
+        /** The types Envoy asks for as it starts. */
+        private final String[] syncTypes;
         private final EnvoyContainer envoy;
         private final ConversationLogger conversations = new ConversationLogger();
         private @Nullable BindableService service;
         private @Nullable Server server;
         private @Nullable Checkpoint checkpoint;
 
-        Harness(Supplier<ControlPlane> newControlPlane, String envoyImage, Protocol protocol, boolean rateLimitedAds) {
+        Harness(Supplier<ControlPlane> newControlPlane, String envoyImage, Protocol protocol, boolean rateLimitedAds, boolean allClusters) {
             this.newControlPlane = newControlPlane;
+            this.syncTypes = allClusters ? new String[]{XdsTypes.CDS, XdsTypes.LDS, XdsTypes.RDS} : new String[]{XdsTypes.LDS, XdsTypes.RDS};
             this.controlPlane = newControlPlane.get();
             this.protocol = protocol;
             this.rateLimitedAds = rateLimitedAds;
             this.envoy = new EnvoyContainer(envoyImage)
-                .withCopyToContainer(Transferable.of(bootstrap(protocol, rateLimitedAds)), "/envoy.yaml")
+                .withCopyToContainer(Transferable.of(bootstrap(protocol, rateLimitedAds, allClusters)), "/envoy.yaml")
                 .withCommand("-l", "debug", "-c", "/envoy.yaml")
                 .withExposedPorts(EnvoyContainer.ADMIN_PORT, LISTENER_PORT, DYNAMIC_LISTENER_PORT)
                 .withAccessToHost(true)
@@ -545,6 +674,61 @@ public abstract class XdsConformanceTest {
             assertStatus("baz", 200);
         }
 
+        /**
+         * Scoped routes: a listener picking a scope by Host, each naming its own route config. A scope, its route
+         * config and cluster added in one change, then removed in one change: the scope must go before its route config,
+         * and the route config before its cluster.
+         */
+        void scopedRoutes() throws IOException {
+            controlPlane.setConfig(withScopes(services("foo"), false, "foo"));
+            start();
+            Conversation conversation = synced(1);
+            EnvoyChecks.assertRoutedVia(envoy, DYNAMIC_LISTENER_PORT, "foo", "foo");
+
+            change(conversation, withScopes(services("foo", "bar"), false, "foo", "bar"));
+            checkpoint().assertSane();
+            EnvoyChecks.assertRoutedVia(envoy, DYNAMIC_LISTENER_PORT, "bar", "bar");
+
+            change(conversation, withScopes(services("foo"), false, "foo"));
+            await().atMost(10, TimeUnit.SECONDS).until(settled(conversation));
+            checkpoint().assertSane();
+            assertStatus(DYNAMIC_LISTENER_PORT, "bar", 404);
+            EnvoyChecks.assertRoutedVia(envoy, DYNAMIC_LISTENER_PORT, "foo", "foo");
+        }
+
+        /** On-demand scopes: Envoy asks for a scope's route config when the first request for it arrives. */
+        void onDemandScopes() throws IOException {
+            controlPlane.setConfig(withScopes(services("foo", "bar"), true, "foo", "bar"));
+            start();
+            Conversation conversation = synced(1);
+
+            assertFirstRequestRoutedVia(conversation, "foo", "foo");
+            assertFirstRequestRoutedVia(conversation, "bar", "bar");
+        }
+
+        /**
+         * On-demand clusters (ODCDS): Envoy subscribes to no clusters as it starts, and asks for one, then its
+         * endpoints, when the first request routed to it arrives.
+         */
+        void onDemandClusters() throws IOException {
+            controlPlane.setConfig(clustersOnDemand("foo", "bar"));
+            start();
+            Conversation conversation = synced(1);
+
+            assertFirstRequestRoutedVia(conversation, "foo", "foo");
+            assertFirstRequestRoutedVia(conversation, "bar", "bar");
+        }
+
+        /** On-demand virtual hosts (VHDS): Envoy asks for a virtual host when the first request for its host arrives. */
+        void onDemandVirtualHosts() throws IOException {
+            controlPlane.setConfig(withVirtualHostsOnDemand(services("foo", "bar"), "foo", "bar"));
+            start();
+            Conversation conversation = synced(1);
+
+            assertFirstRequestRoutedVia(conversation, "foo", "foo");
+            assertFirstRequestRoutedVia(conversation, "bar", "bar");
+        }
+
         /** Start the control plane, then Envoy if it isn't running, so Envoy doesn't back off past its initial fetch timeout. */
         private void start() throws IOException {
             if (service == null) {
@@ -575,7 +759,7 @@ public abstract class XdsConformanceTest {
             await().atMost(60, TimeUnit.SECONDS).until(() -> conversations.getConversations().size() >= nth);
             Conversation conversation = conversations.getConversations().get(nth - 1);
             await().atMost(10, TimeUnit.SECONDS).untilAsserted(
-                () -> envoyAssert(conversation).hadConversationsWith(XdsTypes.CDS, XdsTypes.LDS, XdsTypes.RDS).answeredEveryType());
+                () -> envoyAssert(conversation).hadConversationsWith(syncTypes).answeredEveryType());
             await().atMost(30, TimeUnit.SECONDS).until(settled(conversation));
             checkpoint = Checkpoint.take(envoy, conversation);
             return conversation;
@@ -593,8 +777,24 @@ public abstract class XdsConformanceTest {
         }
 
         private void assertStatus(String virtualHost, int status) {
+            assertStatus(LISTENER_PORT, virtualHost, status);
+        }
+
+        private void assertStatus(int port, String virtualHost, int status) {
             // Envoy ACKs once its main thread has the config; workers get it a moment later.
-            await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> assertThat(envoy.httpStatus(LISTENER_PORT, virtualHost)).as(virtualHost).isEqualTo(status));
+            await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> assertThat(envoy.httpStatus(port, virtualHost)).as(virtualHost).isEqualTo(status));
+        }
+
+        /**
+         * The first request for something Envoy gets on demand is held until it arrives, so it succeeds first time: no
+         * retrying. Then everything Envoy was sent for it must have been make before break.
+         */
+        private void assertFirstRequestRoutedVia(Conversation conversation, String virtualHost, String cluster) throws IOException {
+            int mark = conversation.size();
+            assertThat(envoy.httpStatus(DYNAMIC_LISTENER_PORT, virtualHost)).as("first request for " + virtualHost).isEqualTo(200);
+            await().atMost(10, TimeUnit.SECONDS).until(Settled.settledAfter(conversation, mark, settled(conversation)));
+            checkpoint().assertSane();
+            EnvoyChecks.assertRoutedVia(envoy, DYNAMIC_LISTENER_PORT, virtualHost, cluster);
         }
 
         /** For a while: no more rejections, and no reconnects. */

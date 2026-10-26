@@ -10,6 +10,7 @@ import io.envoyproxy.envoy.config.listener.v3.Listener;
 import io.envoyproxy.envoy.config.route.v3.Route;
 import io.envoyproxy.envoy.config.route.v3.RouteAction;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
+import io.envoyproxy.envoy.config.route.v3.ScopedRouteConfiguration;
 import io.envoyproxy.envoy.config.route.v3.VirtualHost;
 import io.envoyproxy.envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager;
 import io.envoyproxy.envoy.extensions.filters.network.http_connection_manager.v3.Rds;
@@ -40,5 +41,17 @@ final class TestResources {
         HttpConnectionManager hcm = HttpConnectionManager.newBuilder().setRds(Rds.newBuilder().setRouteConfigName(routeConfig)).build();
         return Listener.newBuilder().setName("listener").addFilterChains(FilterChain.newBuilder()
             .addFilters(Filter.newBuilder().setName("envoy.filters.network.http_connection_manager").setTypedConfig(Any.pack(hcm)))).build();
+    }
+
+    static ScopedRouteConfiguration scope(String name, String routeConfig) {
+        return ScopedRouteConfiguration.newBuilder().setName(name).setRouteConfigurationName(routeConfig).build();
+    }
+
+    static RouteConfiguration routeConfig(String name, String cluster) {
+        return routeTo(cluster).toBuilder().setName(name).build();
+    }
+
+    static VirtualHost virtualHostTo(String name, String cluster) {
+        return VirtualHost.newBuilder().setName(name).addRoutes(Route.newBuilder().setRoute(RouteAction.newBuilder().setCluster(cluster))).build();
     }
 }

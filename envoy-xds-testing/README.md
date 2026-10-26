@@ -223,14 +223,16 @@ class MyLibraryConformanceTest extends XdsConformanceTest {
 ```
 
 The suite owns the matrix, so every library is tested the same way. It runs every scenario:
-- on both protocols, unless you override `protocols()` to support one;
+- on both protocols, unless you override `protocols()` to support one. The on-demand cluster and virtual host
+  scenarios run on delta only, as Envoy only does those over delta;
 - on each of `ENVOY_IMAGES`, the oldest Envoy release upstream still supports (1.36) and the newest (1.40);
-- with Envoy getting listeners from the control plane (LDS) as well as its static listener, so serve LDS too;
+- with Envoy getting listeners from the control plane (LDS) as well as its static listener, so serve LDS too, and
+  scoped route configs (SRDS) and virtual hosts (VHDS) for the scenarios that use them;
 - normally, and with Envoy's requests to the control plane rate limited (`rate_limit_settings`). Envoy then queues
   them, and delta Envoy sends ACKs ahead of queued subscriptions, so after a reconnect requests arrive in a different
   order. The reconnect scenarios check the limit was actually hit.
 
-That's 72 tests and takes several minutes, so run it in CI or before a release rather than on every build. Each test is
+That's 96 tests and takes several minutes, so run it in CI or before a release rather than on every build. Each test is
 named by its path, e.g. `sotw/v1.36/rate-limited/startsEmpty`.
 
 Implement `idleHook()` in your `ControlPlane` if your library can tell when a stream is idle, and `resync()` if it can
@@ -255,6 +257,15 @@ make Envoy reconnect. The scenarios:
   sent what Envoy kept, so it can only go by what Envoy tells it.
 - `reconnects`: a service is removed while Envoy is disconnected. After it reconnects, traffic still flows and updates
   still work.
+- `scopedRoutes`: a listener picks a scope (SRDS) by the Host header, and each scope names its own route config. A
+  scope, its route config and cluster are added in one change, then removed in one change: the scope must go before its
+  route config, and the route config before its cluster.
+- `onDemandScopes`: as `scopedRoutes`, but on demand. Envoy asks for a scope's route config when the first request for
+  it arrives, and that first request must succeed.
+- `onDemandClusters` (ODCDS): Envoy subscribes to no clusters as it starts, and asks for one, then its endpoints, when
+  the first request routed to it arrives. That first request must succeed.
+- `onDemandVirtualHosts` (VHDS): Envoy's route config has no virtual hosts of its own, and Envoy asks for one, named
+  `<route config>/<host>`, when the first request for that host arrives. That first request must succeed.
 
 After each change, the suite checks that the conversation stayed sane. Every response was ACKed, nothing was sent
 unasked, there were no empty responses, and changes were make before break. It also checks that Envoy is healthy and
