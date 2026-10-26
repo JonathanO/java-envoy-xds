@@ -153,7 +153,7 @@ assertThat(envoy.admin().stats(), hasStat("cluster.foo-v2.upstream_rq_total", gr
 - Resources: `cluster(...)`, `routeConfig(...)`, `endpointAssignment(...)`, with `named`, `ofType`, `routingTo`,
   `routing(virtualHost, cluster)` and `withEndpoint(address, port)`.
 - Messages: `response(...)`, `request(...)`, `nack(...)`, with `ofType`, `containing`, `removing`, `subscribingTo`,
-  `unsubscribingFrom` (delta only) and `withMessage`. For SotW, `removing` matches a wildcard (CDS, LDS) response
+  `unsubscribingFrom` (delta only) and `withMessage`. For SotW, `removing` matches a wildcard (LDS, CDS, SRDS) response
   without the resource.
 - Conversations: `hasMessage`, and `hasInOrder` with `ackOf`, Envoy's ACK of a matching response.
 - Envoy: `hasActiveCluster`, `activeClusterNames` and `hasRouteConfig` on a config dump, and `hasStat` on `stats()`.

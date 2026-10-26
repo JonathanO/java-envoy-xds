@@ -63,6 +63,14 @@ and is computed once per snapshot for each distinct `clientDetails` value.
 
 `SnapshotExample` in [envoy-xds-example](envoy-xds-example/README.md) is a runnable version of the toy example built this way.
 
+### Threads
+
+Each client's updates are delivered in order, one at a time, on a shared pool with one thread per core, so thousands
+of Envoys don't need thousands of threads. Your config builders and overlays run there. If they block, give
+`SnapshotSource` your own executor (`new SnapshotSource<>(overlay, executor)`), or wrap your listeners in
+`SerialEventListener` with one if you write your own `ClusterEventSource`. `SnapshotSource`'s executor must run tasks on
+threads of its own: with a same-thread one such as `MoreExecutors.directExecutor()` it deadlocks.
+
 ### When Envoy reconnects
 
 Envoy keeps its config while it's disconnected, and re-subscribes to everything at once when it reconnects. We answer

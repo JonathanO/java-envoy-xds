@@ -20,7 +20,7 @@ public interface DiscoveryService<RequestT extends Message, StateUpdT> {
 
     /**
      * Called when envoy either acknowledges an outstanding update, or sends a new xDS request.
-     * init must have be called before this method is called for the first time.
+     * init must have been called before this method is called for the first time.
      * @param value the request sent by envoy.
      */
     void processUpdate(CommonDiscoveryRequest<RequestT> value);
@@ -44,7 +44,7 @@ public interface DiscoveryService<RequestT extends Message, StateUpdT> {
 
     /**
      * Stores the changes to be sent during the following sendNetworkUpdatePre/Post calls.
-     * init must have be called before this method is called for the first time.
+     * init must have been called before this method is called for the first time.
      */
     void onNetworkUpdate(StateUpdT changes);
 
