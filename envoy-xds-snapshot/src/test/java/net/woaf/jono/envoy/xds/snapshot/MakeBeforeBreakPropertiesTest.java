@@ -33,6 +33,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
@@ -174,7 +175,8 @@ public class MakeBeforeBreakPropertiesTest {
                 inbox.add(new Received(r.getTypeUrl(), resources, r.getRemovedResourcesList(), "", r.getNonce()));
             } else {
                 DiscoveryResponse r = (DiscoveryResponse) message;
-                r.getResourcesList().forEach(any -> resources.put(Snapshot.nameOf(unpack(any, TypeUrl.of(r.getTypeUrl()).getMessageClazz())), any));
+                Class<? extends Message> type = Objects.requireNonNull(TypeUrl.of(r.getTypeUrl()), r.getTypeUrl()).getMessageClazz();
+                r.getResourcesList().forEach(any -> resources.put(Snapshot.nameOf(unpack(any, type)), any));
                 inbox.add(new Received(r.getTypeUrl(), resources, List.of(), r.getVersionInfo(), r.getNonce()));
             }
         }
