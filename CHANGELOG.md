@@ -29,6 +29,7 @@ All notable changes to this project will be documented in this file.
 * **Breaking:** removed `XdsConfig.silentNacks`. Every NACK now freezes the stream, and is logged at warn; use `onClientNack` to act on it.
 
 ### Fixed
+* A request that arrives after we closed the stream to resync Envoy is ignored, instead of throwing and logging a misleading warning
 * SotW: after Envoy NACKs, a later subscription change no longer sends the rest of the rejected change. Its answer covers only the names newly asked for
 * SRDS is a wildcard type, as Envoy subscribes to it with no names. Previously that first request went unanswered, so Envoy waited out its initial fetch timeout without scoped routes
 * Delta: names subscribed explicitly while subscribed to `*` are answered, with `removed_resources` for names that don't exist
