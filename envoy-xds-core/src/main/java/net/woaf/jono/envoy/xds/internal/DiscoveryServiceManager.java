@@ -279,6 +279,7 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
             waitingOn = null;
             current = null;
             sendMode = DiscoveryService.SubState.COMPLETED;
+            discoveryServices.values().forEach(DiscoveryService::abandonChange);
             metrics.onPushComplete();
         }
         while (waitingStateBacklog.take() != null) {
