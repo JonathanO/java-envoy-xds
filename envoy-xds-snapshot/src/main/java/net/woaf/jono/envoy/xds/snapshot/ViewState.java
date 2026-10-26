@@ -1,10 +1,13 @@
 package net.woaf.jono.envoy.xds.snapshot;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.Message;
 import org.jspecify.annotations.Nullable;
-import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * One view as published at one point: its groups' names and contents, in order. Groups are immutable and shared, so
@@ -17,6 +20,12 @@ final class ViewState {
     private final ImmutableList<String> names;
 
     private final ImmutableList<Snapshot> groups;
+
+    /**
+     * What the view sees of each type, merged, once something compares the whole view: a client connecting, or a SotW
+     * response. Changes to a few names scan the groups instead, so they never pay to build it.
+     */
+    private final Map<Class<? extends Message>, ImmutableMap<String, Message>> merged = new ConcurrentHashMap<>();
 
     ViewState(ImmutableList<String> names, ImmutableList<Snapshot> groups) {
         this.names = names;
@@ -33,8 +42,12 @@ final class ViewState {
 
     /** The resource this view sees: the first of its groups to have one by that name. */
     @Nullable
+    @SuppressWarnings("unchecked") // merged files each resource under its own type
     <R extends Message> R lookup(Class<R> type, String name) {
-        // ponytail: scans the view's groups, O(groups in the view) per name; memoise a merged index here if that shows.
+        ImmutableMap<String, Message> all = merged.get(type);
+        if (all != null) {
+            return (R) all.get(name);
+        }
         for (Snapshot group : groups) {
             R value = group.get(type).get(name);
             if (value != null) {
@@ -45,10 +58,12 @@ final class ViewState {
     }
 
     Set<String> names(Class<? extends Message> type) {
-        Set<String> all = new HashSet<>();
-        for (Snapshot group : groups) {
-            all.addAll(group.get(type).keySet());
-        }
-        return all;
+        return merged.computeIfAbsent(type, t -> {
+            Map<String, Message> all = new HashMap<>();
+            for (Snapshot group : groups) {
+                group.get(t).forEach(all::putIfAbsent);
+            }
+            return ImmutableMap.copyOf(all);
+        }).keySet();
     }
 }
