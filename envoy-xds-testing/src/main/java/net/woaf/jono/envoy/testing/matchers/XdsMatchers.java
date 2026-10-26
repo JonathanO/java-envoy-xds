@@ -193,7 +193,7 @@ public final class XdsMatchers {
     }
 
     /**
-     * Removes a resource. For delta, it's in removed_resources. For SotW, only wildcard types (LDS, CDS) can remove one,
+     * Removes a resource. For delta, it's in removed_resources. For SotW, only wildcard types (LDS, CDS, SRDS) can remove one,
      * by leaving it out, so this matches a wildcard response without it.
      * @param name resource name
      * @return matcher
