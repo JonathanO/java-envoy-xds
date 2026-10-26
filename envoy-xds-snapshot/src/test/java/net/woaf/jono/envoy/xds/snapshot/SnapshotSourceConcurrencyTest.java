@@ -35,13 +35,13 @@ public class SnapshotSourceConcurrencyTest {
         private boolean connected = false;
 
         @GuardedBy("this")
-        private Snapshot seen = Snapshot.empty();
+        private Published seen = Published.NONE;
 
         @GuardedBy("this")
         private String problem = "";
 
         synchronized void connect(SnapshotSource<Object> source) {
-            seen = source.subscribe(this).getCurrent();
+            seen = source.subscribe(this, "client").current();
             connected = true;
         }
 
@@ -55,14 +55,14 @@ public class SnapshotSourceConcurrencyTest {
             if (!connected) {
                 return; // Updates may still drain after unsubscribe.
             }
-            if (update.getPrevious() != seen && problem.isEmpty()) {
-                problem = "got an update from snapshot " + update.getPrevious().id() + " while holding " + seen.id();
+            if (update.previous() != seen && problem.isEmpty()) {
+                problem = "got an update from version " + update.previous().version() + " while holding " + seen.version();
             }
-            seen = update.getCurrent();
+            seen = update.current();
         }
 
         synchronized boolean caughtUpWith(Snapshot current) {
-            return !connected || seen == current;
+            return !connected || seen.group("all") == current;
         }
 
         synchronized String problem() {
@@ -72,7 +72,7 @@ public class SnapshotSourceConcurrencyTest {
 
     // Not private: Hegel calls its rules and invariants reflectively, which Error Prone can't see.
     static final class Machine {
-        private final SnapshotSource<Object> source = new SnapshotSource<>();
+        private final SnapshotSource<Object> source = TestResources.oneGroup();
         private final Queue<Client> everyClient = new ConcurrentLinkedQueue<>();
         private final ConcurrentPool<Client> connected;
         private final AtomicInteger changes = new AtomicInteger();
@@ -98,19 +98,19 @@ public class SnapshotSourceConcurrencyTest {
         void publish(TestCase tc) {
             String name = tc.draw(sampledFrom("a", "b", "c"), "cluster");
             Cluster cluster = TestResources.cluster(name).toBuilder().setAltStatName("change-" + changes.incrementAndGet()).build();
-            source.update(e -> e.put(cluster));
+            source.update(TestResources.all(e -> e.put(cluster)));
         }
 
         @Invariant(alwaysRun = true)
         void everyClientCatchesUpInOrder(TestCase tc) throws InterruptedException {
-            Snapshot current = source.current();
+            Snapshot current = source.group("all");
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
             for (Client client: everyClient) {
                 while (!client.caughtUpWith(current) && System.nanoTime() < deadline) {
                     Thread.sleep(1);
                 }
                 assertThat(client.problem()).isEmpty();
-                assertThat(client.caughtUpWith(current)).as("caught up with snapshot %d", current.id()).isTrue();
+                assertThat(client.caughtUpWith(current)).as("caught up").isTrue();
             }
         }
     }

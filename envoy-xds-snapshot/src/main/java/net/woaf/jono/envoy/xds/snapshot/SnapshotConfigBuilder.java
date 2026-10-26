@@ -12,10 +12,10 @@ import java.util.function.Predicate;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder;
 
 /**
- * Serves one resource type straight from snapshots.
+ * Serves one resource type straight from each client's view of a SnapshotSource.
  *
  * <p>Added and changed resources go out in add order, deleted ones in remove order. Because the core's add order puts
- * referenced types before the types that reference them, a single snapshot change is applied make-before-break without
+ * referenced types before the types that reference them, a single SnapshotSource update is applied make-before-break without
  * any hand-written ordering.
  *
  * @param <R> resource type
@@ -26,7 +26,7 @@ public final class SnapshotConfigBuilder<R extends Message, D> implements Increm
     private final Class<R> type;
 
     /**
-     * Serves one type from the snapshot and each client's overlay.
+     * Serves one type from each client's view.
      * @param type the resource class to serve, e.g. Cluster.class
      */
     public SnapshotConfigBuilder(Class<R> type) {

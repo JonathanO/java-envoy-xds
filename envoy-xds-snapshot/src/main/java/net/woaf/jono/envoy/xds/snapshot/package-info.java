@@ -1,7 +1,8 @@
 /**
- * Snapshot-style config: publish whole snapshots to a {@link net.woaf.jono.envoy.xds.snapshot.SnapshotSource}, and
- * serve them with a {@link net.woaf.jono.envoy.xds.snapshot.SnapshotConfigBuilder} per type. Changes reach each Envoy
- * in make-before-break order.
+ * Snapshot-style config: publish groups of resources, and views made of them, to a
+ * {@link net.woaf.jono.envoy.xds.snapshot.SnapshotSource}, and serve each client its view with a
+ * {@link net.woaf.jono.envoy.xds.snapshot.SnapshotConfigBuilder} per type. Changes reach each Envoy in
+ * make-before-break order.
  */
 @NullMarked
 @CheckReturnValue

@@ -26,6 +26,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.pastalab.fray.junit.junit5.FrayTestExtension;
 import org.pastalab.fray.junit.junit5.annotations.FrayTest;
 
+import static net.woaf.jono.envoy.xds.snapshot.TestResources.all;
 import static net.woaf.jono.envoy.xds.snapshot.TestResources.cluster;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -40,21 +41,21 @@ public class SnapshotSourceFrayTest {
         private final CountDownLatch closed = new CountDownLatch(1);
 
         @GuardedBy("this")
-        private @Nullable Snapshot seen = null;
+        private @Nullable Published seen = null;
 
         @GuardedBy("this")
         private String problem = "";
 
         synchronized void connect(SnapshotSource<Object> source) {
-            seen = source.subscribe(this).getCurrent();
+            seen = source.subscribe(this, "client").current();
         }
 
         @Override
         public synchronized void onNetworkChange(SnapshotUpdate<Object> update) {
-            if (update.getPrevious() != seen && problem.isEmpty()) {
-                problem = "got an update from " + update.getPrevious().id() + " while holding " + (seen == null ? "nothing" : seen.id());
+            if (update.previous() != seen && problem.isEmpty()) {
+                problem = "got an update from " + update.previous().version() + " while holding " + (seen == null ? "nothing" : seen.version());
             }
-            seen = update.getCurrent();
+            seen = update.current();
         }
 
         @Override
@@ -62,7 +63,7 @@ public class SnapshotSourceFrayTest {
             closed.countDown();
         }
 
-        synchronized @Nullable Snapshot seen() {
+        synchronized @Nullable Published seen() {
             return seen;
         }
 
@@ -85,14 +86,14 @@ public class SnapshotSourceFrayTest {
     @FrayTest(iterations = 100)
     void subscribingWhilePublishingMissesNothing() throws InterruptedException {
         ExecutorService pool = pool();
-        SnapshotSource<Object> source = new SnapshotSource<>(null, pool);
+        SnapshotSource<Object> source = TestResources.oneGroup(pool);
         Client client = new Client();
 
         // A small message, so each interleaving doesn't load Envoy's API.
         Thread connect = new Thread(() -> client.connect(source));
         Thread publish = new Thread(() -> {
-            source.update(e -> e.put("a", StringValue.of("1")));
-            source.update(e -> e.put("b", StringValue.of("2")));
+            source.update(all(e -> e.put("a", StringValue.of("1"))));
+            source.update(all(e -> e.put("b", StringValue.of("2"))));
         });
         connect.start();
         publish.start();
@@ -104,7 +105,7 @@ public class SnapshotSourceFrayTest {
         drain(pool);
 
         assertThat(client.problem()).isEmpty();
-        assertThat(client.seen()).isSameAs(source.current());
+        assertThat(client.seen()).isNotNull().extracting(seen -> seen.group("all")).isSameAs(source.group("all"));
     }
 
     /** Checks what gRPC requires of a server: calls never overlap, nothing follows the end, and it ends once. */
@@ -149,7 +150,7 @@ public class SnapshotSourceFrayTest {
     @FrayTest(iterations = 150)
     void streamEndingWhileChangesArriveEndsCleanly() throws InterruptedException {
         ExecutorService pool = pool();
-        SnapshotSource<Object> source = new SnapshotSource<>(null, pool);
+        SnapshotSource<Object> source = TestResources.oneGroup(pool);
         AggregatedDiscoveryService<SnapshotUpdate<Object>, Object> ads = new AggregatedDiscoveryService<>(source,
             SnapshotConfigBuilder.<Object>forTypes(Cluster.class), node -> XdsConfig.of(new Object()), ImmutableList.of(),
             MergingStateBacklog.factory(), DiscoveryServiceManagerMetrics.METRICS_DISABLED);
@@ -163,9 +164,9 @@ public class SnapshotSourceFrayTest {
             requests.onCompleted();
         });
         Thread publish = new Thread(() -> {
-            source.update(e -> e.put(cluster("a")));
-            source.update(e -> e.put(cluster("b")));
-            source.update(e -> e.remove(Cluster.class, "a"));
+            source.update(all(e -> e.put(cluster("a"))));
+            source.update(all(e -> e.put(cluster("b"))));
+            source.update(all(e -> e.remove(Cluster.class, "a")));
         });
         client.start();
         publish.start();
@@ -173,7 +174,7 @@ public class SnapshotSourceFrayTest {
         publish.join();
         responses.ended.await();
         // Let any change still queued arrive: nothing may follow the end.
-        source.update(e -> e.put(cluster("c")));
+        source.update(all(e -> e.put(cluster("c"))));
         drain(pool);
 
         assertThat(responses.problems).isEmpty();

@@ -1,16 +1,20 @@
 package net.woaf.jono.envoy.xds.snapshot;
 
+import static net.woaf.jono.envoy.xds.snapshot.TestResources.all;
 import static net.woaf.jono.envoy.xds.snapshot.TestResources.cla;
 import static net.woaf.jono.envoy.xds.snapshot.TestResources.cluster;
 import static net.woaf.jono.envoy.xds.snapshot.TestResources.route;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.google.protobuf.Duration;
 import com.google.protobuf.Message;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.ArrayList;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder.NamedMessage;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder.Response;
@@ -18,13 +22,13 @@ import org.junit.jupiter.api.Test;
 
 public class SnapshotConfigBuilderTest {
 
-    private final SnapshotSource<String> source = new SnapshotSource<>();
+    private final SnapshotSource<String> source = TestResources.oneGroup();
 
     @Test
     public void addingRouteClusterAndEndpointsTogetherIsAllAddOrder() {
-        source.update(e -> e.put(route("all_routes")));
+        source.update(all(e -> e.put(route("all_routes"))));
 
-        SnapshotUpdate<String> update = source.update(e -> e.put(cluster("foo")).put(cla("foo", "127.0.0.5")).put(route("all_routes", "foo")));
+        SnapshotUpdate<String> update = source.update(all(e -> e.put(cluster("foo")).put(cla("foo", "127.0.0.5")).put(route("all_routes", "foo"))));
 
         assertThat(added(Cluster.class, update)).containsExactly(cluster("foo"));
         assertThat(added(ClusterLoadAssignment.class, update)).containsExactly(cla("foo", "127.0.0.5"));
@@ -35,24 +39,24 @@ public class SnapshotConfigBuilderTest {
 
     @Test
     public void removingRouteAndClusterUpdatesRouteThenRemovesCluster() {
-        source.update(e -> e.put(cluster("foo")).put(cla("foo", "127.0.0.5")).put(route("all_routes", "foo")));
+        source.update(all(e -> e.put(cluster("foo")).put(cla("foo", "127.0.0.5")).put(route("all_routes", "foo"))));
 
-        SnapshotUpdate<String> update = source.update(e -> e.put(route("all_routes")).remove(Cluster.class, "foo").remove(ClusterLoadAssignment.class, "foo"));
+        SnapshotUpdate<String> update = source.update(all(e -> e.put(route("all_routes")).remove(Cluster.class, "foo").remove(ClusterLoadAssignment.class, "foo")));
 
         assertThat(added(RouteConfiguration.class, update)).containsExactly(route("all_routes"));
         assertThat(added(Cluster.class, update)).isEmpty();
         assertThat(removed(Cluster.class, update)).containsExactly("foo");
         assertThat(removed(ClusterLoadAssignment.class, update)).containsExactly("foo");
         // Mid-change (add order) the cluster still exists; once removes are applied it's gone.
-        assertThat(builder(Cluster.class).getResourcesAddOrder(update, SnapshotConfigBuilderTest::all, "c").resources()).extracting(NamedMessage::name).containsExactly("foo");
-        assertThat(builder(Cluster.class).getResourcesRemoveOrder(update, SnapshotConfigBuilderTest::all, "c").resources()).isEmpty();
+        assertThat(builder(Cluster.class).getResourcesAddOrder(update, SnapshotConfigBuilderTest::everyName, "c").resources()).extracting(NamedMessage::name).containsExactly("foo");
+        assertThat(builder(Cluster.class).getResourcesRemoveOrder(update, SnapshotConfigBuilderTest::everyName, "c").resources()).isEmpty();
     }
 
     @Test
     public void mergedUpdatesCancelOut() {
-        source.update(e -> e.put(cluster("foo")));
-        SnapshotUpdate<String> add = source.update(e -> e.put(cluster("bar")));
-        SnapshotUpdate<String> remove = source.update(e -> e.remove(Cluster.class, "bar"));
+        source.update(all(e -> e.put(cluster("foo"))));
+        SnapshotUpdate<String> add = source.update(all(e -> e.put(cluster("bar"))));
+        SnapshotUpdate<String> remove = source.update(all(e -> e.remove(Cluster.class, "bar")));
 
         SnapshotUpdate<String> merged = add.merge(remove);
 
@@ -61,10 +65,10 @@ public class SnapshotConfigBuilderTest {
     }
 
     @Test
-    public void unrelatedSnapshotIsComparedInFull() {
-        source.update(e -> e.put(cluster("foo")).put(cluster("same")));
+    public void replacedGroupIsComparedInFull() {
+        source.update(all(e -> e.put(cluster("foo")).put(cluster("same"))));
 
-        SnapshotUpdate<String> update = source.publish(Snapshot.empty().edit().put(cluster("bar")).put(cluster("same")).build());
+        SnapshotUpdate<String> update = source.update(c -> c.group("all", Snapshot.empty().edit().put(cluster("bar")).put(cluster("same")).build()));
 
         assertThat(added(Cluster.class, update)).containsExactly(cluster("bar"));
         assertThat(removed(Cluster.class, update)).containsExactly("foo");
@@ -72,41 +76,92 @@ public class SnapshotConfigBuilderTest {
 
     @Test
     public void unsubscribedNamesAreIgnored() {
-        SnapshotUpdate<String> update = source.update(e -> e.put(cluster("foo")).put(cluster("bar")));
+        SnapshotUpdate<String> update = source.update(all(e -> e.put(cluster("foo")).put(cluster("bar"))));
 
         assertThat(builder(Cluster.class).addOrder(update, "foo"::equals, "c").addAndUpdates()).extracting(NamedMessage::name).containsExactly("foo");
     }
 
     @Test
-    public void overlayIsPerClientAndComputedOncePerDetails() {
-        AtomicInteger overlayCalls = new AtomicInteger();
-        SnapshotSource<String> perClient = new SnapshotSource<>((base, client) -> {
-            overlayCalls.incrementAndGet();
-            return Snapshot.empty().edit().put(route("all_routes", base.get(Cluster.class).keySet().stream().map(c -> client + "-" + c).toArray(String[]::new))).build();
-        });
-        perClient.update(e -> e.put(route("all_routes")));
+    public void firstGroupInTheViewWins() {
+        SnapshotSource<String> views = viewPerClient();
+        views.update(c -> c.view("c", "own", "shared")
+            .group("shared", e -> e.put(cluster("foo")))
+            .group("own", e -> e.put(slow("foo"))));
 
-        SnapshotUpdate<String> update = perClient.update(e -> e.put(cluster("foo")));
+        SnapshotUpdate<String> sharedChange = views.update(c -> c.group("shared", e -> e.put(cluster("foo").toBuilder().setAltStatName("new").build())));
+        assertThat(added(Cluster.class, sharedChange)).isEmpty();
 
-        for (int i = 0; i < 3; i++) {
-            assertThat(added(RouteConfiguration.class, update, "a")).containsExactly(route("all_routes", "a-foo"));
-            assertThat(added(RouteConfiguration.class, update, "b")).containsExactly(route("all_routes", "b-foo"));
-        }
-        assertThat(overlayCalls).hasValue(4); // previous and current snapshot, for each of "a" and "b"
+        SnapshotUpdate<String> overrideRemoved = views.update(c -> c.group("own", e -> e.remove(Cluster.class, "foo")));
+        assertThat(added(Cluster.class, overrideRemoved)).containsExactly(cluster("foo").toBuilder().setAltStatName("new").build());
+        assertThat(removed(Cluster.class, overrideRemoved)).isEmpty();
     }
 
     @Test
-    public void unchangedOverlayIsNotResent() {
-        SnapshotSource<String> perClient = new SnapshotSource<>((base, client) -> Snapshot.empty().edit().put(route("all_routes", client)).build());
-        perClient.update(e -> e.put(cluster("a")));
+    public void changingAViewsGroupsComparesEverythingInIt() {
+        SnapshotSource<String> views = viewPerClient();
+        views.update(c -> c.view("c", "a").group("a", e -> e.put(cluster("foo"))).group("b", e -> e.put(cluster("bar")).put(cluster("foo"))));
 
-        SnapshotUpdate<String> update = perClient.update(e -> e.put(cluster("b")));
+        SnapshotUpdate<String> update = views.update(c -> c.view("c", "b"));
 
-        assertThat(added(RouteConfiguration.class, update, "a")).isEmpty();
-        assertThat(added(Cluster.class, update, "a")).containsExactly(cluster("b"));
+        assertThat(added(Cluster.class, update)).containsExactly(cluster("bar"));
+        assertThat(removed(Cluster.class, update)).isEmpty();
+        assertThat(removed(Cluster.class, views.update(c -> c.removeView("c")))).containsExactlyInAnyOrder("foo", "bar");
     }
 
-    private static boolean all(String unused) {
+    @Test
+    public void onlyClientsWhoseViewHasTheGroupAreWoken() {
+        SnapshotSource<String> views = new SnapshotSource<>(Function.identity(), Runnable::run);
+        views.update(c -> c.view("a", "own-a", "shared").view("b", "own-b"));
+        List<String> woken = new ArrayList<>();
+        assertThat(views.subscribe(update -> woken.add("a"), "a")).isNotNull();
+        assertThat(views.subscribe(update -> woken.add("b"), "b")).isNotNull();
+
+        views.update(c -> c.group("shared", e -> e.put(cluster("foo"))));
+        views.update(c -> c.group("own-b", e -> e.put(cluster("foo"))));
+        views.update(c -> c.group("nobody", e -> e.put(cluster("foo"))));
+        views.update(c -> c.group("shared", e -> e.put(cluster("foo")))); // no change
+
+        assertThat(woken).containsExactly("a", "b");
+    }
+
+    @Test
+    public void updatesMergeAcrossVersionsTheClientSkipped() {
+        SnapshotSource<String> views = viewPerClient();
+        views.update(c -> c.view("c", "mine").view("other", "theirs"));
+        SnapshotUpdate<String> first = views.update(c -> c.group("mine", e -> e.put(cluster("foo"))));
+        views.update(c -> c.group("theirs", e -> e.put(cluster("bar"))));
+        SnapshotUpdate<String> second = views.update(c -> c.group("mine", e -> e.put(cluster("baz"))));
+
+        SnapshotUpdate<String> merged = first.merge(second);
+
+        assertThat(added(Cluster.class, merged)).containsExactlyInAnyOrder(cluster("foo"), cluster("baz"));
+        assertThatThrownBy(() -> second.merge(first)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    public void clientWithNoViewSeesNothingUntilItIsAdded() {
+        SnapshotSource<String> views = viewPerClient();
+        views.update(c -> c.group("g", e -> e.put(cluster("foo"))));
+
+        SnapshotUpdate<String> connected = views.subscribe(update -> { }, "c");
+        assertThat(added(Cluster.class, connected)).isEmpty();
+        assertThat(added(Cluster.class, views.update(c -> c.view("c", "g")))).containsExactly(cluster("foo"));
+    }
+
+    @Test
+    public void subscribingNeedsTheClientsDetails() {
+        assertThatThrownBy(() -> source.subscribe(update -> { })).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    private static SnapshotSource<String> viewPerClient() {
+        return new SnapshotSource<>(Function.identity());
+    }
+
+    private static Cluster slow(String name) {
+        return cluster(name).toBuilder().setConnectTimeout(Duration.newBuilder().setSeconds(30)).build();
+    }
+
+    private static boolean everyName(String unused) {
         return true;
     }
 
@@ -115,15 +170,11 @@ public class SnapshotConfigBuilderTest {
     }
 
     private static <R extends Message> List<R> added(Class<R> type, SnapshotUpdate<String> update) {
-        return added(type, update, "c");
-    }
-
-    private static <R extends Message> List<R> added(Class<R> type, SnapshotUpdate<String> update, String client) {
-        return builder(type).addOrder(update, SnapshotConfigBuilderTest::all, client).addAndUpdates().stream().map(NamedMessage::message).collect(Collectors.toList());
+        return builder(type).addOrder(update, SnapshotConfigBuilderTest::everyName, "c").addAndUpdates().stream().map(NamedMessage::message).collect(Collectors.toList());
     }
 
     private static <R extends Message> List<String> removed(Class<R> type, SnapshotUpdate<String> update) {
-        Response<R> response = builder(type).removeOrder(update, SnapshotConfigBuilderTest::all, "c");
+        Response<R> response = builder(type).removeOrder(update, SnapshotConfigBuilderTest::everyName, "c");
         return response.removes();
     }
 }

@@ -1,5 +1,10 @@
 package net.woaf.jono.envoy.xds.snapshot;
 
+import java.util.concurrent.Executor;
+import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
+import net.woaf.jono.envoy.xds.api.utils.SerialEventListener;
+
 import com.google.protobuf.Any;
 import com.google.protobuf.Duration;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
@@ -26,6 +31,22 @@ import io.envoyproxy.envoy.extensions.filters.network.http_connection_manager.v3
 final class TestResources {
 
     private TestResources() {
+    }
+
+    /** A source where every client sees one group, "all". */
+    static <D> SnapshotSource<D> oneGroup(Executor executor) {
+        SnapshotSource<D> source = new SnapshotSource<>(details -> "all", executor);
+        source.update(c -> c.view("all", "all"));
+        return source;
+    }
+
+    static <D> SnapshotSource<D> oneGroup() {
+        return oneGroup(SerialEventListener.sharedExecutor());
+    }
+
+    /** Edits the group "all". */
+    static Consumer<SnapshotSource.Change> all(UnaryOperator<Snapshot.Editor> edit) {
+        return c -> c.group("all", edit);
     }
 
     static Cluster cluster(String name) {

@@ -15,7 +15,7 @@ public class SnapshotSourceScaleTest {
 
     private static final class Client implements ClusterManagerEventListener<SnapshotUpdate<Object>> {
         private final Set<Thread> threads;
-        private volatile Snapshot seen = Snapshot.empty();
+        private volatile Snapshot seen = Snapshot.empty(); // the group "all"
 
         Client(Set<Thread> threads) {
             this.threads = threads;
@@ -24,23 +24,23 @@ public class SnapshotSourceScaleTest {
         @Override
         public void onNetworkChange(SnapshotUpdate<Object> update) {
             threads.add(Thread.currentThread());
-            seen = update.getCurrent();
+            seen = update.current().group("all");
         }
     }
 
     @Test
     public void fiveThousandClientsShareTheExecutor() throws InterruptedException {
-        SnapshotSource<Object> source = new SnapshotSource<>();
+        SnapshotSource<Object> source = TestResources.oneGroup();
         Set<Thread> threads = ConcurrentHashMap.newKeySet();
         List<Client> clients = IntStream.range(0, 5000).mapToObj(i -> new Client(threads)).toList();
-        clients.forEach(source::subscribe);
+        clients.forEach(c -> source.subscribe(c, "client"));
 
         for (int i = 0; i < 10; i++) {
             String name = "cluster-" + i;
-            source.update(e -> e.put(TestResources.cluster(name)));
+            source.update(TestResources.all(e -> e.put(TestResources.cluster(name))));
         }
 
-        Snapshot current = source.current();
+        Snapshot current = source.group("all");
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
         while (!clients.stream().allMatch(c -> c.seen == current) && System.nanoTime() < deadline) {
             Thread.sleep(10);

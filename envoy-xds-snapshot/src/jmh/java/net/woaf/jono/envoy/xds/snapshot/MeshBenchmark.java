@@ -33,9 +33,11 @@ import org.openjdk.jmh.annotations.State;
  * A service mesh: each calling service has a view of the services it calls, shared by its replicas. Each Envoy has one
  * listener and one route config, with a virtual host per service it calls, routing to that service's cluster.
  *
- * <p>Base case: one SnapshotSource per view, each holding a full snapshot, with the control plane keeping its own
- * index of which views call which service. Clusters and endpoints are built once and shared between views by
- * reference.
+ * <p>Two designs. {@code perViewSnapshots}, the base case: one SnapshotSource per view, each holding one group with the
+ * view's whole config, with the control plane keeping its own index of which views call which service. {@code groups}:
+ * one SnapshotSource, a group per service (its cluster and endpoints) and per caller (its listener and routes), and a
+ * view per caller listing its own group then those of the services it calls. Either way, clusters and endpoints are
+ * built once and shared by reference.
  *
  * <p>Clients are delivered to on the publishing thread and each works out its changes for every type, as a stream
  * does. The core's own work per client (response building, serialisation) isn't included: it is the same for any
@@ -66,10 +68,16 @@ public class MeshBenchmark {
     @Param({"50", "3000"})
     int callers;
 
-    private final List<SnapshotSource<Object>> views = new ArrayList<>();
+    @Param({"perViewSnapshots", "groups"})
+    String design;
 
-    /** The control plane's own bookkeeping: the views that call service 0. */
+    /** Per view: the source a replica of it subscribes to. */
+    private final List<SnapshotSource<Object>> sourceOf = new ArrayList<>();
+
+    /** perViewSnapshots: the control plane's own bookkeeping, the views that call service 0. */
     private final List<SnapshotSource<Object>> callersOfChanged = new ArrayList<>();
+
+    private SnapshotSource<Object> groups;
 
     private final ClusterLoadAssignment[] changedEndpoints = new ClusterLoadAssignment[2];
 
@@ -109,10 +117,14 @@ public class MeshBenchmark {
 
     /** One replica: works out what it would be sent, as its stream would. */
     private static final class Client implements ClusterManagerEventListener<SnapshotUpdate<Object>> {
-        private final Object details = new Object();
+        private final Object details;
         private final List<SnapshotConfigBuilder<?, Object>> builders =
             TYPES.stream().<SnapshotConfigBuilder<?, Object>>map(SnapshotConfigBuilder::new).toList();
         int sent;
+
+        Client(Object details) {
+            this.details = details;
+        }
 
         @Override
         public void onNetworkChange(SnapshotUpdate<Object> update) {
@@ -125,15 +137,24 @@ public class MeshBenchmark {
 
     @Setup
     public void setUp() {
+        changedEndpoints[0] = endpoints(0, endpoints, 0);
+        changedEndpoints[1] = endpoints(0, endpoints, 1);
         Cluster[] clusters = new Cluster[services];
         ClusterLoadAssignment[] assignments = new ClusterLoadAssignment[services];
         for (int i = 0; i < services; i++) {
             clusters[i] = cluster(i);
-            assignments[i] = endpoints(i, endpoints, 0);
+            assignments[i] = i == 0 ? changedEndpoints[0] : endpoints(i, endpoints, 0);
         }
-        changedEndpoints[0] = assignments[0];
-        changedEndpoints[1] = endpoints(0, endpoints, 1);
 
+        groups = new SnapshotSource<>(details -> (String) details, Runnable::run);
+        if (design.equals("groups")) {
+            groups.update(c -> {
+                for (int i = 0; i < services; i++) {
+                    int s = i;
+                    c.group(service(i), e -> e.put(clusters[s]).put(assignments[s]));
+                }
+            });
+        }
         Random random = new Random(42);
         for (int v = 0; v < services; v++) {
             TreeSet<Integer> called = new TreeSet<>();
@@ -143,42 +164,58 @@ public class MeshBenchmark {
             while (called.size() < calls) {
                 called.add(1 + random.nextInt(services - 1));
             }
-            Snapshot.Editor view = Snapshot.empty().edit();
-            view.put(Listener.newBuilder().setName("mesh").build());
-            view.put(routes(called));
-            for (int i : called) {
-                view.put(clusters[i]);
-                view.put(assignments[i]);
+            String caller = "caller-" + v;
+            SnapshotSource<Object> source;
+            if (design.equals("groups")) {
+                source = groups;
+                List<String> list = new ArrayList<>();
+                list.add(caller);
+                called.forEach(i -> list.add(service(i)));
+                source.update(c -> c.view(caller, list).group(caller, e -> e.put(Listener.newBuilder().setName("mesh").build()).put(routes(called))));
+            } else {
+                source = new SnapshotSource<>(details -> (String) details, Runnable::run);
+                Snapshot.Editor view = Snapshot.empty().edit();
+                view.put(Listener.newBuilder().setName("mesh").build());
+                view.put(routes(called));
+                for (int i : called) {
+                    view.put(clusters[i]);
+                    view.put(assignments[i]);
+                }
+                Snapshot whole = view.build();
+                source.update(c -> c.view(caller, caller).group(caller, whole));
+                if (v < callers) {
+                    callersOfChanged.add(source);
+                }
             }
-            SnapshotSource<Object> source = new SnapshotSource<>(null, Runnable::run);
-            source.publish(view.build());
             for (int r = 0; r < replicas; r++) {
-                Client client = new Client();
-                client.onNetworkChange(source.subscribe(client));
+                Client client = new Client(caller);
+                client.onNetworkChange(source.subscribe(client, caller));
             }
-            views.add(source);
-            if (v < callers) {
-                callersOfChanged.add(source);
-            }
+            sourceOf.add(source);
         }
     }
 
-    /** One service's endpoints change: the control plane edits every view that calls it. */
+    /** One service's endpoints change: perViewSnapshots edits every view that calls it, groups edits its group. */
     @Benchmark
     public void endpointChange() {
         version ^= 1;
         ClusterLoadAssignment next = changedEndpoints[version];
-        for (SnapshotSource<Object> view : callersOfChanged) {
-            view.update(e -> e.put(next));
+        if (design.equals("groups")) {
+            groups.update(c -> c.group(service(0), e -> e.put(next)));
+            return;
+        }
+        for (int v = 0; v < callersOfChanged.size(); v++) {
+            String caller = "caller-" + v; // callers of service 0 are the first views
+            callersOfChanged.get(v).update(c -> c.group(caller, e -> e.put(next)));
         }
     }
 
     /** A replica (re)connects and is sent its whole view. */
     @Benchmark
     public int connect() {
-        Client client = new Client();
-        client.onNetworkChange(views.get(1).subscribe(client));
-        views.get(1).unsubscribe(client);
+        Client client = new Client("caller-1");
+        client.onNetworkChange(sourceOf.get(1).subscribe(client, "caller-1"));
+        sourceOf.get(1).unsubscribe(client);
         return client.sent;
     }
 }
