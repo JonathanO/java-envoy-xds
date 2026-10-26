@@ -35,7 +35,7 @@ public class SnapshotSourceConcurrencyTest {
         private boolean connected = false;
 
         @GuardedBy("this")
-        private Published seen = Published.NONE;
+        private ViewState seen = ViewState.EMPTY;
 
         @GuardedBy("this")
         private String problem = "";
@@ -56,7 +56,7 @@ public class SnapshotSourceConcurrencyTest {
                 return; // Updates may still drain after unsubscribe.
             }
             if (update.previous() != seen && problem.isEmpty()) {
-                problem = "got an update from version " + update.previous().version() + " while holding " + seen.version();
+                problem = "got an update from a state it didn't hold";
             }
             seen = update.current();
         }

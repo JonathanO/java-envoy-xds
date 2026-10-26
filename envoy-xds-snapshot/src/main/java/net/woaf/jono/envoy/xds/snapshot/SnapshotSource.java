@@ -7,6 +7,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.google.protobuf.Message;
 import org.jspecify.annotations.Nullable;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -52,7 +53,18 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
     private final Executor executor;
 
     @GuardedBy("this")
-    private Published current = Published.NONE;
+    private final Map<String, Snapshot> groups = new HashMap<>();
+
+    @GuardedBy("this")
+    private final Map<String, ImmutableList<String>> views = new HashMap<>();
+
+    /** The views each group is in. */
+    @GuardedBy("this")
+    private final Map<String, Set<String>> viewsByGroup = new HashMap<>();
+
+    /** Each view's state as its clients were last sent it. */
+    @GuardedBy("this")
+    private final Map<String, ViewState> states = new HashMap<>();
 
     private record Target<D>(SerialEventListener<SnapshotUpdate<D>> listener, String view) {
     }
@@ -84,7 +96,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
      * @param name the group's name
      */
     public synchronized Snapshot group(String name) {
-        return current.group(name);
+        return groups.getOrDefault(name, Snapshot.empty());
     }
 
     /**
@@ -92,45 +104,84 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
      * @param name the view's name
      */
     public synchronized ImmutableList<String> view(String name) {
-        return current.view(name);
+        return views.getOrDefault(name, ImmutableList.of());
     }
 
     /**
      * Change any number of groups and views, and publish them together. Clients get the whole change as one, so it's
      * make before break: anything added is in place before anything referring to it, whatever groups they're in.
      * @param change makes your changes
-     * @return the update sent to the clients it concerns
+     * @return the update sent to each view that changed, by view name
      */
     @CanIgnoreReturnValue
-    public synchronized SnapshotUpdate<D> update(Consumer<Change> change) {
-        Change edits = new Change(current);
+    public synchronized ImmutableMap<String, SnapshotUpdate<D>> update(Consumer<Change> change) {
+        Change edits = new Change(groups);
         change.accept(edits);
-        Map<String, @Nullable ImmutableList<String>> viewChanges = new HashMap<>();
-        edits.views.forEach((name, groups) -> {
-            if (!current.view(name).equals(groups == null ? ImmutableList.of() : groups)) {
-                viewChanges.put(name, groups);
+
+        Set<String> changedViews = new HashSet<>();
+        edits.views.forEach((name, list) -> {
+            ImmutableList<String> old = views.getOrDefault(name, ImmutableList.of());
+            ImmutableList<String> next = list == null ? ImmutableList.of() : list;
+            if (old.equals(next)) {
+                return;
             }
+            old.forEach(group -> viewsByGroup.computeIfPresent(group, (g, in) -> in.remove(name) && in.isEmpty() ? null : in));
+            next.forEach(group -> viewsByGroup.computeIfAbsent(group, g -> new HashSet<>()).add(name));
+            if (list == null) {
+                views.remove(name);
+            } else {
+                views.put(name, next);
+            }
+            changedViews.add(name);
         });
-        Map<String, @Nullable Snapshot> groupChanges = new HashMap<>();
-        ImmutableMap.Builder<String, ImmutableMap<Class<? extends Message>, ImmutableSet<String>>> touched = ImmutableMap.builder();
+
+        Map<String, List<ImmutableMap<Class<? extends Message>, ImmutableSet<String>>>> touchedByView = new HashMap<>();
         edits.touched.forEach((name, byType) -> {
-            if (edits.groups.get(name) == null || byType.values().stream().anyMatch(names -> !names.isEmpty())) {
-                groupChanges.put(name, edits.groups.get(name));
+            Snapshot group = edits.groups.get(name);
+            boolean touchedAny = byType.values().stream().anyMatch(names -> !names.isEmpty());
+            if (group == null) {
+                groups.remove(name);
+            } else if (touchedAny) {
+                groups.put(name, group);
+            }
+            if (touchedAny) {
                 ImmutableMap.Builder<Class<? extends Message>, ImmutableSet<String>> names = ImmutableMap.builder();
                 byType.forEach((type, typeNames) -> names.put(type, ImmutableSet.copyOf(typeNames)));
-                touched.put(name, names.build());
+                ImmutableMap<Class<? extends Message>, ImmutableSet<String>> touched = names.build();
+                viewsByGroup.getOrDefault(name, Set.of()).forEach(view -> touchedByView.computeIfAbsent(view, v -> new ArrayList<>()).add(touched));
             }
         });
-        Published next = current.with(groupChanges, viewChanges);
-        SnapshotUpdate<D> update = new SnapshotUpdate<>(viewOf, current, next, touched.build(), ImmutableSet.copyOf(viewChanges.keySet()));
-        Set<String> affected = new HashSet<>(viewChanges.keySet());
-        groupChanges.keySet().forEach(group -> affected.addAll(next.viewsWith(group)));
-        current = next;
-        // Hand over only: listeners run on the executor, so we never call into a stream while holding our lock.
-        for (String view : affected) {
+        changedViews.forEach(view -> touchedByView.putIfAbsent(view, List.of()));
+
+        ImmutableMap.Builder<String, SnapshotUpdate<D>> updates = ImmutableMap.builder();
+        touchedByView.forEach((view, touched) -> {
+            ViewState before = states.getOrDefault(view, ViewState.EMPTY);
+            ViewState after = stateOf(view);
+            if (after == ViewState.EMPTY) {
+                states.remove(view);
+            } else {
+                states.put(view, after);
+            }
+            boolean full = changedViews.contains(view);
+            SnapshotUpdate<D> update = new SnapshotUpdate<>(before, after, full, full ? ImmutableList.of() : ImmutableList.copyOf(touched));
+            updates.put(view, update);
+            // Hand over only: listeners run on the executor, so we never call into a stream while holding our lock.
             byView.getOrDefault(view, Set.of()).forEach(t -> t.onNetworkChange(update));
+        });
+        return updates.build();
+    }
+
+    @GuardedBy("this")
+    private ViewState stateOf(String view) {
+        ImmutableList<String> names = views.get(view);
+        if (names == null) {
+            return ViewState.EMPTY;
         }
-        return update;
+        ImmutableList.Builder<Snapshot> contents = ImmutableList.builderWithExpectedSize(names.size());
+        for (String name : names) {
+            contents.add(groups.getOrDefault(name, Snapshot.empty()));
+        }
+        return new ViewState(names, contents.build());
     }
 
     /**
@@ -153,7 +204,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
             set.add(target.listener());
             return set;
         });
-        return new SnapshotUpdate<>(viewOf, Published.NONE, current, ImmutableMap.of(), ImmutableSet.of(target.view()));
+        return new SnapshotUpdate<>(ViewState.EMPTY, states.getOrDefault(target.view(), ViewState.EMPTY), true, ImmutableList.of());
     }
 
     @Override
@@ -173,7 +224,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
      */
     public static final class Change {
 
-        private final Published base;
+        private final Map<String, Snapshot> base;
 
         /** Groups as changed so far; a null value means removed. */
         private final Map<String, @Nullable Snapshot> groups = new HashMap<>();
@@ -184,7 +235,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
         /** Views as changed so far; a null value means removed. */
         private final Map<String, @Nullable ImmutableList<String>> views = new LinkedHashMap<>();
 
-        private Change(Published base) {
+        private Change(Map<String, Snapshot> base) {
             this.base = base;
         }
 
@@ -229,7 +280,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
                 Snapshot changed = groups.get(name);
                 return changed == null ? Snapshot.empty() : changed;
             }
-            return base.group(name);
+            return base.getOrDefault(name, Snapshot.empty());
         }
 
         /**

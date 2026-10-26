@@ -13,6 +13,8 @@ import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.ArrayList;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -28,7 +30,7 @@ public class SnapshotConfigBuilderTest {
     public void addingRouteClusterAndEndpointsTogetherIsAllAddOrder() {
         source.update(all(e -> e.put(route("all_routes"))));
 
-        SnapshotUpdate<String> update = source.update(all(e -> e.put(cluster("foo")).put(cla("foo", "127.0.0.5")).put(route("all_routes", "foo"))));
+        SnapshotUpdate<String> update = sent(source.update(all(e -> e.put(cluster("foo")).put(cla("foo", "127.0.0.5")).put(route("all_routes", "foo")))), "all");
 
         assertThat(added(Cluster.class, update)).containsExactly(cluster("foo"));
         assertThat(added(ClusterLoadAssignment.class, update)).containsExactly(cla("foo", "127.0.0.5"));
@@ -41,7 +43,7 @@ public class SnapshotConfigBuilderTest {
     public void removingRouteAndClusterUpdatesRouteThenRemovesCluster() {
         source.update(all(e -> e.put(cluster("foo")).put(cla("foo", "127.0.0.5")).put(route("all_routes", "foo"))));
 
-        SnapshotUpdate<String> update = source.update(all(e -> e.put(route("all_routes")).remove(Cluster.class, "foo").remove(ClusterLoadAssignment.class, "foo")));
+        SnapshotUpdate<String> update = sent(source.update(all(e -> e.put(route("all_routes")).remove(Cluster.class, "foo").remove(ClusterLoadAssignment.class, "foo"))), "all");
 
         assertThat(added(RouteConfiguration.class, update)).containsExactly(route("all_routes"));
         assertThat(added(Cluster.class, update)).isEmpty();
@@ -55,8 +57,8 @@ public class SnapshotConfigBuilderTest {
     @Test
     public void mergedUpdatesCancelOut() {
         source.update(all(e -> e.put(cluster("foo"))));
-        SnapshotUpdate<String> add = source.update(all(e -> e.put(cluster("bar"))));
-        SnapshotUpdate<String> remove = source.update(all(e -> e.remove(Cluster.class, "bar")));
+        SnapshotUpdate<String> add = sent(source.update(all(e -> e.put(cluster("bar")))), "all");
+        SnapshotUpdate<String> remove = sent(source.update(all(e -> e.remove(Cluster.class, "bar"))), "all");
 
         SnapshotUpdate<String> merged = add.merge(remove);
 
@@ -68,7 +70,7 @@ public class SnapshotConfigBuilderTest {
     public void replacedGroupIsComparedInFull() {
         source.update(all(e -> e.put(cluster("foo")).put(cluster("same"))));
 
-        SnapshotUpdate<String> update = source.update(c -> c.group("all", Snapshot.empty().edit().put(cluster("bar")).put(cluster("same")).build()));
+        SnapshotUpdate<String> update = sent(source.update(c -> c.group("all", Snapshot.empty().edit().put(cluster("bar")).put(cluster("same")).build())), "all");
 
         assertThat(added(Cluster.class, update)).containsExactly(cluster("bar"));
         assertThat(removed(Cluster.class, update)).containsExactly("foo");
@@ -76,7 +78,7 @@ public class SnapshotConfigBuilderTest {
 
     @Test
     public void unsubscribedNamesAreIgnored() {
-        SnapshotUpdate<String> update = source.update(all(e -> e.put(cluster("foo")).put(cluster("bar"))));
+        SnapshotUpdate<String> update = sent(source.update(all(e -> e.put(cluster("foo")).put(cluster("bar")))), "all");
 
         assertThat(builder(Cluster.class).addOrder(update, "foo"::equals, "c").addAndUpdates()).extracting(NamedMessage::name).containsExactly("foo");
     }
@@ -88,10 +90,10 @@ public class SnapshotConfigBuilderTest {
             .group("shared", e -> e.put(cluster("foo")))
             .group("own", e -> e.put(slow("foo"))));
 
-        SnapshotUpdate<String> sharedChange = views.update(c -> c.group("shared", e -> e.put(cluster("foo").toBuilder().setAltStatName("new").build())));
+        SnapshotUpdate<String> sharedChange = sent(views.update(c -> c.group("shared", e -> e.put(cluster("foo").toBuilder().setAltStatName("new").build()))), "c");
         assertThat(added(Cluster.class, sharedChange)).isEmpty();
 
-        SnapshotUpdate<String> overrideRemoved = views.update(c -> c.group("own", e -> e.remove(Cluster.class, "foo")));
+        SnapshotUpdate<String> overrideRemoved = sent(views.update(c -> c.group("own", e -> e.remove(Cluster.class, "foo"))), "c");
         assertThat(added(Cluster.class, overrideRemoved)).containsExactly(cluster("foo").toBuilder().setAltStatName("new").build());
         assertThat(removed(Cluster.class, overrideRemoved)).isEmpty();
     }
@@ -101,11 +103,11 @@ public class SnapshotConfigBuilderTest {
         SnapshotSource<String> views = viewPerClient();
         views.update(c -> c.view("c", "a").group("a", e -> e.put(cluster("foo"))).group("b", e -> e.put(cluster("bar")).put(cluster("foo"))));
 
-        SnapshotUpdate<String> update = views.update(c -> c.view("c", "b"));
+        SnapshotUpdate<String> update = sent(views.update(c -> c.view("c", "b")), "c");
 
         assertThat(added(Cluster.class, update)).containsExactly(cluster("bar"));
         assertThat(removed(Cluster.class, update)).isEmpty();
-        assertThat(removed(Cluster.class, views.update(c -> c.removeView("c")))).containsExactlyInAnyOrder("foo", "bar");
+        assertThat(removed(Cluster.class, sent(views.update(c -> c.removeView("c")), "c"))).containsExactlyInAnyOrder("foo", "bar");
     }
 
     @Test
@@ -128,9 +130,9 @@ public class SnapshotConfigBuilderTest {
     public void updatesMergeAcrossVersionsTheClientSkipped() {
         SnapshotSource<String> views = viewPerClient();
         views.update(c -> c.view("c", "mine").view("other", "theirs"));
-        SnapshotUpdate<String> first = views.update(c -> c.group("mine", e -> e.put(cluster("foo"))));
+        SnapshotUpdate<String> first = sent(views.update(c -> c.group("mine", e -> e.put(cluster("foo")))), "c");
         views.update(c -> c.group("theirs", e -> e.put(cluster("bar"))));
-        SnapshotUpdate<String> second = views.update(c -> c.group("mine", e -> e.put(cluster("baz"))));
+        SnapshotUpdate<String> second = sent(views.update(c -> c.group("mine", e -> e.put(cluster("baz")))), "c");
 
         SnapshotUpdate<String> merged = first.merge(second);
 
@@ -145,12 +147,16 @@ public class SnapshotConfigBuilderTest {
 
         SnapshotUpdate<String> connected = views.subscribe(update -> { }, "c");
         assertThat(added(Cluster.class, connected)).isEmpty();
-        assertThat(added(Cluster.class, views.update(c -> c.view("c", "g")))).containsExactly(cluster("foo"));
+        assertThat(added(Cluster.class, sent(views.update(c -> c.view("c", "g")), "c"))).containsExactly(cluster("foo"));
     }
 
     @Test
     public void subscribingNeedsTheClientsDetails() {
         assertThatThrownBy(() -> source.subscribe(update -> { })).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    private static SnapshotUpdate<String> sent(Map<String, SnapshotUpdate<String>> updates, String view) {
+        return Objects.requireNonNull(updates.get(view), view + " wasn't sent an update");
     }
 
     private static SnapshotSource<String> viewPerClient() {

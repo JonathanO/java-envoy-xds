@@ -1,7 +1,6 @@
 package net.woaf.jono.envoy.xds.snapshot;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableList;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import java.util.concurrent.TimeUnit;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder.Resources;
@@ -62,10 +61,10 @@ public class SnapshotUpdateBenchmark {
                 e.put(cluster(i, 2));
             }
             return e;
-        }));
+        })).get("all");
         SnapshotSource<Object> other = new SnapshotSource<>(details -> "all", Runnable::run);
         other.update(c -> c.view("all", "all").group("all", first));
-        rebuilt = other.update(c -> c.group("all", fresh.build()));
+        rebuilt = other.update(c -> c.group("all", fresh.build())).get("all");
     }
 
     /** A change made by editing the group: only the names it touched are compared. */
@@ -83,7 +82,6 @@ public class SnapshotUpdateBenchmark {
     /** Everything a client gets when it connects or reconnects. */
     @Benchmark
     public Resources<Cluster> connect() {
-        return clusters.getResourcesRemoveOrder(new SnapshotUpdate<>(details -> "all", Published.NONE, edited.current(), ImmutableMap.of(),
-            ImmutableSet.of("all")), name -> true, client);
+        return clusters.getResourcesRemoveOrder(new SnapshotUpdate<>(ViewState.EMPTY, edited.current(), true, ImmutableList.of()), name -> true, client);
     }
 }

@@ -41,7 +41,7 @@ public class SnapshotSourceFrayTest {
         private final CountDownLatch closed = new CountDownLatch(1);
 
         @GuardedBy("this")
-        private @Nullable Published seen = null;
+        private @Nullable ViewState seen = null;
 
         @GuardedBy("this")
         private String problem = "";
@@ -53,7 +53,7 @@ public class SnapshotSourceFrayTest {
         @Override
         public synchronized void onNetworkChange(SnapshotUpdate<Object> update) {
             if (update.previous() != seen && problem.isEmpty()) {
-                problem = "got an update from " + update.previous().version() + " while holding " + (seen == null ? "nothing" : seen.version());
+                problem = "got an update from a state it didn't hold";
             }
             seen = update.current();
         }
@@ -63,7 +63,7 @@ public class SnapshotSourceFrayTest {
             closed.countDown();
         }
 
-        synchronized @Nullable Published seen() {
+        synchronized @Nullable ViewState seen() {
             return seen;
         }
 

@@ -74,8 +74,8 @@ public class MeshBenchmark {
     /** Per view: the source a replica of it subscribes to. */
     private final List<SnapshotSource<Object>> sourceOf = new ArrayList<>();
 
-    /** perViewSnapshots: the control plane's own bookkeeping, the views that call service 0. */
-    private final List<SnapshotSource<Object>> callersOfChanged = new ArrayList<>();
+    /** perViewSnapshots: the control plane's own bookkeeping, the views that call each service. */
+    private final List<List<Integer>> callersOf = new ArrayList<>();
 
     private SnapshotSource<Object> groups;
 
@@ -121,6 +121,8 @@ public class MeshBenchmark {
         private final List<SnapshotConfigBuilder<?, Object>> builders =
             TYPES.stream().<SnapshotConfigBuilder<?, Object>>map(SnapshotConfigBuilder::new).toList();
         int sent;
+        /** The core keeps its client's last update, and so whatever that update holds. */
+        SnapshotUpdate<Object> last;
 
         Client(Object details) {
             this.details = details;
@@ -128,6 +130,7 @@ public class MeshBenchmark {
 
         @Override
         public void onNetworkChange(SnapshotUpdate<Object> update) {
+            last = update;
             for (SnapshotConfigBuilder<?, Object> builder : builders) {
                 sent += builder.addOrder(update, name -> true, details).addAndUpdates().size();
                 sent += builder.removeOrder(update, name -> true, details).removes().size();
@@ -154,6 +157,9 @@ public class MeshBenchmark {
                     c.group(service(i), e -> e.put(clusters[s]).put(assignments[s]));
                 }
             });
+        }
+        for (int i = 0; i < services; i++) {
+            callersOf.add(new ArrayList<>());
         }
         Random random = new Random(42);
         for (int v = 0; v < services; v++) {
@@ -183,9 +189,9 @@ public class MeshBenchmark {
                 }
                 Snapshot whole = view.build();
                 source.update(c -> c.view(caller, caller).group(caller, whole));
-                if (v < callers) {
-                    callersOfChanged.add(source);
-                }
+            }
+            for (int i : called) {
+                callersOf.get(i).add(v);
             }
             for (int r = 0; r < replicas; r++) {
                 Client client = new Client(caller);
@@ -199,14 +205,24 @@ public class MeshBenchmark {
     @Benchmark
     public void endpointChange() {
         version ^= 1;
-        ClusterLoadAssignment next = changedEndpoints[version];
+        change(0, changedEndpoints[version]);
+    }
+
+    void change(int service, ClusterLoadAssignment next) {
         if (design.equals("groups")) {
-            groups.update(c -> c.group(service(0), e -> e.put(next)));
+            groups.update(c -> c.group(service(service), e -> e.put(next)));
             return;
         }
-        for (int v = 0; v < callersOfChanged.size(); v++) {
-            String caller = "caller-" + v; // callers of service 0 are the first views
-            callersOfChanged.get(v).update(c -> c.group(caller, e -> e.put(next)));
+        for (int v : callersOf.get(service)) {
+            String caller = "caller-" + v;
+            sourceOf.get(v).update(c -> c.group(caller, e -> e.put(next)));
+        }
+    }
+
+    /** Every service's endpoints change once, so clients hold updates from many versions. */
+    void churnEveryService() {
+        for (int i = 0; i < services; i++) {
+            change(i, endpoints(i, endpoints, 2));
         }
     }
 
@@ -216,6 +232,6 @@ public class MeshBenchmark {
         Client client = new Client("caller-1");
         client.onNetworkChange(sourceOf.get(1).subscribe(client, "caller-1"));
         sourceOf.get(1).unsubscribe(client);
-        return client.sent;
+        return client.last == null ? -1 : client.sent;
     }
 }
