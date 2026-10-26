@@ -67,6 +67,21 @@ public class ResyncAfterNackTest {
     }
 
     @Test
+    public void forgetsNodesThatWentQuiet() {
+        doReturn(future).when(scheduler).schedule(any(Runnable.class), anyLong(), any());
+        AtomicReference<Instant> now = new AtomicReference<>(Instant.EPOCH);
+        ResyncAfterNack<Object> resync = new ResyncAfterNack<>(scheduler, Duration.ofMillis(100), Duration.ofMillis(200), now::get);
+
+        for (int i = 0; i < 100; i++) {
+            resync.onClientNack(mock(ClientHandle.class), Node.newBuilder().setId("pod-" + i).build(), TypeUrl.CDS, Status.getDefaultInstance());
+        }
+        now.set(Instant.EPOCH.plusMillis(401));
+        resync.onClientNack(mock(ClientHandle.class), NODE, TypeUrl.CDS, Status.getDefaultInstance());
+
+        assertThat(resync.trackedNodes()).isEqualTo(1);
+    }
+
+    @Test
     public void disconnectCancelsThePendingResync() {
         doReturn(future).when(scheduler).schedule(any(Runnable.class), anyLong(), any());
         ResyncAfterNack<Object> resync = new ResyncAfterNack<>(scheduler, Duration.ofMinutes(1), Duration.ofMinutes(30));

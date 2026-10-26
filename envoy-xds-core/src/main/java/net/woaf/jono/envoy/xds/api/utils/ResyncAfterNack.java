@@ -82,10 +82,18 @@ public class ResyncAfterNack<DetailsT> implements XdsEventListener<DetailsT> {
         });
     }
 
+    @VisibleForTesting
+    int trackedNodes() {
+        return backoffs.size();
+    }
+
     private Duration nextDelay(String nodeId) {
         Instant now = clock.instant();
+        // Forget nodes that have gone quiet, which would start from initialDelay anyway: node ids come and go with pods.
+        // ponytail: scans every node on each NACK; fine while NACKs are rare, sweep on a timer if they are not.
+        backoffs.values().removeIf(b -> b.lastNack().plus(maxDelay.multipliedBy(2)).isBefore(now));
         return backoffs.compute(nodeId, (id, last) -> {
-            if (last == null || last.lastNack().plus(maxDelay.multipliedBy(2)).isBefore(now)) {
+            if (last == null) {
                 return new Backoff(initialDelay, now);
             }
             Duration doubled = last.delay().multipliedBy(2);
