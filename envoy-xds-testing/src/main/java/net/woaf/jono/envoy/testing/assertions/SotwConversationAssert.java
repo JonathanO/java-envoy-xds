@@ -5,8 +5,10 @@ import static net.woaf.jono.envoy.testing.configdump.EnvoyAdminClient.sneakyUnpa
 import com.google.common.base.Preconditions;
 import org.jspecify.annotations.Nullable;
 import com.google.common.base.Strings;
+import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.SetMultimap;
+import com.google.common.collect.Table;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.protobuf.Any;
 import com.google.protobuf.Message;
@@ -240,8 +242,9 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
 
     // Track what Envoy ACKs, checking responses from checkFrom on.
     private void replay(AckedState state, List<Object> messages, int checkFrom) {
-        Map<String, DiscoveryResponse> pending = new HashMap<>();
-        Map<String, Set<String>> pendingRemovals = new HashMap<>();
+        // By type and nonce: Envoy keeps nonces per type, so another type's ACK may reuse one.
+        Table<String, String, DiscoveryResponse> pending = HashBasedTable.create();
+        Table<String, String, Set<String>> pendingRemovals = HashBasedTable.create();
         Map<String, Set<String>> subscribed = new HashMap<>(); // names, by non-wildcard type
         for (int i = 0; i < messages.size(); i++) {
             Object message = messages.get(i);
@@ -255,12 +258,12 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
                 if (i >= checkFrom) {
                     state.checkResponse(r.getTypeUrl(), r.getResourcesList(), removed);
                 }
-                pending.put(r.getNonce(), r);
-                pendingRemovals.put(r.getNonce(), removed);
+                pending.put(r.getTypeUrl(), r.getNonce(), r);
+                pendingRemovals.put(r.getTypeUrl(), r.getNonce(), removed);
             } else if (message instanceof DiscoveryRequest r && !r.hasErrorDetail()) {
-                DiscoveryResponse ackedResponse = pending.remove(r.getResponseNonce());
+                DiscoveryResponse ackedResponse = pending.remove(r.getTypeUrl(), r.getResponseNonce());
                 if (ackedResponse != null) {
-                    state.acked(ackedResponse.getTypeUrl(), ackedResponse.getResourcesList(), Preconditions.checkNotNull(pendingRemovals.remove(r.getResponseNonce())));
+                    state.acked(ackedResponse.getTypeUrl(), ackedResponse.getResourcesList(), Preconditions.checkNotNull(pendingRemovals.remove(r.getTypeUrl(), r.getResponseNonce())));
                 }
                 if (!XdsTypes.isWildcard(r.getTypeUrl())) {
                     // Envoy drops what it stops asking for, e.g. a route config once no listener uses it.
