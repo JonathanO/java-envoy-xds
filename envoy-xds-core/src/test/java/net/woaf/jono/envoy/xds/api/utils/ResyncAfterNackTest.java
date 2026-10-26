@@ -12,10 +12,12 @@ import static org.mockito.Mockito.verify;
 import com.google.rpc.Status;
 import io.envoyproxy.envoy.config.core.v3.Node;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import net.woaf.jono.envoy.xds.TypeUrl;
 import net.woaf.jono.envoy.xds.api.ClientHandle;
 import org.junit.jupiter.api.Test;
@@ -49,14 +51,15 @@ public class ResyncAfterNackTest {
     }
 
     @Test
-    public void startsAgainAfterAQuietSpell() throws InterruptedException {
+    public void startsAgainAfterAQuietSpell() {
         doReturn(future).when(scheduler).schedule(any(Runnable.class), anyLong(), any());
-        ResyncAfterNack<Object> resync = new ResyncAfterNack<>(scheduler, Duration.ofMillis(100), Duration.ofMillis(200));
+        AtomicReference<Instant> now = new AtomicReference<>(Instant.EPOCH);
+        ResyncAfterNack<Object> resync = new ResyncAfterNack<>(scheduler, Duration.ofMillis(100), Duration.ofMillis(200), now::get);
         List<ClientHandle> streams = List.of(mock(ClientHandle.class), mock(ClientHandle.class), mock(ClientHandle.class));
 
         resync.onClientNack(streams.get(0), NODE, TypeUrl.CDS, Status.getDefaultInstance());
         resync.onClientNack(streams.get(1), NODE, TypeUrl.CDS, Status.getDefaultInstance());
-        Thread.sleep(500); // over 2 * maxDelay
+        now.set(Instant.EPOCH.plusMillis(401)); // over 2 * maxDelay
         resync.onClientNack(streams.get(2), NODE, TypeUrl.CDS, Status.getDefaultInstance());
 
         verify(scheduler, times(3)).schedule(any(Runnable.class), delays.capture(), eq(TimeUnit.MILLISECONDS));

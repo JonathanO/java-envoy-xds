@@ -50,8 +50,12 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
     /**
      * Use your own executor to deliver updates to clients, instead of {@link SerialEventListener#sharedExecutor()}.
      * Overlays run there, so use this if yours block.
+     *
+     * <p>It must run tasks on threads of its own, not the caller's: with {@code MoreExecutors.directExecutor()},
+     * publishing delivers to a stream while holding this source's lock, and a stream subscribing at the same time holds
+     * its own lock while it waits for this one, so they deadlock.
      * @param overlay per client overlay, or null
-     * @param executor runs each client's updates, one at a time per client
+     * @param executor runs each client's updates, one at a time per client, on threads other than the caller's
      */
     public SnapshotSource(@Nullable BiFunction<Snapshot, ? super D, Snapshot> overlay, Executor executor) {
         this.overlay = overlay;

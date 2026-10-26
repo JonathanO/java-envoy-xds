@@ -42,23 +42,11 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
 
     private final Function<T, CommonDiscoveryRequest<T>> commonDiscoveryRequestConverter;
 
-    //private final ServerConfig serverConfig;
     private final DiscoveryServiceManagerMetrics metrics;
 
     private final ImmutableList<XdsEventListener<DetailsT>> listeners;
 
     private final ClientConfigProvider<DetailsT> configProvider;
-
-    /**
-     * If set then we will delay sending mesh updates to the client until we have received the first ACK for this TypeUrl.
-     * This allows us to prevent clients being sent endpoint updates, which interfere with the envoy init process, until
-     * they have acked a later DS (for example RDS or LDS, which are only ACKed by envoy after clusters have been fully
-     * initialised.)
-     * If null then we don't delay the updates.
-     * Implementation detail: this will be set to null once the expected ack is received.
-     */
-    @GuardedBy("this")
-    private @Nullable TypeUrl delayUpdatesUntilAckOf = null;
 
     @GuardedBy("this")
     private @Nullable String nodeId = null;
@@ -93,7 +81,6 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
         xdsConfig = NodeConfig.forNode(node, config);
         notifyClientConnected(node, config);
 
-        delayUpdatesUntilAckOf = config.delayUpdatesUntilAckOf();
         nodeId = node.getId();
         clusterId = node.getCluster();
     }
@@ -132,7 +119,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             }
             if (discoveryServiceManager == null) {
                 discoveryServiceManager = discoveryServiceManagerFactory.build(responseObserver, nodeConfig, metrics);
-                discoveryServiceManager.init(clusterManager.subscribe(this), delayUpdatesUntilAckOf, nodeConfig.xdsConfig().subscribesTo());
+                discoveryServiceManager.init(clusterManager.subscribe(this), nodeConfig.xdsConfig().delayUpdatesUntilAckOf(), nodeConfig.xdsConfig().subscribesTo());
             }
 
             discoveryServiceManager.processUpdate(value);

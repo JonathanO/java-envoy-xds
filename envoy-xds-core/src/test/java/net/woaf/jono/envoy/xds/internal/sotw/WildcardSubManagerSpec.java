@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -22,7 +24,7 @@ public class WildcardSubManagerSpec {
                 "bar", new Object()
         );
 
-        assertThat(subManager.filterSubs(subs).entrySet()).isEmpty();
+        assertThat(subscribed(subManager, subs)).isEmpty();
     }
 
     @Test
@@ -36,10 +38,10 @@ public class WildcardSubManagerSpec {
                 "bar", new Object()
         );
 
-        assertThat(subManager.filterSubs(subs)).isEqualTo(subs);
+        assertThat(subscribed(subManager, subs)).isEqualTo(subs.keySet());
 
         assertThat(subManager.processResourceListChange(Collections.emptyList())).isNotPresent();
-        assertThat(subManager.filterSubs(subs)).isEqualTo(subs);
+        assertThat(subscribed(subManager, subs)).isEqualTo(subs.keySet());
 
     }
 
@@ -83,4 +85,7 @@ public class WildcardSubManagerSpec {
         assertThat(subManager.isSubscribedTo("foo")).isFalse();
     }
 
+    private static Set<String> subscribed(SubManager subManager, Map<String, ?> resources) {
+        return resources.keySet().stream().filter(subManager::isSubscribedTo).collect(Collectors.toSet());
+    }
 }

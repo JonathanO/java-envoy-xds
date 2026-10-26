@@ -74,10 +74,6 @@ class VersionManager {
         return true;
     }
 
-    public boolean needsPush() {
-        return (sentVersion == null || currentVersion.compareTo(sentVersion) > 0);
-    }
-
     public String pushedVersion(String newVersion) {
         String nonce = String.valueOf(UUID.randomUUID());
         currentNonce = nonce;
