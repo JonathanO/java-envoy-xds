@@ -77,7 +77,7 @@ public enum TypeUrl {
      * Order in which to apply discovery services for removal of resources.
      * This order is partially documented in the xDS spec, but some of it is guesswork (and for some ordering probably does not matter.)
      */
-    public static final List<TypeUrl> REMOVE_ORDER = List.of(LDS, RDS, SRDS, VHDS, CDS, EDS, RTDS, SDS);
+    public static final List<TypeUrl> REMOVE_ORDER = List.of(LDS, SRDS, RDS, VHDS, CDS, EDS, RTDS, SDS);
 
     /**
      * {@return the resource's message class}

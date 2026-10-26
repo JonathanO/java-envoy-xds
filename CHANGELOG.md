@@ -30,6 +30,7 @@ All notable changes to this project will be documented in this file.
 * **Breaking:** removed `XdsConfig.silentNacks`. Every NACK now freezes the stream, and is logged at warn; use `onClientNack` to act on it.
 
 ### Fixed
+* Scoped route configs (SRDS) are removed before the route configs they name, not after, so a scope never points at a route config Envoy no longer has
 * `ResyncAfterNack` forgets nodes that have gone 2 * maxDelay without a NACK, instead of keeping a backoff for every node id it ever saw
 * A request that arrives after we closed the stream to resync Envoy is ignored, instead of throwing and logging a misleading warning
 * SotW: after Envoy NACKs, a later subscription change no longer sends the rest of the rejected change. Its answer covers only the names newly asked for
