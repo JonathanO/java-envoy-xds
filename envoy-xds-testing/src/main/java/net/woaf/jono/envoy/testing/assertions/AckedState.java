@@ -25,7 +25,7 @@ import net.woaf.jono.envoy.testing.XdsTypes;
 final class AckedState {
 
     private final Set<String> clusters = new HashSet<>();
-    private final Set<String> edsClusters = new HashSet<>();
+    private final Map<String, String> edsClusters = new HashMap<>(); // the name their endpoints are under, by cluster
     private final Set<String> endpoints = new HashSet<>();
     private final Map<String, Set<String>> routes = new HashMap<>();
     private final Map<String, Set<String>> listeners = new HashMap<>(); // route config names used, by listener
@@ -54,9 +54,10 @@ final class AckedState {
             for (Any any : resources) {
                 RouteConfiguration route = sneakyUnpack(any, RouteConfiguration.class);
                 for (String cluster : referencedClusters(route)) {
+                    String edsName = edsClusters.get(cluster);
                     if (!clusters.contains(cluster)) {
                         problems.add("Route <" + route.getName() + "> sent using cluster <" + cluster + "> before Envoy ACKed the cluster");
-                    } else if (edsClusters.contains(cluster) && !endpoints.contains(cluster)) {
+                    } else if (edsName != null && !endpoints.contains(edsName)) {
                         problems.add("Route <" + route.getName() + "> sent using cluster <" + cluster + "> before Envoy ACKed its endpoints");
                     }
                 }
@@ -91,13 +92,14 @@ final class AckedState {
                 Cluster cluster = sneakyUnpack(any, Cluster.class);
                 clusters.add(cluster.getName());
                 if (cluster.getType() == Cluster.DiscoveryType.EDS) {
-                    edsClusters.add(cluster.getName());
+                    String serviceName = cluster.getEdsClusterConfig().getServiceName();
+                    edsClusters.put(cluster.getName(), serviceName.isEmpty() ? cluster.getName() : serviceName);
                 } else {
                     edsClusters.remove(cluster.getName());
                 }
             }
             clusters.removeAll(removed);
-            edsClusters.removeAll(removed);
+            edsClusters.keySet().removeAll(removed);
         } else if (typeUrl.equals(XdsTypes.EDS)) {
             resources.forEach(any -> endpoints.add(sneakyUnpack(any, ClusterLoadAssignment.class).getClusterName()));
             endpoints.removeAll(removed);

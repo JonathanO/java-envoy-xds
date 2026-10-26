@@ -2,6 +2,7 @@ package net.woaf.jono.envoy.testing.assertions;
 
 import com.google.protobuf.Any;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
+import io.envoyproxy.envoy.config.cluster.v3.Cluster.EdsClusterConfig;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import io.envoyproxy.envoy.config.listener.v3.Filter;
 import io.envoyproxy.envoy.config.listener.v3.FilterChain;
@@ -20,6 +21,10 @@ final class TestResources {
 
     static Cluster cluster(String name) {
         return Cluster.newBuilder().setName(name).setType(Cluster.DiscoveryType.EDS).build();
+    }
+
+    static Cluster cluster(String name, String edsServiceName) {
+        return cluster(name).toBuilder().setEdsClusterConfig(EdsClusterConfig.newBuilder().setServiceName(edsServiceName)).build();
     }
 
     static ClusterLoadAssignment endpoints(String cluster) {
