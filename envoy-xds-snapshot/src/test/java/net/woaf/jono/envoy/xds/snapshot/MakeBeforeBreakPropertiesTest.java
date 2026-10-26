@@ -34,14 +34,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Queue;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 import net.woaf.jono.envoy.xds.AggregatedDiscoveryService;
 import net.woaf.jono.envoy.xds.TypeUrl;
 import net.woaf.jono.envoy.xds.XdsConfig;
-import net.woaf.jono.envoy.xds.api.ClusterEventSource;
-import net.woaf.jono.envoy.xds.api.ClusterManagerEventListener;
 import net.woaf.jono.envoy.xds.api.DiscoveryServiceManagerMetrics;
 import net.woaf.jono.envoy.xds.api.utils.MergingStateBacklog;
 
@@ -58,6 +57,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Between random snapshot changes, the model applies our responses one at a time, as Envoy does: it ACKs each, then
  * subscribes to the endpoints of the clusters it holds and the route configs of its listeners. After every response,
  * what it serves from must refer only to config it holds, and once everything is delivered it holds the snapshot.
+ *
+ * <p>Snapshots are published whole or as edits of the current one, so clients compare only the names touched, and
+ * updates wait until a rule delivers them, so several can merge on the way.
  */
 public class MakeBeforeBreakPropertiesTest {
 
@@ -97,32 +99,13 @@ public class MakeBeforeBreakPropertiesTest {
         return editor.build();
     }
 
-    /** Tells subscribers about each snapshot straight away, so the test controls every step. */
-    private static final class SyncSource implements ClusterEventSource<SnapshotUpdate<Object>> {
-        private final List<ClusterManagerEventListener<SnapshotUpdate<Object>>> subscribers = new ArrayList<>();
-        private Published<Object> current = Published.none();
-
-        @Override
-        public SnapshotUpdate<Object> subscribe(ClusterManagerEventListener<SnapshotUpdate<Object>> listener) {
-            subscribers.add(listener);
-            return new SnapshotUpdate<>(Published.none(), current, null);
+    /** Edits current into next, so clients compare only the names that changed. */
+    private static Snapshot.Editor editTo(Snapshot.Editor editor, Snapshot current, Snapshot next) {
+        for (Class<? extends Message> type : Sets.union(current.types(), next.types())) {
+            Sets.difference(current.get(type).keySet(), next.get(type).keySet()).immutableCopy().forEach(name -> editor.remove(type, name));
+            next.get(type).forEach(editor::put);
         }
-
-        @Override
-        public void unsubscribe(ClusterManagerEventListener<SnapshotUpdate<Object>> listener) {
-            subscribers.remove(listener);
-        }
-
-        void publish(Snapshot next) {
-            Published<Object> published = new Published<>(next, null);
-            SnapshotUpdate<Object> update = new SnapshotUpdate<>(current, published, null);
-            current = published;
-            List.copyOf(subscribers).forEach(s -> s.onNetworkChange(update));
-        }
-
-        Snapshot current() {
-            return current.base();
-        }
+        return editor;
     }
 
     /** A response of either protocol. SotW has no removals: for LDS and CDS, what it leaves out is removed. */
@@ -373,7 +356,9 @@ public class MakeBeforeBreakPropertiesTest {
 
     // Not private: Hegel calls its rules and invariants reflectively, which Error Prone can't see.
     static final class Machine {
-        private final SyncSource source = new SyncSource();
+        // Updates wait here until a rule delivers them, so they can pile up and merge.
+        private final Queue<Runnable> updates = new ArrayDeque<>();
+        private final SnapshotSource<Object> source = new SnapshotSource<>(null, updates::add);
         private final Envoy envoy;
 
         @SuppressWarnings("unchecked") // each protocol's stream takes that protocol's messages
@@ -394,7 +379,18 @@ public class MakeBeforeBreakPropertiesTest {
 
         @Rule(weight = 2)
         void publish(TestCase tc) {
-            source.publish(drawSnapshot(tc));
+            Snapshot next = drawSnapshot(tc);
+            if (tc.draw(booleans(), "as an edit")) {
+                source.update(e -> editTo(e, source.current(), next));
+            } else {
+                source.publish(next);
+            }
+        }
+
+        @Rule(weight = 2)
+        void deliverUpdates(TestCase tc) {
+            tc.assume(!updates.isEmpty());
+            updates.remove().run();
         }
 
         @Rule(weight = 4)
@@ -405,6 +401,9 @@ public class MakeBeforeBreakPropertiesTest {
 
         @Rule
         void settle(TestCase tc) {
+            while (!updates.isEmpty()) {
+                updates.remove().run();
+            }
             envoy.settle();
             envoy.assertHolds(source.current());
         }
