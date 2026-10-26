@@ -104,6 +104,8 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
 
     private long startedNanos;
 
+    private boolean warnedRemovalTimeout = false;
+
     /**
      * Checks that conditions hold, assuming init() was already called.
      */
@@ -221,9 +223,6 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      * remove order that we serve and this client gets has been answered and ACKed, or we've waited long enough.
      */
     private boolean mayRemove(TypeUrl typeUrl) {
-        if (waitedTooLong()) {
-            return true;
-        }
         for (DiscoveryService<RequestT, StateUpdT> earlier : postOrder) {
             if (earlier == null) {
                 continue;
@@ -233,7 +232,15 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
             }
             boolean used = earlier.isServed() && (subscribesTo == null || subscribesTo.contains(earlier.getTypeUrl()));
             if (used && (!earlier.hasAnswered() || earlier.awaitingAck())) {
-                return false;
+                if (!waitedTooLong()) {
+                    return false;
+                }
+                if (!warnedRemovalTimeout) {
+                    warnedRemovalTimeout = true;
+                    log.warn("No answer to or ACK of {} after {}s, so removing stale {} anyway: does this client subscribe to it? See"
+                        + " subscribesTo in its XdsConfig", earlier.getTypeUrl(), TimeUnit.NANOSECONDS.toSeconds(WAIT_FOR_ACK_TIMEOUT_NANOS), typeUrl);
+                }
+                return true;
             }
         }
         return true;
