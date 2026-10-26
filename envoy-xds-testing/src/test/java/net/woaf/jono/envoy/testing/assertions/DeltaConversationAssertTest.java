@@ -193,6 +193,18 @@ public class DeltaConversationAssertTest {
     }
 
     @Test
+    public void findsEndpointsUnderTheClustersEdsServiceName() {
+        Conversation c = new Conversation();
+        c.onRequest(subscribe(XdsTypes.CDS));
+        exchange(c, XdsTypes.CDS, cluster("v1", "v1-endpoints"));
+        c.onRequest(subscribe(XdsTypes.EDS, "v1-endpoints"));
+        exchange(c, XdsTypes.EDS, endpoints("v1-endpoints"));
+        c.onRequest(subscribe(XdsTypes.RDS, "routes"));
+        exchange(c, XdsTypes.RDS, routeTo("v1"));
+        assertThatCode(() -> DeltaConversationAssert.assertThat(c).wasMakeBeforeBreak(0)).doesNotThrowAnyException();
+    }
+
+    @Test
     public void catchesARouteToAClusterEnvoyRejected() {
         Conversation c = synced();
         c.onRequest(nack(XdsTypes.CDS, send(c, XdsTypes.CDS, cluster("v2"))));
