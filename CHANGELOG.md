@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 * JSpecify nullness annotations: every package is `@NullMarked`, so anything that may be null says `@Nullable`. NullAway checks this strictly at build time, and Error Prone and javac warnings now fail the build
 * Error Prone checks locking and immutability at build time: fields shared between threads are `@GuardedBy` their lock, and `Snapshot` and `NamedMessage` are `@Immutable`
 * Results of our methods must be used, unless marked `@CanIgnoreReturnValue` (`SnapshotSource.update` and `publish` are)
+* Conformance scenarios for scoped routes (SRDS) and on-demand discovery: `scopedRoutes`, `onDemandScopes`, `onDemandClusters` (ODCDS) and `onDemandVirtualHosts` (VHDS). The make-before-break checks now follow scoped route configs to their route configs, and VHDS virtual hosts to their clusters
 * `ClusterEventSource.subscribe(listener, clientDetails)`: the core now tells your source which client is subscribing, so it can choose what that client sees. It defaults to `subscribe(listener)`, so existing sources need no change
 
 ### Changed
@@ -30,6 +31,7 @@ All notable changes to this project will be documented in this file.
 * **Breaking:** removed `XdsConfig.silentNacks`. Every NACK now freezes the stream, and is logged at warn; use `onClientNack` to act on it.
 
 ### Fixed
+* Scoped route configs (SRDS) are removed before the route configs they name, not after, so a scope never points at a route config Envoy no longer has
 * `ResyncAfterNack` forgets nodes that have gone 2 * maxDelay without a NACK, instead of keeping a backoff for every node id it ever saw
 * A request that arrives after we closed the stream to resync Envoy is ignored, instead of throwing and logging a misleading warning
 * SotW: after Envoy NACKs, a later subscription change no longer sends the rest of the rejected change. Its answer covers only the names newly asked for

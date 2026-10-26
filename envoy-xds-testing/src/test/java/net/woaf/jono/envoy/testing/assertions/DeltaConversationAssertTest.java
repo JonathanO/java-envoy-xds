@@ -3,7 +3,10 @@ package net.woaf.jono.envoy.testing.assertions;
 import static net.woaf.jono.envoy.testing.assertions.TestResources.cluster;
 import static net.woaf.jono.envoy.testing.assertions.TestResources.endpoints;
 import static net.woaf.jono.envoy.testing.assertions.TestResources.listenerUsing;
+import static net.woaf.jono.envoy.testing.assertions.TestResources.routeConfig;
 import static net.woaf.jono.envoy.testing.assertions.TestResources.routeTo;
+import static net.woaf.jono.envoy.testing.assertions.TestResources.scope;
+import static net.woaf.jono.envoy.testing.assertions.TestResources.virtualHostTo;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -258,6 +261,55 @@ public class DeltaConversationAssertTest {
         send(c, XdsTypes.RDS, List.of("routes"));
         assertThatThrownBy(() -> DeltaConversationAssert.assertThat(c).wasMakeBeforeBreak(0))
             .hasMessageContaining("Route config <routes> removed while Envoy's ACKed listener <listener> still uses it");
+    }
+
+    /** Envoy synced with scope s naming route config rc, routing to cluster v1. Nonces 1 to 4. */
+    private Conversation syncedWithScope() {
+        Conversation c = new Conversation();
+        c.onRequest(subscribe(XdsTypes.CDS));
+        exchange(c, XdsTypes.CDS, cluster("v1"));
+        c.onRequest(subscribe(XdsTypes.EDS, "v1"));
+        exchange(c, XdsTypes.EDS, endpoints("v1"));
+        c.onRequest(subscribe(XdsTypes.SRDS));
+        exchange(c, XdsTypes.SRDS, scope("s", "rc"));
+        c.onRequest(subscribe(XdsTypes.RDS, "rc"));
+        exchange(c, XdsTypes.RDS, routeConfig("rc", "v1"));
+        return c;
+    }
+
+    @Test
+    public void catchesARouteConfigRemovedWhileAScopeUsesIt() {
+        Conversation c = syncedWithScope();
+        send(c, XdsTypes.RDS, List.of("rc"));
+        assertThatThrownBy(() -> DeltaConversationAssert.assertThat(c).wasMakeBeforeBreak(0))
+            .hasMessageContaining("Route config <rc> removed while Envoy's ACKed scoped route config <s> still uses it");
+    }
+
+    @Test
+    public void allowsRemovingAClusterOnceTheScopeRoutingToItIsGone() {
+        Conversation c = syncedWithScope();
+        c.onRequest(ack(XdsTypes.SRDS, send(c, XdsTypes.SRDS, List.of("s"))));
+        // before Envoy gets round to unsubscribing from rc
+        c.onRequest(ack(XdsTypes.CDS, send(c, XdsTypes.CDS, List.of("v1"))));
+        assertThatCode(() -> DeltaConversationAssert.assertThat(c).wasMakeBeforeBreak(0)).doesNotThrowAnyException();
+    }
+
+    @Test
+    public void catchesAVirtualHostSentBeforeItsCluster() {
+        Conversation c = synced();
+        send(c, XdsTypes.VHDS, virtualHostTo("routes/foo", "v2"));
+        assertThatThrownBy(() -> DeltaConversationAssert.assertThat(c).wasMakeBeforeBreak(0))
+            .hasMessageContaining("Virtual host <routes/foo> sent using cluster <v2> before Envoy ACKed the cluster");
+    }
+
+    @Test
+    public void catchesAClusterRemovedWhileAVirtualHostUsesIt() {
+        Conversation c = synced();
+        c.onRequest(subscribe(XdsTypes.VHDS, "routes/foo"));
+        exchange(c, XdsTypes.VHDS, virtualHostTo("routes/foo", "v1"));
+        send(c, XdsTypes.CDS, List.of("v1"));
+        assertThatThrownBy(() -> DeltaConversationAssert.assertThat(c).wasMakeBeforeBreak(0))
+            .hasMessageContaining("Cluster <v1> removed while Envoy's ACKed virtual host <routes/foo> still uses it");
     }
 
     @Test
