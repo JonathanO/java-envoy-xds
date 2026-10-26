@@ -142,6 +142,7 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
     private static final class Listeners implements XdsEventListener<Object> {
         private int connected = 0;
         private int disconnected = 0;
+        private int nacks = 0;
         private @Nullable ClientHandle handle = null;
 
         @Override
@@ -154,6 +155,11 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
         public void onClientDisconnected(ClientHandle clientHandle, Node node) {
             disconnected++;
         }
+
+        @Override
+        public void onClientNack(ClientHandle clientHandle, Node node, TypeUrl typeUrl, Status errorDetail) {
+            nacks++;
+        }
     }
 
     // Not private: Hegel calls its rules and invariants reflectively, which Error Prone can't see.
@@ -165,6 +171,7 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
         private final StreamObserver<Message> requests;
         private final List<Throwable> escaped = new ArrayList<>();
         private boolean clientEnded = false;
+        private int nacksSent = 0;
 
         @SuppressWarnings("unchecked") // each protocol's observers take that protocol's messages
         Machine(boolean delta) {
@@ -200,6 +207,10 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
             String typeUrl = tc.draw(sampledFrom(TYPE_URLS), "type");
             client.asked.add(typeUrl);
             Message request = delta ? deltaRequest(tc, typeUrl) : sotwRequest(tc, typeUrl);
+            boolean nack = request instanceof DeltaDiscoveryRequest d ? d.hasErrorDetail() : ((DiscoveryRequest) request).hasErrorDetail();
+            if (nack && TypeUrl.of(typeUrl) != null) {
+                nacksSent++;
+            }
             call(() -> requests.onNext(request));
         }
 
@@ -281,6 +292,11 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
                 assertThat(listeners.disconnected).as("disconnects").isEqualTo(listeners.connected);
             }
             assertThat(listeners.connected).as("connects").isLessThanOrEqualTo(1);
+        }
+
+        @Invariant(alwaysRun = true)
+        void listenersHearOfEveryNack(TestCase tc) {
+            assertThat(listeners.nacks).as("NACKs passed to onClientNack").isEqualTo(nacksSent);
         }
 
         @Invariant(alwaysRun = true)
