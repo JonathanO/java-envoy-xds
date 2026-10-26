@@ -1,7 +1,6 @@
 package net.woaf.jono.envoy.xds.internal.sotw;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
 
@@ -21,8 +20,6 @@ interface SubManager {
      * @return Optional function that returns true for any resource name that was newly subscribed to, or not present if no subscription changes (neither add nor remove) were made.
      */
     Optional<Predicate<String>> processResourceListChange(List<String> resourceNames);
-
-    <X> Map<String, X> filterSubs(Map<String, X> things);
 
     boolean isSubscribedTo(String resourceName);
 

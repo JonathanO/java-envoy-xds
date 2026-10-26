@@ -5,11 +5,9 @@ import dev.hegel.HegelTest;
 import dev.hegel.TestCase;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -83,11 +81,7 @@ public class SubManagerPropertiesTest {
 
     @HegelTest
     void subscribedToWhatTheSpecSays(TestCase tc) {
-        Map<String, String> resources = NAMES.stream().collect(Collectors.toMap(Function.identity(), Function.identity()));
-        run(tc, step -> {
-            assertThat(NAMES.stream().filter(step.manager()::isSubscribedTo)).containsExactlyInAnyOrderElementsOf(step.after());
-            assertThat(step.manager().filterSubs(resources).keySet()).containsExactlyInAnyOrderElementsOf(step.after());
-        });
+        run(tc, step -> assertThat(NAMES.stream().filter(step.manager()::isSubscribedTo)).containsExactlyInAnyOrderElementsOf(step.after()));
     }
 
     @HegelTest

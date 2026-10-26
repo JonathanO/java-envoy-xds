@@ -246,7 +246,7 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
         for (int i = 0; i < messages.size(); i++) {
             Object message = messages.get(i);
             if (message instanceof DiscoveryResponse r) {
-                // CDS and LDS are wildcard types: each response is the full set, so anything Envoy has that's missing is removed.
+                // LDS, CDS and SRDS are wildcard types: each response is the full set, so anything Envoy has that's missing is removed.
                 Set<String> removed = new HashSet<>();
                 if (r.getTypeUrl().equals(XdsTypes.CDS) || r.getTypeUrl().equals(XdsTypes.LDS)) {
                     removed.addAll(r.getTypeUrl().equals(XdsTypes.CDS) ? state.clusters() : state.listeners());

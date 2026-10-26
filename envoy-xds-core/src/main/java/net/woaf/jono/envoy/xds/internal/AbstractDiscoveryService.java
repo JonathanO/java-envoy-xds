@@ -194,6 +194,11 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
         applyPost().ifPresent(this::pushNewState);
     }
 
+    @Override
+    public void abandonChange() {
+        currentSubState = SubState.COMPLETED;
+    }
+
     protected Any pack(Message o) {
         return PACKED.getUnchecked(o);
     }

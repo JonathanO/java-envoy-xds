@@ -409,6 +409,10 @@ public class DiscoveryServiceManagerTest {
         }
 
         @Override
+        public void abandonChange() {
+        }
+
+        @Override
         public TypeUrl getTypeUrl() {
             throw new UnsupportedOperationException("Not implemented");
         }
