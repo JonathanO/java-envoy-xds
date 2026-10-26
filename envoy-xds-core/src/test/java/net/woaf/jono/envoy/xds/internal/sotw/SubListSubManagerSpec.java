@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -23,7 +25,7 @@ public class SubListSubManagerSpec {
                 "bar", new Object()
         );
 
-        assertThat(subManager.filterSubs(subs).entrySet()).isEmpty();
+        assertThat(subscribed(subManager, subs)).isEmpty();
     }
 
     @Test
@@ -37,7 +39,7 @@ public class SubListSubManagerSpec {
                 "bar", new Object()
         );
 
-        assertThat(subManager.filterSubs(subs).entrySet()).isEmpty();
+        assertThat(subscribed(subManager, subs)).isEmpty();
     }
 
     @Test
@@ -51,10 +53,10 @@ public class SubListSubManagerSpec {
                 "bar", new Object()
         );
 
-        assertThat(subManager.filterSubs(subs).keySet()).contains("foo");
+        assertThat(subscribed(subManager, subs)).contains("foo");
 
         assertThat(subManager.processResourceListChange(Collections.singletonList("foo"))).isNotPresent();
-        assertThat(subManager.filterSubs(subs).keySet()).contains("foo");
+        assertThat(subscribed(subManager, subs)).contains("foo");
 
 
     }
@@ -70,11 +72,11 @@ public class SubListSubManagerSpec {
                 "bar", new Object()
         );
 
-        assertThat(subManager.filterSubs(subs).keySet()).contains("foo");
+        assertThat(subscribed(subManager, subs)).contains("foo");
 
         assertThat(subManager.processResourceListChange(Collections.singletonList("bar"))).isPresent();
         assertThat(subManager.getSubs()).contains("bar");
-        assertThat(subManager.filterSubs(subs).keySet()).contains("bar");
+        assertThat(subscribed(subManager, subs)).contains("bar");
 
     }
 
@@ -89,11 +91,11 @@ public class SubListSubManagerSpec {
                 "bar", new Object()
         );
 
-        assertThat(subManager.filterSubs(subs).keySet()).contains("foo");
+        assertThat(subscribed(subManager, subs)).contains("foo");
 
         assertThat(subManager.processResourceListChange(new ArrayList<>(subs.keySet()))).isPresent();
         assertThat(subManager.getSubs()).containsExactlyInAnyOrder("foo", "bar");
-        assertThat(subManager.filterSubs(subs).keySet()).containsExactlyInAnyOrder("foo", "bar");
+        assertThat(subscribed(subManager, subs)).containsExactlyInAnyOrder("foo", "bar");
 
     }
 
@@ -108,13 +110,15 @@ public class SubListSubManagerSpec {
                 "bar", new Object()
         );
 
-        assertThat(subManager.filterSubs(subs).keySet()).contains("foo");
+        assertThat(subscribed(subManager, subs)).contains("foo");
 
         assertThat(subManager.processResourceListChange(Collections.emptyList())).isPresent();
         assertThat(subManager.getSubs()).isEmpty();
-        assertThat(subManager.filterSubs(subs).keySet()).isEmpty();
+        assertThat(subscribed(subManager, subs)).isEmpty();
 
     }
 
-
+    private static Set<String> subscribed(SubManager subManager, Map<String, ?> resources) {
+        return resources.keySet().stream().filter(subManager::isSubscribedTo).collect(Collectors.toSet());
+    }
 }

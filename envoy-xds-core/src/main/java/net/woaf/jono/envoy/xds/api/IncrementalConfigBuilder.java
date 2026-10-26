@@ -1,7 +1,5 @@
 package net.woaf.jono.envoy.xds.api;
 
-import org.jspecify.annotations.Nullable;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.Immutable;
 import com.google.errorprone.annotations.ImmutableTypeParameter;
@@ -168,15 +166,6 @@ public interface IncrementalConfigBuilder<ResourceT extends Message, StateUpdT, 
          */
         public static <ResourceT extends Message> Resources<ResourceT> empty() {
             return new Resources<>(List.of());
-        }
-
-        /**
-         * {@return the resource with that name, or null}
-         * @param name a resource name
-         */
-        @VisibleForTesting
-        public @Nullable ResourceT getByName(String name) {
-            return resources.stream().filter(r -> name.equals(r.name())).findAny().map(NamedMessage::message).orElse(null);
         }
     }
 

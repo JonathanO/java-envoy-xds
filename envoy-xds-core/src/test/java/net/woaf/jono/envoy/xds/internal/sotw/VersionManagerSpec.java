@@ -12,24 +12,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 public class VersionManagerSpec {
 
     @Test
-    public void testNoneSent() {
-        VersionManager versionManager = new VersionManager();
-        assertThat(versionManager.needsPush()).isTrue();
-    }
-
-    @Test
     public void testAcceptsVersion() {
         VersionManager versionManager = new VersionManager();
         assertThat(versionManager.processUpdate("", "")).isTrue();
-        assertThat(versionManager.needsPush()).isTrue();
         final String sentNonce = versionManager.pushedVersion("1");
         assertThat(versionManager.hasAcceptedVersion("1")).isFalse();
         assertThat(versionManager.getSentVersion()).isEqualTo(UnsignedLong.valueOf(1));
-        assertThat(versionManager.needsPush()).isFalse();
         assertThat(versionManager.processUpdate(sentNonce, "1")).isTrue(); // accept that version
         assertThat(versionManager.hasAcceptedVersion("1")).isTrue();
         assertThat(versionManager.getSentVersion()).isEqualTo(UnsignedLong.valueOf(1));;
-        assertThat(versionManager.needsPush()).isFalse();
     }
 
     @Test
@@ -40,7 +31,6 @@ public class VersionManagerSpec {
         assertThat(versionManager.processUpdate(sentNonce, "")).isTrue(); // reject that version
         assertThat(versionManager.getSentVersion()).isEqualTo(UnsignedLong.valueOf(1));;
         assertThat(versionManager.hasAcceptedVersion("1")).isFalse();
-        assertThat(versionManager.needsPush()).isFalse();
     }
 
     @Test
@@ -61,24 +51,20 @@ public class VersionManagerSpec {
         versionManager.processUpdate(sentNonce, ""); // reject that version
 
         versionManager.getNext();
-        assertThat(versionManager.needsPush()).isTrue();
         sentNonce = versionManager.pushedVersion("2");
         assertThat(versionManager.getSentVersion()).isEqualTo(UnsignedLong.valueOf(2));
         assertThat(versionManager.hasAcceptedVersion("1")).isFalse();
 
-        assertThat(versionManager.needsPush()).isFalse();
 
         assertThat(versionManager.processUpdate(sentNonce, "2")).isTrue(); // accept that version
         assertThat(versionManager.hasAcceptedVersion("2")).isTrue();
         assertThat(versionManager.getSentVersion()).isEqualTo(UnsignedLong.valueOf(2));
-        assertThat(versionManager.needsPush()).isFalse();
 
 
     }
 
     private String getToNonInitialState(VersionManager versionManager) {
         versionManager.processUpdate("", "");
-        versionManager.needsPush();
         String firstNonce = versionManager.pushedVersion("1");
         versionManager.processUpdate(firstNonce, "1");
         return firstNonce;
@@ -94,7 +80,6 @@ public class VersionManagerSpec {
         assertThat(versionManager.getSentVersion()).isEqualTo(UnsignedLong.valueOf(2));
         assertThat(versionManager.hasAcceptedVersion("1")).isTrue();
         assertThat(versionManager.hasAcceptedVersion("2")).isFalse();
-        assertThat(versionManager.needsPush()).isFalse();
     }
 
     @Test
@@ -106,7 +91,6 @@ public class VersionManagerSpec {
         assertThat(versionManager.processUpdate(nonce, "1")).isFalse(); // e.g. resource update at original version
         assertThat(versionManager.hasAcceptedVersion("1")).isTrue();
         assertThat(versionManager.getSentVersion()).isEqualTo(UnsignedLong.valueOf(2));
-        assertThat(versionManager.needsPush()).isFalse();
 
         assertThat(versionManager.processUpdate(newNonce, "2")).isTrue(); // tries again with new nonce and version
         assertThat(versionManager.hasAcceptedVersion("2")).isTrue();
