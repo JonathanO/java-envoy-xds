@@ -6,6 +6,8 @@ import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import io.envoyproxy.envoy.config.listener.v3.Listener;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
+import io.envoyproxy.envoy.config.route.v3.ScopedRouteConfiguration;
+import io.envoyproxy.envoy.config.route.v3.VirtualHost;
 import io.envoyproxy.envoy.config.core.v3.Node;
 import io.grpc.BindableService;
 import java.util.ArrayList;
@@ -13,10 +15,12 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import net.woaf.jono.envoy.e2e.utils.DiscoveryServiceManagerEventListener;
 import net.woaf.jono.envoy.testing.Settled;
 import net.woaf.jono.envoy.testing.conformance.XdsConformanceTest;
 import net.woaf.jono.envoy.xds.AggregatedDiscoveryService;
+import net.woaf.jono.envoy.xds.TypeUrl;
 import net.woaf.jono.envoy.xds.XdsConfig;
 import net.woaf.jono.envoy.xds.api.ClientHandle;
 import net.woaf.jono.envoy.xds.api.XdsEventListener;
@@ -34,6 +38,9 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
      * SotW's CDS answer is the whole set, so on a reconnect it removes a cluster Envoy kept and its kept routes still use.
      * We no longer have that cluster's config to send again.
      */
+    private static final String NO_SUCH_RESOURCE = "Known gap: a delta subscription to a name we have no resource for gets no answer,"
+        + " so Envoy's VHDS, which starts by subscribing to its route config's name, waits out its initial fetch timeout";
+
     private static final String SOTW_RECONNECT = "Known limit: after a SotW reconnect, a cluster Envoy kept is removed while its kept routes still use it";
 
     @Override
@@ -43,7 +50,7 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
 
     @Override
     protected Map<String, String> knownDeviations() {
-        return Map.of("sotw/changesWhileDisconnected", SOTW_RECONNECT, "sotw/controlPlaneRestarts", SOTW_RECONNECT);
+        return Map.of("sotw/changesWhileDisconnected", SOTW_RECONNECT, "sotw/controlPlaneRestarts", SOTW_RECONNECT, "onDemandVirtualHosts", NO_SUCH_RESOURCE);
     }
 
     private static final class EnvoyXds implements ControlPlane {
@@ -58,8 +65,11 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
         public BindableService service() {
             return new AggregatedDiscoveryService<>(
                 source,
-                SnapshotConfigBuilder.forTypes(Cluster.class, ClusterLoadAssignment.class, Listener.class, RouteConfiguration.class),
-                node -> XdsConfig.<String>of(node.getId()),
+                SnapshotConfigBuilder.forTypes(Cluster.class, ClusterLoadAssignment.class, Listener.class, RouteConfiguration.class,
+                    ScopedRouteConfiguration.class, VirtualHost.class),
+                // Every scenario's Envoy uses these; only some use scoped routes or VHDS, so stale clusters after a reconnect
+                // mustn't wait for those.
+                node -> XdsConfig.<String>of(node.getId()).withSubscribesTo(Set.of(TypeUrl.LDS, TypeUrl.RDS, TypeUrl.CDS, TypeUrl.EDS)),
                 ImmutableList.of(new XdsEventListener<>() {
                     @Override
                     public void onNewClient(ClientHandle clientHandle, Node node, XdsConfig<String> config) {
