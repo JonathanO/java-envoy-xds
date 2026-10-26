@@ -97,7 +97,8 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
         public void setConfig(Collection<? extends Message> resources) {
             Snapshot.Editor routing = Snapshot.empty().edit();
             Snapshot.Editor clusters = Snapshot.empty().edit();
-            resources.forEach(r -> (r instanceof Listener || r instanceof RouteConfiguration ? routing : clusters).put(r));
+            resources.forEach(r -> (r instanceof Listener || r instanceof RouteConfiguration || r instanceof ScopedRouteConfiguration
+                || r instanceof VirtualHost ? routing : clusters).put(r));
             source.update(c -> c.group("routing", routing.build()).group("clusters", clusters.build()));
         }
 
