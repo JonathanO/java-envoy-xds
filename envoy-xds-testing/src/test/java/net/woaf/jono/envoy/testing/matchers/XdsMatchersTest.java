@@ -159,6 +159,8 @@ public class XdsMatchersTest {
         Map<String, Long> stats = Map.of("cluster.foo.upstream_rq_total", 3L);
         assertThat(hasStat("cluster.foo.upstream_rq_total", greaterThan(0L)).matches(stats)).isTrue();
         assertThat(hasStat("cluster.bar.upstream_rq_total", greaterThan(0L)).matches(stats)).isFalse();
+        assertThat(hasStat("cluster.bar.upstream_rq_total", not(greaterThan(0L))).matches(stats)).as("a stat Envoy doesn't have").isFalse();
+        assertThat(mismatch(hasStat("cluster.bar.upstream_rq_total", not(greaterThan(0L))), stats)).isEqualTo("Envoy has no stat cluster.bar.upstream_rq_total");
         assertThat(mismatch(hasStat("cluster.foo.upstream_rq_total", greaterThan(5L)), stats)).isEqualTo("cluster.foo.upstream_rq_total <3L> was less than <5L>");
     }
 

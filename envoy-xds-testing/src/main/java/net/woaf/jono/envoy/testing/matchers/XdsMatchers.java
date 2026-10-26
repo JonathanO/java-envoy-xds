@@ -334,13 +334,33 @@ public final class XdsMatchers {
     }
 
     /**
-     * A stat, e.g. from {@code envoy.admin().stats()}.
+     * A stat, e.g. from {@code envoy.admin().stats()}. A stat Envoy doesn't have never matches, even
+     * {@code not(greaterThan(0L))}, so a misspelt name fails rather than passes.
      * @param name stat name, e.g. "cluster.foo.upstream_rq_total"
      * @param value e.g. greaterThan(0L)
      * @return matcher
      */
     public static Matcher<Map<String, Long>> hasStat(String name, Matcher<? super Long> value) {
-        return feature("stat " + name, name, stats -> stats.get(name), value);
+        Matcher<Map<String, Long>> stat = feature("stat " + name, name, stats -> stats.get(name), value);
+        return new TypeSafeDiagnosingMatcher<>() {
+            @Override
+            protected boolean matchesSafely(Map<String, Long> stats, Description mismatch) {
+                if (!stats.containsKey(name)) {
+                    mismatch.appendText("Envoy has no stat ").appendText(name);
+                    return false;
+                }
+                if (!stat.matches(stats)) {
+                    stat.describeMismatch(stats, mismatch);
+                    return false;
+                }
+                return true;
+            }
+
+            @Override
+            public void describeTo(Description description) {
+                stat.describeTo(description);
+            }
+        };
     }
 
     private static List<Cluster> activeClusters(TypedEnvoyConfigDump dump) {
