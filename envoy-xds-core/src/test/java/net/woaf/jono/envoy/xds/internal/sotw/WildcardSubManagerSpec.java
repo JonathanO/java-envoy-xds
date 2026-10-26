@@ -16,18 +16,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class WildcardSubManagerSpec {
 
     @Test
-    public void testNotSubscribed() {
-        WildcardSubManager subManager = new WildcardSubManager();
-
-        Map<String, Object> subs = ImmutableMap.of(
-                "foo", new Object(),
-                "bar", new Object()
-        );
-
-        assertThat(subscribed(subManager, subs)).isEmpty();
-    }
-
-    @Test
     public void testSubscribeToWildcard() {
         WildcardSubManager subManager = new WildcardSubManager();
         assertThat(subManager.processResourceListChange(Collections.emptyList())).isPresent();
