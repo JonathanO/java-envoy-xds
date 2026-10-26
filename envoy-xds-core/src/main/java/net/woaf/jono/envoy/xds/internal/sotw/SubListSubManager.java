@@ -7,11 +7,9 @@ import org.slf4j.LoggerFactory;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 class SubListSubManager implements SubManager {
 
@@ -34,16 +32,6 @@ class SubListSubManager implements SubManager {
         Set<String> newSubs = Sets.difference(next, subs).immutableCopy();
         subs = next;
         return Optional.of(newSubs::contains);
-    }
-
-    @Override
-    public <X> Map<String, X> filterSubs(Map<String, X> things) {
-        return things.entrySet().stream().filter((e) -> subs.contains(e.getKey())).collect(
-                Collectors.toMap(
-                        Map.Entry::getKey,
-                        Map.Entry::getValue
-                )
-        );
     }
 
     @Override

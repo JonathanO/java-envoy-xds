@@ -5,7 +5,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -49,14 +48,6 @@ class WildcardSubManager implements SubManager {
             return Optional.of(subListChange.orElse(name -> false));
         }
         return subListChange;
-    }
-
-    @Override
-    public <X> Map<String, X> filterSubs(Map<String, X> things) {
-        if (!subscribed) {
-            return subListSubManager.filterSubs(things);
-        }
-        return things;
     }
 
     @Override
