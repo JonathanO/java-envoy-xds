@@ -188,7 +188,7 @@ public class DiscoveryServiceManagerTest {
         // To reduce the risk of running into bugs in envoy's cluster initialisation code we don't actively push updates on any discovery service while an existing response
         // for any of them remains unacked.
         // This doesn't prevent us answering interleaved requests from envoy, but it does block pushing network updates.
-        // TODO(jono): consider removing this restriction? Using delayUpdatesUntilAckOf can be used to more reliably work around such bugs...
+        // It also bounds what we queue on the stream: we never write while Envoy is behind.
 
         final DiscoveryService<Message, DummyUpdate> mockDiscoveryServiceA = spy(StateAwareFakeDiscoveryService.class);
         final DiscoveryService<Message, DummyUpdate> mockDiscoveryServiceB = spy(StateAwareFakeDiscoveryService.class);
