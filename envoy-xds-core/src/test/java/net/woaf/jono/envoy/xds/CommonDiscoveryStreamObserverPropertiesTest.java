@@ -15,19 +15,25 @@ import io.envoyproxy.envoy.config.core.v3.Node;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import io.envoyproxy.envoy.config.listener.v3.Listener;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
+import io.envoyproxy.envoy.config.route.v3.ScopedRouteConfiguration;
+import io.envoyproxy.envoy.config.route.v3.VirtualHost;
+import io.envoyproxy.envoy.extensions.transport_sockets.tls.v3.Secret;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.Resource;
+import io.envoyproxy.envoy.service.runtime.v3.Runtime;
 import io.envoyproxy.envoy.type.v3.SemanticVersion;
 import io.grpc.stub.StreamObserver;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.stream.Stream;
 import net.woaf.jono.envoy.xds.api.ClientHandle;
 import net.woaf.jono.envoy.xds.api.ClusterEventSource;
 import net.woaf.jono.envoy.xds.api.ClusterManagerEventListener;
@@ -51,8 +57,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class CommonDiscoveryStreamObserverPropertiesTest {
 
     private static final List<String> NAMES = List.of("a", "b");
-    private static final List<String> TYPE_URLS = List.of(TypeUrl.CDS.getTypeUrl(), TypeUrl.EDS.getTypeUrl(), TypeUrl.LDS.getTypeUrl(),
-        TypeUrl.RDS.getTypeUrl(), "type.googleapis.com/envoy.config.core.v3.TypedExtensionConfig", "");
+    private static final List<String> TYPE_URLS = Stream.concat(Arrays.stream(TypeUrl.values()).map(TypeUrl::getTypeUrl),
+        Stream.of("type.googleapis.com/envoy.config.core.v3.TypedExtensionConfig", "")).toList();
 
     @HegelTest
     void streamsStayConsistent(TestCase tc) {
@@ -180,7 +186,11 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
                 new Builder<>(Cluster.class, n -> Cluster.newBuilder().setName(n).setAltStatName("v" + source.current.version()).build()),
                 new Builder<>(ClusterLoadAssignment.class, n -> ClusterLoadAssignment.newBuilder().setClusterName(n).build()),
                 new Builder<>(Listener.class, n -> Listener.newBuilder().setName(n).build()),
-                new Builder<>(RouteConfiguration.class, n -> RouteConfiguration.newBuilder().setName(n).build()));
+                new Builder<>(RouteConfiguration.class, n -> RouteConfiguration.newBuilder().setName(n).build()),
+                new Builder<>(ScopedRouteConfiguration.class, n -> ScopedRouteConfiguration.newBuilder().setName(n).build()),
+                new Builder<>(VirtualHost.class, n -> VirtualHost.newBuilder().setName(n).build()),
+                new Builder<>(Secret.class, n -> Secret.newBuilder().setName(n).build()),
+                new Builder<>(Runtime.class, n -> Runtime.newBuilder().setName(n).build()));
             AggregatedDiscoveryService<State, Object> ads = new AggregatedDiscoveryService<>(source, builders, node -> XdsConfig.of(new Object()),
                 ImmutableList.of(listeners), QueueingStateBacklog.factory(), DiscoveryServiceManagerMetrics.METRICS_DISABLED);
             StreamObserver<?> raw = delta
