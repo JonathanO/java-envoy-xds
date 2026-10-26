@@ -35,7 +35,7 @@ dependencies {
     api 'com.google.errorprone:error_prone_annotations:2.51.0'
     compileOnly 'net.woaf.jono.envoy:envoy-api:1.36.0' // Users are expected to provide a compatible envoy api
     testImplementation 'net.woaf.jono.envoy:envoy-api:1.36.0'
-    testImplementation 'dev.hegel:hegel:0.10.1'
+    testImplementation 'dev.hegel:hegel:0.10.3'
 }
 
 javadoc {
