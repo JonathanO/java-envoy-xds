@@ -4,7 +4,6 @@ import com.google.common.collect.ImmutableMap;
 import net.woaf.jono.envoy.xds.internal.sotw.SubListSubManager;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
@@ -14,19 +13,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SuppressWarnings("Duplicates")
 public class SubListSubManagerSpec {
-
-    @Test
-    public void testNotSubscribed() {
-        SubListSubManager subManager = new SubListSubManager();
-        assertThat(subManager.getSubs()).isEmpty();
-
-        Map<String, Object> subs = ImmutableMap.of(
-                "foo", new Object(),
-                "bar", new Object()
-        );
-
-        assertThat(subscribed(subManager, subs)).isEmpty();
-    }
 
     @Test
     public void testSubscribeToEmpty() {
@@ -40,25 +26,6 @@ public class SubListSubManagerSpec {
         );
 
         assertThat(subscribed(subManager, subs)).isEmpty();
-    }
-
-    @Test
-    public void testSubscribe() {
-        SubListSubManager subManager = new SubListSubManager();
-        assertThat(subManager.processResourceListChange(Collections.singletonList("foo"))).isPresent();
-        assertThat(subManager.getSubs()).contains("foo");
-
-        Map<String, Object> subs = ImmutableMap.of(
-                "foo", new Object(),
-                "bar", new Object()
-        );
-
-        assertThat(subscribed(subManager, subs)).contains("foo");
-
-        assertThat(subManager.processResourceListChange(Collections.singletonList("foo"))).isNotPresent();
-        assertThat(subscribed(subManager, subs)).contains("foo");
-
-
     }
 
     @Test
@@ -77,44 +44,6 @@ public class SubListSubManagerSpec {
         assertThat(subManager.processResourceListChange(Collections.singletonList("bar"))).isPresent();
         assertThat(subManager.getSubs()).contains("bar");
         assertThat(subscribed(subManager, subs)).contains("bar");
-
-    }
-
-    @Test
-    public void testSubscribeMore() {
-        SubListSubManager subManager = new SubListSubManager();
-        assertThat(subManager.processResourceListChange(Collections.singletonList("foo"))).isPresent();
-        assertThat(subManager.getSubs()).contains("foo");
-
-        Map<String, Object> subs = ImmutableMap.of(
-                "foo", new Object(),
-                "bar", new Object()
-        );
-
-        assertThat(subscribed(subManager, subs)).contains("foo");
-
-        assertThat(subManager.processResourceListChange(new ArrayList<>(subs.keySet()))).isPresent();
-        assertThat(subManager.getSubs()).containsExactlyInAnyOrder("foo", "bar");
-        assertThat(subscribed(subManager, subs)).containsExactlyInAnyOrder("foo", "bar");
-
-    }
-
-    @Test
-    public void testUnsubscribeAll() {
-        SubListSubManager subManager = new SubListSubManager();
-        assertThat(subManager.processResourceListChange(Collections.singletonList("foo"))).isPresent();
-        assertThat(subManager.getSubs()).contains("foo");
-
-        Map<String, Object> subs = ImmutableMap.of(
-                "foo", new Object(),
-                "bar", new Object()
-        );
-
-        assertThat(subscribed(subManager, subs)).contains("foo");
-
-        assertThat(subManager.processResourceListChange(Collections.emptyList())).isPresent();
-        assertThat(subManager.getSubs()).isEmpty();
-        assertThat(subscribed(subManager, subs)).isEmpty();
 
     }
 

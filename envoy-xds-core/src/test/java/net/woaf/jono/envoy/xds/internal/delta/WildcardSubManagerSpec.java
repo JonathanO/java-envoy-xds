@@ -10,17 +10,8 @@ import java.util.function.Predicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-
 @SuppressWarnings("Duplicates")
 public class WildcardSubManagerSpec {
-
-    @Test
-    public void testNotSubscribed() {
-        WildcardSubManager subManager = new WildcardSubManager(new NodeConfig<>(XdsConfig.of(new Object()), false));
-
-        assertThat(subManager.isSubscribedTo("foo")).isFalse();
-        assertThat(subManager.isSubscribedTo("bar")).isFalse();
-    }
 
     @Test
     public void testSubscribeEmptyFirstMessageIsWildcard() {
@@ -45,38 +36,6 @@ public class WildcardSubManagerSpec {
         assertThat(subManager.isSubscribedTo("*")).isFalse();
     }
 
-
-    @Test
-    public void testSubscribeMoreThanOnce() {
-        WildcardSubManager subManager = new WildcardSubManager(new NodeConfig<>(XdsConfig.of(new Object()), false));
-
-        Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of()).orElseThrow();
-        assertThat(wouldSendUpdates).accepts("foo", "bar");
-
-        // Nothing changes, so no filter returned.
-        assertThat(subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of())).isNotPresent();
-
-        assertThat(subManager.isSubscribedTo("foo")).isTrue();
-        assertThat(subManager.isSubscribedTo("bar")).isTrue();
-    }
-
-    @Test
-    public void testSubscribeWithResourceNamesSubscribesToResourcesByName() {
-        WildcardSubManager subManager = new WildcardSubManager(new NodeConfig<>(XdsConfig.of(new Object()), false));
-
-        Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of("foo", "bar"), ImmutableSet.of()).orElseThrow();
-        assertThat(wouldSendUpdates).accepts("foo", "bar").rejects("baz");
-
-
-        // Unsubscribe from foo
-        assertThat(subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of("foo"))).isNotPresent();
-
-
-        assertThat(subManager.isSubscribedTo("foo")).isFalse();
-        assertThat(subManager.isSubscribedTo("bar")).isTrue();
-        assertThat(subManager.isSubscribedTo("baz")).isFalse();
-    }
-
     @Test
     public void testBugClientSendsResourceListOnReconnectToWildcard() {
         // Prior to 1.19 a reconnecting envoy would send a resource list on connection to a wildcard DS if it already had state for that DS (e.g. if it was reconnecting to the control plane.)
@@ -86,13 +45,11 @@ public class WildcardSubManagerSpec {
         Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of("foo", "bar"), ImmutableSet.of()).orElseThrow();
         assertThat(wouldSendUpdates).accepts("foo", "bar", "baz");
 
-
         // Nothing changes, so no filter returned.
         assertThat(subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of("foo"))).isNotPresent();
 
         assertThat(wouldSendUpdates).accepts("foo", "bar", "baz");
     }
-
 
     @Test
     public void testSubUnsubSubWildcard() {

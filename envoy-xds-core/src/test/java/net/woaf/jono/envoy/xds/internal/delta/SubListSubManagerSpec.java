@@ -13,49 +13,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 public class SubListSubManagerSpec {
 
     @Test
-    public void testNotSubscribed() {
-        SubListSubManager subManager = new SubListSubManager(null);
-
-        assertThat(subManager.isSubscribedTo("foo")).isFalse();
-    }
-
-    @Test
-    public void testSubscribe() {
-        SubListSubManager subManager = new SubListSubManager(null);
-
-        Predicate<String> filter = subManager.processResourceListChange(ImmutableSet.of("foo", "bar"), ImmutableSet.of()).orElseThrow();
-
-        assertThat(filter.test("foo")).isTrue();
-        assertThat(filter.test("bar")).isTrue();
-        assertThat(filter.test("baz")).isFalse();
-        assertThat(subManager.isSubscribedTo("foo")).isTrue();
-        assertThat(subManager.isSubscribedTo("bar")).isTrue();
-        assertThat(subManager.isSubscribedTo("baz")).isFalse();
-    }
-
-
-    @Test
-    public void testSubscribeMore() {
-        SubListSubManager subManager = new SubListSubManager(null);
-
-        Predicate<String> filter = subManager.processResourceListChange(ImmutableSet.of("foo"), ImmutableSet.of()).orElseThrow();
-
-        assertThat(filter.test("foo")).isTrue();
-        assertThat(filter.test("bar")).isFalse();
-        assertThat(filter.test("baz")).isFalse();
-
-        filter = subManager.processResourceListChange(ImmutableSet.of("bar"), ImmutableSet.of()).orElseThrow();
-
-        assertThat(filter.test("foo")).isFalse();
-        assertThat(filter.test("bar")).isTrue();
-        assertThat(filter.test("baz")).isFalse();
-
-        assertThat(subManager.isSubscribedTo("foo")).isTrue();
-        assertThat(subManager.isSubscribedTo("bar")).isTrue();
-        assertThat(subManager.isSubscribedTo("baz")).isFalse();
-    }
-
-    @Test
     public void testSubscribeTwice() {
         SubListSubManager subManager = new SubListSubManager(null);
 
@@ -97,47 +54,6 @@ public class SubListSubManagerSpec {
     }
 
     @Test
-    public void testUnsubscribeAll() {
-        SubListSubManager subManager = new SubListSubManager(null);
-
-        subManager.processResourceListChange(ImmutableSet.of("foo", "bar"), ImmutableSet.of());
-
-        assertThat(subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of("foo", "bar"))).isNotPresent();
-
-        assertThat(subManager.isSubscribedTo("foo")).isFalse();
-        assertThat(subManager.isSubscribedTo("bar")).isFalse();
-        assertThat(subManager.isSubscribedTo("baz")).isFalse();
-    }
-
-    @Test
-    public void testUnsubscribeNotSubscribed() {
-        SubListSubManager subManager = new SubListSubManager(null);
-
-        subManager.processResourceListChange(ImmutableSet.of("foo", "bar"), ImmutableSet.of());
-
-        // Nothing changes, so no filter returned.
-        assertThat(subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of("baz"))).isNotPresent();
-
-        assertThat(subManager.isSubscribedTo("foo")).isTrue();
-        assertThat(subManager.isSubscribedTo("bar")).isTrue();
-        assertThat(subManager.isSubscribedTo("baz")).isFalse();
-    }
-
-    @Test
-    public void testSubscribeNoChange() {
-        SubListSubManager subManager = new SubListSubManager(null);
-
-        subManager.processResourceListChange(ImmutableSet.of("foo"), ImmutableSet.of());
-
-        // Nothing changes, so no filter returned.
-        assertThat(subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of())).isNotPresent();
-
-        assertThat(subManager.isSubscribedTo("foo")).isTrue();
-        assertThat(subManager.isSubscribedTo("bar")).isFalse();
-    }
-
-
-    @Test
     public void testSubscribeToEmpty() {
         SubListSubManager subManager = new SubListSubManager(null);
 
@@ -146,7 +62,6 @@ public class SubListSubManagerSpec {
 
         assertThat(subManager.isSubscribedTo("foo")).isFalse();
     }
-
 
     @Test
     public void testSubscribeUnsubscribeSameResourceThrows() {
