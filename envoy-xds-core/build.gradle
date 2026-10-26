@@ -34,3 +34,7 @@ dependencies {
     testImplementation 'dev.hegel:hegel:0.10.3'
 }
 
+javadoc {
+    exclude '**/internal/**' // not API
+    options.addBooleanOption('Werror', true) // every public API documented
+}

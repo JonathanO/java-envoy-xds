@@ -7,7 +7,11 @@ ext.projectArtifactName = "envoy-xds-snapshot"
 
 apply from: "${rootDir}/build.common.gradle"
 apply from: "${rootDir}/publishing.gradle"
+apply plugin: 'org.pastalab.fray.gradle'
 apply plugin: 'me.champeau.jmh'
+
+// ./gradlew :envoy-xds-snapshot:frayTest explores thread interleavings of the @FrayTest tests on Fray's instrumented
+// JDK. It takes minutes, so it isn't part of check: CI runs it as a job of its own.
 
 // ./gradlew :envoy-xds-snapshot:jmh runs the benchmarks in src/jmh; not part of the build.
 jmh {
@@ -32,4 +36,8 @@ dependencies {
     compileOnly 'net.woaf.jono.envoy:envoy-api:1.36.0' // Users are expected to provide a compatible envoy api
     testImplementation 'net.woaf.jono.envoy:envoy-api:1.36.0'
     testImplementation 'dev.hegel:hegel:0.10.3'
+}
+
+javadoc {
+    options.addBooleanOption('Werror', true) // every public API documented
 }

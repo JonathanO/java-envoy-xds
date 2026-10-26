@@ -21,13 +21,21 @@ public final class XdsTypes {
 
     private static final String PREFIX = "type.googleapis.com/";
 
+    /** Listeners' type URL. */
     public static final String LDS = PREFIX + Listener.getDescriptor().getFullName();
+    /** Route configurations' type URL. */
     public static final String RDS = PREFIX + RouteConfiguration.getDescriptor().getFullName();
+    /** Scoped route configurations' type URL. */
     public static final String SRDS = PREFIX + ScopedRouteConfiguration.getDescriptor().getFullName();
+    /** Virtual hosts' type URL. */
     public static final String VHDS = PREFIX + VirtualHost.getDescriptor().getFullName();
+    /** Clusters' type URL. */
     public static final String CDS = PREFIX + Cluster.getDescriptor().getFullName();
+    /** Cluster load assignments' type URL. */
     public static final String EDS = PREFIX + ClusterLoadAssignment.getDescriptor().getFullName();
+    /** Secrets' type URL. */
     public static final String SDS = PREFIX + Secret.getDescriptor().getFullName();
+    /** Runtime layers' type URL. */
     public static final String RTDS = PREFIX + Runtime.getDescriptor().getFullName();
 
     private static final Set<String> WILDCARD = Set.of(LDS, CDS);

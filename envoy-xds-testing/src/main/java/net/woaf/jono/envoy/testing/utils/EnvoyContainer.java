@@ -22,10 +22,15 @@ import org.testcontainers.utility.DockerImageName;
 @SuppressFBWarnings(value = "EQ_DOESNT_OVERRIDE_EQUALS", justification = "The captured log isn't part of the container's identity")
 public class EnvoyContainer extends GenericContainer<EnvoyContainer> {
 
+    /** The admin interface's port inside the container. */
     public static final int ADMIN_PORT = 9901;
 
     private final List<String> log = Collections.synchronizedList(new ArrayList<>());
 
+    /**
+     * An Envoy container, retried if Envoy doesn't start.
+     * @param image e.g. envoyproxy/envoy:v1.40.0
+     */
     @SuppressWarnings("this-escape") // the usual Testcontainers set-up; subclasses get our defaults first
     public EnvoyContainer(String image) {
         super(DockerImageName.parse(image));
@@ -54,6 +59,9 @@ public class EnvoyContainer extends GenericContainer<EnvoyContainer> {
         }
     }
 
+    /**
+     * {@return how many log lines so far}
+     */
     public int logSize() {
         return log.size();
     }

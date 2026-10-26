@@ -16,9 +16,12 @@ public interface DiscoveryServiceManagerMetrics {
 
     // Anonymous rather than a nested class: a subclass referenced from the interface's own initialiser can deadlock
     // class init if another thread initialises the subclass first.
+    /** Records nothing. */
     DiscoveryServiceManagerMetrics NOOP_METRICS = new DiscoveryServiceManagerMetrics() { };
+    /** A metrics factory for AggregatedDiscoveryService that records nothing. */
     Supplier<DiscoveryServiceManagerMetrics> METRICS_DISABLED = () -> NOOP_METRICS;
 
+    /** Called when the stream ends. */
     default void close() {
 
     }

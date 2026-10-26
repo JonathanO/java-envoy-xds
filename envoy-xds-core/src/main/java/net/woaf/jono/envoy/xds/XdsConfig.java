@@ -26,6 +26,9 @@ import java.util.Set;
  */
 public record XdsConfig<DetailsT>(DetailsT clientDetails, @Nullable TypeUrl delayUpdatesUntilAckOf, @Nullable Set<TypeUrl> subscribesTo) {
 
+    /**
+     * Copies subscribesTo, so later changes to the set you passed don't change the config.
+     */
     public XdsConfig {
         subscribesTo = subscribesTo == null ? null : ImmutableSet.copyOf(subscribesTo);
     }
@@ -40,10 +43,18 @@ public record XdsConfig<DetailsT>(DetailsT clientDetails, @Nullable TypeUrl dela
         return new XdsConfig<>(clientDetails, null, null);
     }
 
+    /**
+     * {@return this config, delaying updates until that type is ACKed}
+     * @param typeUrl see {@link #delayUpdatesUntilAckOf()}
+     */
     public XdsConfig<DetailsT> withDelayUpdatesUntilAckOf(@Nullable TypeUrl typeUrl) {
         return new XdsConfig<>(clientDetails, typeUrl, subscribesTo);
     }
 
+    /**
+     * {@return this config, for a client that gets these types from us}
+     * @param types see {@link #subscribesTo()}
+     */
     public XdsConfig<DetailsT> withSubscribesTo(@Nullable Set<TypeUrl> types) {
         return new XdsConfig<>(clientDetails, delayUpdatesUntilAckOf, types);
     }

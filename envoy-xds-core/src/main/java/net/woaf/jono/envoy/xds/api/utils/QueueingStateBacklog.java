@@ -33,11 +33,23 @@ public class QueueingStateBacklog<StateUpdT> implements StateBacklog<StateUpdT> 
         return backlog.poll();
     }
 
+    /**
+     * {@return a factory of backlogs that queues updates, for AggregatedDiscoveryService}
+     * @param <StateUpdT> State update type
+     */
     public static <StateUpdT> QueueingStateBacklogFactory<StateUpdT> factory() {
         return new QueueingStateBacklogFactory<>();
     }
 
-    public static class QueueingStateBacklogFactory<StateUpdT> implements StateBacklogFactory<StateUpdT> {
+    /**
+     * Builds a QueueingStateBacklog per connection.
+     *
+     * @param <StateUpdT> State update type
+     */
+    public static final class QueueingStateBacklogFactory<StateUpdT> implements StateBacklogFactory<StateUpdT> {
+
+        private QueueingStateBacklogFactory() {
+        }
 
         @Override
         public QueueingStateBacklog<StateUpdT> build() {
