@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.google.protobuf.Any;
 import com.google.protobuf.Message;
 import com.google.rpc.Status;
+import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.Resource;
@@ -88,6 +89,36 @@ public class DeltaConversationAssertTest {
         return c;
     }
 
+    private static DeltaDiscoveryResponse response(String typeUrl, String nonce, Message... resources) {
+        DeltaDiscoveryResponse.Builder r = DeltaDiscoveryResponse.newBuilder().setTypeUrl(typeUrl).setNonce(nonce);
+        for (Message m : resources) {
+            r.addResources(Resource.newBuilder().setName(XdsTypes.nameOf(m)).setResource(Any.pack(m)));
+        }
+        return r.build();
+    }
+
+    @Test
+    public void doesNotTakeAnAckOfAnotherTypesNonce() {
+        // Envoy keeps nonces per type, so EDS's ACK of its nonce 2 isn't CDS's.
+        Conversation c = new Conversation();
+        c.onRequest(subscribe(XdsTypes.CDS));
+        c.onResponse(response(XdsTypes.CDS, "1", cluster("a")));
+        c.onRequest(ack(XdsTypes.CDS, "1"));
+        c.onRequest(subscribe(XdsTypes.EDS, "a"));
+        c.onResponse(response(XdsTypes.EDS, "1", endpoints("a")));
+        c.onRequest(ack(XdsTypes.EDS, "1"));
+        c.onRequest(subscribe(XdsTypes.RDS, "routes"));
+        c.onResponse(response(XdsTypes.EDS, "2", endpoints("a")));
+        c.onResponse(response(XdsTypes.CDS, "2", Cluster.newBuilder().setName("b").setType(Cluster.DiscoveryType.STATIC).build()));
+        c.onRequest(ack(XdsTypes.EDS, "2"));
+        c.onResponse(response(XdsTypes.RDS, "1", routeTo("b")));
+        c.onRequest(ack(XdsTypes.CDS, "2"));
+        c.onRequest(ack(XdsTypes.RDS, "1"));
+        assertThatCode(() -> DeltaConversationAssert.assertThat(c).allWereAcked().nothingSentUnasked()).doesNotThrowAnyException();
+        assertThatThrownBy(() -> DeltaConversationAssert.assertThat(c).wasMakeBeforeBreak(0))
+            .hasMessageContaining("Route <routes> sent using cluster <b> before Envoy ACKed the cluster");
+    }
+
     @Test
     public void passesACleanSwitchBetweenClusters() {
         Conversation c = synced();
@@ -101,7 +132,7 @@ public class DeltaConversationAssertTest {
     public void catchesAResponseEnvoyNeverAcked() {
         Conversation c = synced();
         send(c, XdsTypes.CDS, cluster("v2"));
-        assertThatThrownBy(() -> DeltaConversationAssert.assertThat(c).allWereAcked()).hasMessageContaining("Found unacked nonces <[5]>");
+        assertThatThrownBy(() -> DeltaConversationAssert.assertThat(c).allWereAcked()).hasMessageContaining("Found unacked nonces <{" + XdsTypes.CDS + "=[5]}>");
     }
 
     @Test

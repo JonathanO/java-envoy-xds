@@ -1,5 +1,8 @@
 package net.woaf.jono.envoy.testing.assertions;
 
+import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.SetMultimap;
+import com.google.common.collect.Table;
 import org.jspecify.annotations.Nullable;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultimap;
@@ -10,10 +13,8 @@ import net.woaf.jono.envoy.testing.XdsTypes;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.Resource;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import org.assertj.core.api.AssertFactory;
 import org.assertj.core.api.InstanceOfAssertFactory;
@@ -49,24 +50,25 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
     @CanIgnoreReturnValue
     public DeltaConversationAssert allWereAcked() {
         isNotNull();
-        HashSet<String> sentNonces = new HashSet<>();
-        HashSet<String> outstandingNonces = new HashSet<>();
+        // By type: Envoy keeps nonces per type, so a library may number them per type.
+        SetMultimap<String, String> sentNonces = HashMultimap.create();
+        SetMultimap<String, String> outstandingNonces = HashMultimap.create();
 
         for (Object message : actual.getMessages()) {
             if (message instanceof DeltaDiscoveryRequest r) {
                 if (Strings.emptyToNull(r.getResponseNonce()) != null) {
-                    if (!outstandingNonces.remove(r.getResponseNonce())) {
-                        failWithMessage("Found unexpected response nonce <%s>, expected one of <%s>", r.getResponseNonce(), outstandingNonces);
+                    if (!outstandingNonces.remove(r.getTypeUrl(), r.getResponseNonce())) {
+                        failWithMessage("Found unexpected response nonce <%s> for <%s>, expected one of <%s>", r.getResponseNonce(), r.getTypeUrl(), outstandingNonces.get(r.getTypeUrl()));
                     }
                 }
                 if (r.hasErrorDetail()) {
                     failWithMessage("Envoy sent error <%s>", r.getErrorDetail().getMessage());
                 }
             } else if (message instanceof DeltaDiscoveryResponse r) {
-                if (!sentNonces.add(r.getNonce())) {
+                if (!sentNonces.put(r.getTypeUrl(), r.getNonce())) {
                     failWithMessage("Sent nonce <%s> for <%s> multiple times", r.getNonce(), r.getTypeUrl());
                 }
-                outstandingNonces.add(r.getNonce());
+                outstandingNonces.put(r.getTypeUrl(), r.getNonce());
             } else {
                 failWithMessage("Expected message to be of type DeltaDiscoveryRequest or DeltaDiscoveryResponse, but found <%s>", message.getClass());
             }
@@ -201,16 +203,16 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
 
     // Track what Envoy ACKs, checking responses from checkFrom on.
     private static void replay(AckedState state, List<Object> messages, int checkFrom) {
-        Map<String, DeltaDiscoveryResponse> pending = new HashMap<>();
+        Table<String, String, DeltaDiscoveryResponse> pending = HashBasedTable.create(); // by type, then nonce
         for (int i = 0; i < messages.size(); i++) {
             Object message = messages.get(i);
             if (message instanceof DeltaDiscoveryResponse r) {
                 if (i >= checkFrom) {
                     state.checkResponse(r.getTypeUrl(), resources(r), r.getRemovedResourcesList());
                 }
-                pending.put(r.getNonce(), r);
+                pending.put(r.getTypeUrl(), r.getNonce(), r);
             } else if (message instanceof DeltaDiscoveryRequest r && !r.hasErrorDetail()) {
-                DeltaDiscoveryResponse ackedResponse = pending.remove(r.getResponseNonce());
+                DeltaDiscoveryResponse ackedResponse = pending.remove(r.getTypeUrl(), r.getResponseNonce());
                 if (ackedResponse != null) {
                     state.acked(ackedResponse.getTypeUrl(), resources(ackedResponse), ackedResponse.getRemovedResourcesList());
                 }
