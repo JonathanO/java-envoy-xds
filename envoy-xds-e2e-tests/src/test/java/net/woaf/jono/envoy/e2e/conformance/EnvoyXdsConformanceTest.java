@@ -15,10 +15,12 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import net.woaf.jono.envoy.e2e.utils.DiscoveryServiceManagerEventListener;
 import net.woaf.jono.envoy.testing.Settled;
 import net.woaf.jono.envoy.testing.conformance.XdsConformanceTest;
 import net.woaf.jono.envoy.xds.AggregatedDiscoveryService;
+import net.woaf.jono.envoy.xds.TypeUrl;
 import net.woaf.jono.envoy.xds.XdsConfig;
 import net.woaf.jono.envoy.xds.api.ClientHandle;
 import net.woaf.jono.envoy.xds.api.XdsEventListener;
@@ -65,7 +67,9 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
                 source,
                 SnapshotConfigBuilder.forTypes(Cluster.class, ClusterLoadAssignment.class, Listener.class, RouteConfiguration.class,
                     ScopedRouteConfiguration.class, VirtualHost.class),
-                node -> XdsConfig.<String>of(node.getId()),
+                // Every scenario's Envoy uses these; only some use scoped routes or VHDS, so stale clusters after a reconnect
+                // mustn't wait for those.
+                node -> XdsConfig.<String>of(node.getId()).withSubscribesTo(Set.of(TypeUrl.LDS, TypeUrl.RDS, TypeUrl.CDS, TypeUrl.EDS)),
                 ImmutableList.of(new XdsEventListener<>() {
                     @Override
                     public void onNewClient(ClientHandle clientHandle, Node node, XdsConfig<String> config) {
