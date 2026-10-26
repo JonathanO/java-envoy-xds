@@ -100,8 +100,12 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
 
     @Override
     public synchronized void onNext(T concreteValue) {
+        if (isDead) {
+            // e.g. sent before Envoy saw us close the stream to resync it
+            log.debug("Ignoring a request from {} on a closed stream", nodeId);
+            return;
+        }
         try {
-            Preconditions.checkState(!isDead);
             CommonDiscoveryRequest<T> value = commonDiscoveryRequestConverter.apply(concreteValue);
 
             if (node == null) {
