@@ -122,8 +122,10 @@ public class SnapshotConfigBuilderTest {
         views.update(c -> c.group("own-b", e -> e.put(cluster("foo"))));
         views.update(c -> c.group("nobody", e -> e.put(cluster("foo"))));
         views.update(c -> c.group("shared", e -> e.put(cluster("foo")))); // no change
+        views.update(c -> c.view("a", "own-a"));
+        views.update(c -> c.group("shared", e -> e.put(cluster("bar"))));
 
-        assertThat(woken).containsExactly("a", "b");
+        assertThat(woken).containsExactly("a", "b", "a");
     }
 
     @Test
