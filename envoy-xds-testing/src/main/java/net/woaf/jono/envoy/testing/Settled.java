@@ -20,6 +20,7 @@ import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
  */
 public final class Settled {
 
+    /** How long a conversation must be silent to count as quiet, unless you say otherwise. */
     public static final Duration DEFAULT_QUIET_PERIOD = Duration.ofMillis(500);
 
     /**

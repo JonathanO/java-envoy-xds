@@ -14,9 +14,16 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * A gRPC server interceptor that records every xDS stream, as a {@link Conversation} each.
+ */
 public class ConversationLogger implements ServerInterceptor {
 
     private final List<Conversation> conversations = Collections.synchronizedList(new ArrayList<>());
+
+    /** Records nothing yet. */
+    public ConversationLogger() {
+    }
 
 
     @Override
@@ -28,10 +35,16 @@ public class ConversationLogger implements ServerInterceptor {
         return listener.interceptCall(call, headers, next);
     }
 
+    /**
+     * {@return the streams so far, oldest first}
+     */
     public ImmutableList<Conversation> getConversations() {
         return ImmutableList.copyOf(conversations);
     }
 
+    /**
+     * One stream's messages, in order: requests from Envoy and our responses.
+     */
     public static class Conversation {
 
         @GuardedBy("this")
@@ -41,24 +54,41 @@ public class ConversationLogger implements ServerInterceptor {
         @GuardedBy("this")
         private long lastMessageNanos = System.nanoTime();
 
+        /** Creates an empty conversation. */
+        public Conversation() {
+        }
+
+        /** The stream was cancelled. */
         public synchronized void onCancel() {
             isFinished = true;
         }
 
+        /** The stream completed. */
         public synchronized void onComplete() {
             isFinished = true;
         }
 
+        /**
+         * Envoy sent a request.
+         * @param request the request
+         */
         public synchronized void onRequest(Object request) {
             messages.add(request);
             lastMessageNanos = System.nanoTime();
         }
 
+        /**
+         * We sent a response.
+         * @param response the response
+         */
         public synchronized void onResponse(Object response) {
             messages.add(response);
             lastMessageNanos = System.nanoTime();
         }
 
+        /**
+         * {@return how many messages so far}
+         */
         public synchronized int size() {
             return messages.size();
         }
@@ -72,6 +102,9 @@ public class ConversationLogger implements ServerInterceptor {
             return System.nanoTime() - lastMessageNanos >= period.toNanos();
         }
 
+        /**
+         * {@return a copy of the messages so far}
+         */
         public synchronized List<Object> getMessages() {
             return ImmutableList.copyOf(messages);
         }
@@ -81,6 +114,9 @@ public class ConversationLogger implements ServerInterceptor {
             return "Conversation(finished=" + isFinished + ", messages=" + messages + ")";
         }
 
+        /**
+         * {@return whether the stream has ended}
+         */
         public synchronized boolean isFinished() {
             return isFinished;
         }
