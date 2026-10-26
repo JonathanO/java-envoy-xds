@@ -49,6 +49,7 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
     @CanIgnoreReturnValue
     public DeltaConversationAssert allWereAcked() {
         isNotNull();
+        HashSet<String> sentNonces = new HashSet<>();
         HashSet<String> outstandingNonces = new HashSet<>();
 
         for (Object message : actual.getMessages()) {
@@ -62,9 +63,10 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
                     failWithMessage("Envoy sent error <%s>", r.getErrorDetail().getMessage());
                 }
             } else if (message instanceof DeltaDiscoveryResponse r) {
-                if (!outstandingNonces.add(r.getNonce())) {
-                    failWithMessage("Sent nonce <%s> multiple times", r.getNonce());
+                if (!sentNonces.add(r.getNonce())) {
+                    failWithMessage("Sent nonce <%s> for <%s> multiple times", r.getNonce(), r.getTypeUrl());
                 }
+                outstandingNonces.add(r.getNonce());
             } else {
                 failWithMessage("Expected message to be of type DeltaDiscoveryRequest or DeltaDiscoveryResponse, but found <%s>", message.getClass());
             }
