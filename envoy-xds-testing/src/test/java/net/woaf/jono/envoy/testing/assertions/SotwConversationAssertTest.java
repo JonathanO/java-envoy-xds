@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.google.protobuf.Any;
 import com.google.protobuf.Message;
 import com.google.rpc.Status;
+import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import java.util.List;
@@ -30,7 +31,10 @@ public class SotwConversationAssertTest {
     }
 
     private String send(Conversation c, String typeUrl, Message... resources) {
-        String n = Integer.toString(++nonce);
+        return send(c, typeUrl, Integer.toString(++nonce), resources);
+    }
+
+    private static String send(Conversation c, String typeUrl, String n, Message... resources) {
         DiscoveryResponse.Builder r = DiscoveryResponse.newBuilder().setTypeUrl(typeUrl).setNonce(n);
         for (Message m : resources) {
             r.addResources(Any.pack(m));
@@ -200,6 +204,26 @@ public class SotwConversationAssertTest {
         send(c, XdsTypes.RDS, routeTo("v2"));
         assertThatThrownBy(() -> SotwConversationAssert.assertThat(c).wasMakeBeforeBreak(0))
             .hasMessageContaining("Route <routes> sent using cluster <v2> before Envoy ACKed the cluster");
+    }
+
+    @Test
+    public void doesNotTakeAnAckOfAnotherTypesNonce() {
+        // Envoy keeps SotW nonces per type, so EDS's ACK of its nonce 2 isn't CDS's.
+        Conversation c = new Conversation();
+        c.onRequest(request(XdsTypes.CDS, ""));
+        c.onRequest(request(XdsTypes.CDS, send(c, XdsTypes.CDS, "1", cluster("a"))));
+        c.onRequest(request(XdsTypes.EDS, "", "a"));
+        c.onRequest(request(XdsTypes.EDS, send(c, XdsTypes.EDS, "1", endpoints("a")), "a"));
+        c.onRequest(request(XdsTypes.RDS, "", "routes"));
+        send(c, XdsTypes.EDS, "2", endpoints("a"));
+        send(c, XdsTypes.CDS, "2", cluster("a"), Cluster.newBuilder().setName("b").setType(Cluster.DiscoveryType.STATIC).build());
+        c.onRequest(request(XdsTypes.EDS, "2", "a"));
+        send(c, XdsTypes.RDS, "1", routeTo("b"));
+        c.onRequest(request(XdsTypes.CDS, "2"));
+        c.onRequest(request(XdsTypes.RDS, "1", "routes"));
+        assertThatCode(() -> SotwConversationAssert.assertThat(c).allWereAcked().nothingSentUnasked()).doesNotThrowAnyException();
+        assertThatThrownBy(() -> SotwConversationAssert.assertThat(c).wasMakeBeforeBreak(0))
+            .hasMessageContaining("Route <routes> sent using cluster <b> before Envoy ACKed the cluster");
     }
 
     @Test
