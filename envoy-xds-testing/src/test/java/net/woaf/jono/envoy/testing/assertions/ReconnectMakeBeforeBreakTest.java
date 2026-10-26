@@ -1,16 +1,13 @@
 package net.woaf.jono.envoy.testing.assertions;
 
+import static net.woaf.jono.envoy.testing.assertions.TestResources.cluster;
+import static net.woaf.jono.envoy.testing.assertions.TestResources.endpoints;
+import static net.woaf.jono.envoy.testing.assertions.TestResources.routeTo;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.Message;
-import io.envoyproxy.envoy.config.cluster.v3.Cluster;
-import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
-import io.envoyproxy.envoy.config.route.v3.Route;
-import io.envoyproxy.envoy.config.route.v3.RouteAction;
-import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
-import io.envoyproxy.envoy.config.route.v3.VirtualHost;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.Resource;
@@ -31,19 +28,6 @@ public class ReconnectMakeBeforeBreakTest {
         }
         c.onResponse(r.build());
         c.onRequest(DeltaDiscoveryRequest.newBuilder().setTypeUrl(typeUrl).setResponseNonce(n).build());
-    }
-
-    private static Cluster cluster(String name) {
-        return Cluster.newBuilder().setName(name).setType(Cluster.DiscoveryType.EDS).build();
-    }
-
-    private static ClusterLoadAssignment endpoints(String cluster) {
-        return ClusterLoadAssignment.newBuilder().setClusterName(cluster).build();
-    }
-
-    private static RouteConfiguration routeTo(String cluster) {
-        return RouteConfiguration.newBuilder().setName("routes").addVirtualHosts(VirtualHost.newBuilder().setName("foo")
-            .addRoutes(Route.newBuilder().setRoute(RouteAction.newBuilder().setCluster(cluster)))).build();
     }
 
     /** Envoy left with a route to v1 on the first stream. */
