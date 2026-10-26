@@ -1,9 +1,11 @@
 package net.woaf.jono.envoy.xds.api.utils;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.rpc.Status;
 import io.envoyproxy.envoy.config.core.v3.Node;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.InstantSource;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
@@ -28,6 +30,7 @@ public class ResyncAfterNack<DetailsT> implements XdsEventListener<DetailsT> {
     private final ScheduledExecutorService scheduler;
     private final Duration initialDelay;
     private final Duration maxDelay;
+    private final InstantSource clock;
 
     private final Map<ClientHandle, ScheduledFuture<?>> pending = new ConcurrentHashMap<>();
 
@@ -44,9 +47,15 @@ public class ResyncAfterNack<DetailsT> implements XdsEventListener<DetailsT> {
      * @param maxDelay longest wait
      */
     public ResyncAfterNack(ScheduledExecutorService scheduler, Duration initialDelay, Duration maxDelay) {
+        this(scheduler, initialDelay, maxDelay, InstantSource.system());
+    }
+
+    @VisibleForTesting
+    ResyncAfterNack(ScheduledExecutorService scheduler, Duration initialDelay, Duration maxDelay, InstantSource clock) {
         this.scheduler = scheduler;
         this.initialDelay = initialDelay;
         this.maxDelay = maxDelay;
+        this.clock = clock;
     }
 
     @Override
@@ -74,7 +83,7 @@ public class ResyncAfterNack<DetailsT> implements XdsEventListener<DetailsT> {
     }
 
     private Duration nextDelay(String nodeId) {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         return backoffs.compute(nodeId, (id, last) -> {
             if (last == null || last.lastNack().plus(maxDelay.multipliedBy(2)).isBefore(now)) {
                 return new Backoff(initialDelay, now);
