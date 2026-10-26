@@ -85,102 +85,88 @@ public class DiscoveryServiceManagerTest {
         verifyNoMoreInteractions(mockDiscoveryService);
     }
 
+
     @Test
     public void testSingleServicePushBlocksUntilResponse() {
-        DiscoveryService<Message, DummyUpdate> mockDiscoveryService = spy(StateAwareFakeDiscoveryService.class);
+        DiscoveryService<Message, DummyUpdate> eds = spy(new StateAwareFakeDiscoveryService(TypeUrl.EDS));
 
-        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(Map.of(TypeUrl.EDS, mockDiscoveryService), List.of(TypeUrl.EDS), List.of(TypeUrl.EDS), new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS);
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(Map.of(TypeUrl.EDS, eds), List.of(TypeUrl.EDS), List.of(TypeUrl.EDS), new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS);
 
         dsm.init(new DummyUpdate());
         final var update = new DummyUpdate();
         final var update2 = new DummyUpdate();
         final var update3 = new DummyUpdate();
-        final var request = new CommonDiscoveryRequest<>(null, TypeUrl.EDS.getTypeUrl(), null, null);
 
         dsm.pushUpdates(update);
 
-        InOrder inOrder = Mockito.inOrder(mockDiscoveryService);
-        inOrder.verify(mockDiscoveryService).onNetworkUpdate(update);
-        inOrder.verify(mockDiscoveryService).sendNetworkUpdatePre();
-        inOrder.verify(mockDiscoveryService, never()).onNetworkUpdate(update2);
+        InOrder inOrder = Mockito.inOrder(eds);
+        inOrder.verify(eds).onNetworkUpdate(update);
+        inOrder.verify(eds).sendNetworkUpdatePre();
+        inOrder.verify(eds, never()).onNetworkUpdate(update2);
 
-        // blocked on ack
-        dsm.pushUpdates(update2); // This should have no effect as it'll be queued.
-        dsm.pushUpdates(update3); // This should have no effect as it'll be queued.
-        dsm.processUpdate(request);
+        dsm.pushUpdates(update2); // queued behind update
+        dsm.pushUpdates(update3);
+        ack(dsm, eds);
 
-        inOrder.verify(mockDiscoveryService).processUpdate(request);
-        inOrder.verify(mockDiscoveryService).sendNetworkUpdatePost();
+        inOrder.verify(eds).processUpdate(request(TypeUrl.EDS));
+        inOrder.verify(eds).sendNetworkUpdatePost();
 
-        // blocked on ack again
-        dsm.processUpdate(request);
-        inOrder.verify(mockDiscoveryService).onNetworkUpdate(update2);
-        inOrder.verify(mockDiscoveryService).sendNetworkUpdatePre();
+        ack(dsm, eds); // update is done, so update2 starts
+        inOrder.verify(eds).onNetworkUpdate(update2);
+        inOrder.verify(eds).sendNetworkUpdatePre();
 
-        // blocked on ack yet again
-        dsm.processUpdate(request);
+        ack(dsm, eds);
+        inOrder.verify(eds).sendNetworkUpdatePost();
 
-        inOrder.verify(mockDiscoveryService).sendNetworkUpdatePost();
+        ack(dsm, eds);
+        inOrder.verify(eds).onNetworkUpdate(update3);
+        inOrder.verify(eds).sendNetworkUpdatePre();
 
-        // blocked on ack again
-        dsm.processUpdate(request);
-        inOrder.verify(mockDiscoveryService).onNetworkUpdate(update3);
-        inOrder.verify(mockDiscoveryService).sendNetworkUpdatePre();
-
-        // blocked on ack yet again
-        dsm.processUpdate(request);
-
-        inOrder.verify(mockDiscoveryService).sendNetworkUpdatePost();
+        ack(dsm, eds);
+        inOrder.verify(eds).sendNetworkUpdatePost();
     }
 
     @Test
     public void testSingleUpdateMultipleDiscoveryServices() {
-        final DiscoveryService<Message, DummyUpdate> mockDiscoveryServiceA = spy(StateAwareFakeDiscoveryService.class);
-        final DiscoveryService<Message, DummyUpdate> mockDiscoveryServiceB = spy(StateAwareFakeDiscoveryService.class);
+        final DiscoveryService<Message, DummyUpdate> eds = spy(new StateAwareFakeDiscoveryService(TypeUrl.EDS));
+        final DiscoveryService<Message, DummyUpdate> cds = spy(new StateAwareFakeDiscoveryService(TypeUrl.CDS));
 
         DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
-            Map.of(TypeUrl.EDS, mockDiscoveryServiceA, TypeUrl.CDS, mockDiscoveryServiceB),
+            Map.of(TypeUrl.EDS, eds, TypeUrl.CDS, cds),
             List.of(TypeUrl.EDS, TypeUrl.CDS), List.of(TypeUrl.CDS, TypeUrl.EDS),
             new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS
         );
         dsm.init(new DummyUpdate());
         final var update = new DummyUpdate();
 
-        final var requestA = new CommonDiscoveryRequest<>(null, TypeUrl.EDS.getTypeUrl(), null, null);
-        final var requestB = new CommonDiscoveryRequest<>(null, TypeUrl.CDS.getTypeUrl(), null, null);
-
-
         dsm.pushUpdates(update);
 
+        verify(cds).onNetworkUpdate(update);
+        verify(eds).onNetworkUpdate(update);
 
-        verify(mockDiscoveryServiceB).onNetworkUpdate(update);
-        verify(mockDiscoveryServiceA).onNetworkUpdate(update);
+        InOrder inOrder = Mockito.inOrder(eds, cds);
+        inOrder.verify(eds).sendNetworkUpdatePre();
+        inOrder.verify(cds, never()).sendNetworkUpdatePre(); // Shouldn't continue until acked.
 
-        InOrder inOrder = Mockito.inOrder(mockDiscoveryServiceA, mockDiscoveryServiceB);
-        inOrder.verify(mockDiscoveryServiceA).sendNetworkUpdatePre();
-        inOrder.verify(mockDiscoveryServiceB, never()).sendNetworkUpdatePre(); // Shouldn't continue until acked.
+        ack(dsm, eds);
 
-        // blocks on ack
-        dsm.processUpdate(requestA);
+        inOrder.verify(eds).processUpdate(request(TypeUrl.EDS));
+        inOrder.verify(cds).sendNetworkUpdatePre();
+        inOrder.verify(cds, never()).sendNetworkUpdatePost(); // Shouldn't continue until acked.
 
-        inOrder.verify(mockDiscoveryServiceA).processUpdate(requestA);
-        inOrder.verify(mockDiscoveryServiceB).sendNetworkUpdatePre();
-        inOrder.verify(mockDiscoveryServiceB, never()).sendNetworkUpdatePost(); // Shouldn't continue until acked.
-        // blocks on ack
-        dsm.processUpdate(requestB);
+        ack(dsm, cds);
 
-        inOrder.verify(mockDiscoveryServiceB).processUpdate(requestB);
-        inOrder.verify(mockDiscoveryServiceB).sendNetworkUpdatePost();
-        inOrder.verify(mockDiscoveryServiceA, never()).sendNetworkUpdatePost(); // Shouldn't continue until acked.
-        // blocks on ack
-        dsm.processUpdate(requestB);
+        inOrder.verify(cds).processUpdate(request(TypeUrl.CDS));
+        inOrder.verify(cds).sendNetworkUpdatePost();
+        inOrder.verify(eds, never()).sendNetworkUpdatePost(); // Shouldn't continue until acked.
 
-        inOrder.verify(mockDiscoveryServiceB).processUpdate(requestB);
-        inOrder.verify(mockDiscoveryServiceA).sendNetworkUpdatePost();
-        // blocks on ack
+        ack(dsm, cds);
 
-        dsm.processUpdate(requestA);
-        inOrder.verify(mockDiscoveryServiceA).processUpdate(requestA);
+        inOrder.verify(cds).processUpdate(request(TypeUrl.CDS));
+        inOrder.verify(eds).sendNetworkUpdatePost();
+
+        ack(dsm, eds);
+        inOrder.verify(eds).processUpdate(request(TypeUrl.EDS));
     }
 
     @Test
@@ -190,11 +176,12 @@ public class DiscoveryServiceManagerTest {
         // This doesn't prevent us answering interleaved requests from envoy, but it does block pushing network updates.
         // It also bounds what we queue on the stream: we never write while Envoy is behind.
 
-        final DiscoveryService<Message, DummyUpdate> mockDiscoveryServiceA = spy(StateAwareFakeDiscoveryService.class);
-        final DiscoveryService<Message, DummyUpdate> mockDiscoveryServiceB = spy(StateAwareFakeDiscoveryService.class);
+        // The discovery service type isn't really relevant here, this should work with any types. I chose CDS and EDS simply because they really do interleave this way.
+        final DiscoveryService<Message, DummyUpdate> cds = spy(new StateAwareFakeDiscoveryService(TypeUrl.CDS));
+        final DiscoveryService<Message, DummyUpdate> eds = spy(new StateAwareFakeDiscoveryService(TypeUrl.EDS));
 
         DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
-            Map.of(TypeUrl.CDS, mockDiscoveryServiceA, TypeUrl.EDS, mockDiscoveryServiceB),
+            Map.of(TypeUrl.CDS, cds, TypeUrl.EDS, eds),
             List.of(TypeUrl.CDS, TypeUrl.EDS), List.of(TypeUrl.EDS, TypeUrl.CDS),
             new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS
         );
@@ -203,28 +190,23 @@ public class DiscoveryServiceManagerTest {
 
         final var update = new DummyUpdate();
 
-        // The discovery service type isn't really relevant here, this should work with any types. I chose CDS and EDS simply because they really do interleave this way.
-        // The requests are empty, the fake discovery service doesn't care about their contents, they're sufficient to cause a state transition.
-        final var cdsRequest = new CommonDiscoveryRequest<>(null, TypeUrl.CDS.getTypeUrl(), null, null);
-        final var edsRequest = new CommonDiscoveryRequest<>(null, TypeUrl.EDS.getTypeUrl(), null, null);
-
-        dsm.processUpdate(cdsRequest);
-        dsm.processUpdate(edsRequest);
-        dsm.processUpdate(edsRequest); // Acked EDS
+        subscribe(dsm, cds);
+        subscribe(dsm, eds);
+        ack(dsm, eds);
         dsm.pushUpdates(update); // Should do nothing until CDS is acked.
 
-        verify(mockDiscoveryServiceB).init(any());
-        verify(mockDiscoveryServiceA).init(any());
+        verify(eds).init(any());
+        verify(cds).init(any());
 
-        InOrder inOrder = Mockito.inOrder(mockDiscoveryServiceA, mockDiscoveryServiceB);
-        inOrder.verify(mockDiscoveryServiceA).processUpdate(cdsRequest);
-        inOrder.verify(mockDiscoveryServiceB).processUpdate(edsRequest);
-        inOrder.verify(mockDiscoveryServiceB).processUpdate(edsRequest);
-        inOrder.verify(mockDiscoveryServiceA, never()).sendNetworkUpdatePre();
-        inOrder.verify(mockDiscoveryServiceB, never()).sendNetworkUpdatePre();
-        dsm.processUpdate(cdsRequest); // Acked EDS
-        inOrder.verify(mockDiscoveryServiceA).processUpdate(cdsRequest);
-        inOrder.verify(mockDiscoveryServiceA).sendNetworkUpdatePre();
+        InOrder inOrder = Mockito.inOrder(cds, eds);
+        inOrder.verify(cds).processUpdate(request(TypeUrl.CDS));
+        inOrder.verify(eds).processUpdate(request(TypeUrl.EDS));
+        inOrder.verify(eds).processUpdate(request(TypeUrl.EDS));
+        inOrder.verify(cds, never()).sendNetworkUpdatePre();
+        inOrder.verify(eds, never()).sendNetworkUpdatePre();
+        ack(dsm, cds);
+        inOrder.verify(cds).processUpdate(request(TypeUrl.CDS));
+        inOrder.verify(cds).sendNetworkUpdatePre();
     }
 
     @Test
@@ -233,11 +215,11 @@ public class DiscoveryServiceManagerTest {
         // For example to work around https://github.com/envoyproxy/envoy/issues/16035 in older envoy versions, our service mesh blocks updates until RDS is ACKed
         // since envoy won't ACK that until after clusters have been fully initialized.
 
-        final DiscoveryService<Message, DummyUpdate> mockDiscoveryServiceA = spy(StateAwareFakeDiscoveryService.class);
-        final DiscoveryService<Message, DummyUpdate> mockDiscoveryServiceB = spy(StateAwareFakeDiscoveryService.class);
+        final DiscoveryService<Message, DummyUpdate> cds = spy(new StateAwareFakeDiscoveryService(TypeUrl.CDS));
+        final DiscoveryService<Message, DummyUpdate> rds = spy(new StateAwareFakeDiscoveryService(TypeUrl.RDS));
 
         DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
-            Map.of(TypeUrl.CDS, mockDiscoveryServiceA, TypeUrl.RDS, mockDiscoveryServiceB),
+            Map.of(TypeUrl.CDS, cds, TypeUrl.RDS, rds),
             List.of(TypeUrl.CDS, TypeUrl.RDS), List.of(TypeUrl.RDS, TypeUrl.CDS),
             new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS
         );
@@ -246,45 +228,40 @@ public class DiscoveryServiceManagerTest {
 
         final var update = new DummyUpdate();
 
-        // The discovery service type isn't really relevant here, this should work with any types.
-        // The requests are empty, the fake discovery service doesn't care about their contents, they're sufficient to cause a state transition.
-        final var cdsRequest = new CommonDiscoveryRequest<>(null, TypeUrl.CDS.getTypeUrl(), null, null);
-        final var rdsRequest = new CommonDiscoveryRequest<>(null, TypeUrl.RDS.getTypeUrl(), null, null);
+        final InOrder inOrder = Mockito.inOrder(cds, rds);
+        subscribe(dsm, cds);
+        ack(dsm, cds);
 
-        final InOrder inOrder = Mockito.inOrder(mockDiscoveryServiceA, mockDiscoveryServiceB);
-        dsm.processUpdate(cdsRequest);
-        dsm.processUpdate(cdsRequest); // Ack CDS
+        verify(cds).init(any());
+        verify(rds).init(any());
 
-        verify(mockDiscoveryServiceA).init(any());
-        verify(mockDiscoveryServiceB).init(any());
-
-        inOrder.verify(mockDiscoveryServiceA).processUpdate(cdsRequest);
-        inOrder.verify(mockDiscoveryServiceA).processUpdate(cdsRequest);
+        inOrder.verify(cds).processUpdate(request(TypeUrl.CDS));
+        inOrder.verify(cds).processUpdate(request(TypeUrl.CDS));
 
         dsm.pushUpdates(update); // Should do nothing until RDS is acked.
 
-        inOrder.verify(mockDiscoveryServiceA, never()).sendNetworkUpdatePre();
-        inOrder.verify(mockDiscoveryServiceB, never()).sendNetworkUpdatePre();
-        dsm.processUpdate(rdsRequest); // asked for RDS
-        inOrder.verify(mockDiscoveryServiceB).processUpdate(rdsRequest);
-        inOrder.verify(mockDiscoveryServiceA, never()).sendNetworkUpdatePre();
-        inOrder.verify(mockDiscoveryServiceB, never()).sendNetworkUpdatePre();
-        dsm.processUpdate(rdsRequest); // Acked RDS
-        inOrder.verify(mockDiscoveryServiceB).processUpdate(rdsRequest);
-        inOrder.verify(mockDiscoveryServiceA).sendNetworkUpdatePre();
-        dsm.processUpdate(cdsRequest); // ACK CDS
-        inOrder.verify(mockDiscoveryServiceB).sendNetworkUpdatePre();
-        dsm.processUpdate(rdsRequest); // ACK RDS
-        inOrder.verify(mockDiscoveryServiceB).sendNetworkUpdatePost();
-        dsm.processUpdate(rdsRequest); // ACK RDS
-        inOrder.verify(mockDiscoveryServiceA).sendNetworkUpdatePost();
+        inOrder.verify(cds, never()).sendNetworkUpdatePre();
+        inOrder.verify(rds, never()).sendNetworkUpdatePre();
+        subscribe(dsm, rds);
+        inOrder.verify(rds).processUpdate(request(TypeUrl.RDS));
+        inOrder.verify(cds, never()).sendNetworkUpdatePre();
+        inOrder.verify(rds, never()).sendNetworkUpdatePre();
+        ack(dsm, rds);
+        inOrder.verify(rds).processUpdate(request(TypeUrl.RDS));
+        inOrder.verify(cds).sendNetworkUpdatePre();
+        ack(dsm, cds);
+        inOrder.verify(rds).sendNetworkUpdatePre();
+        ack(dsm, rds);
+        inOrder.verify(rds).sendNetworkUpdatePost();
+        ack(dsm, rds);
+        inOrder.verify(cds).sendNetworkUpdatePost();
     }
 
     @Test
     public void testNackFreezesTheStream(@Mock DiscoveryServiceManagerMetrics metrics) {
-        DiscoveryService<Message, DummyUpdate> mockDiscoveryService = spy(StateAwareFakeDiscoveryService.class);
+        DiscoveryService<Message, DummyUpdate> eds = spy(new StateAwareFakeDiscoveryService(TypeUrl.EDS));
         QueueBacklog backlog = new QueueBacklog();
-        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(Map.of(TypeUrl.EDS, mockDiscoveryService), List.of(TypeUrl.EDS), List.of(TypeUrl.EDS), backlog, metrics);
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(Map.of(TypeUrl.EDS, eds), List.of(TypeUrl.EDS), List.of(TypeUrl.EDS), backlog, metrics);
         dsm.init(new DummyUpdate());
         final var update = new DummyUpdate();
         final var queued = new DummyUpdate();
@@ -292,24 +269,24 @@ public class DiscoveryServiceManagerTest {
 
         dsm.pushUpdates(update);
         dsm.pushUpdates(queued); // waits behind update
-        dsm.processUpdate(new CommonDiscoveryRequest<>(null, TypeUrl.EDS.getTypeUrl(), null, com.google.rpc.Status.newBuilder().setMessage("rejected").build()));
+        nack(dsm, eds);
         dsm.pushUpdates(later);
 
         assertThat(dsm.isFrozen()).isTrue();
         assertThat(backlog.isEmpty()).as("backlog dropped").isTrue();
-        verify(mockDiscoveryService, never()).sendNetworkUpdatePost();
-        verify(mockDiscoveryService, never()).onNetworkUpdate(queued);
-        verify(mockDiscoveryService, never()).onNetworkUpdate(later);
+        verify(eds, never()).sendNetworkUpdatePost();
+        verify(eds, never()).onNetworkUpdate(queued);
+        verify(eds, never()).onNetworkUpdate(later);
         verify(metrics).onPushComplete(); // the abandoned push ended, so the stream looks idle
     }
 
     @Test
     public void testConfiguredDelayWithoutAckBlocksQueuedUpdates() {
-        final DiscoveryService<Message, DummyUpdate> mockDiscoveryServiceA = spy(StateAwareFakeDiscoveryService.class);
-        final DiscoveryService<Message, DummyUpdate> mockDiscoveryServiceB = spy(StateAwareFakeDiscoveryService.class);
+        final DiscoveryService<Message, DummyUpdate> cds = spy(new StateAwareFakeDiscoveryService(TypeUrl.CDS));
+        final DiscoveryService<Message, DummyUpdate> rds = spy(new StateAwareFakeDiscoveryService(TypeUrl.RDS));
 
         DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
-            Map.of(TypeUrl.CDS, mockDiscoveryServiceA, TypeUrl.RDS, mockDiscoveryServiceB),
+            Map.of(TypeUrl.CDS, cds, TypeUrl.RDS, rds),
             List.of(TypeUrl.CDS, TypeUrl.RDS), List.of(TypeUrl.RDS, TypeUrl.CDS),
             new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS
         );
@@ -317,24 +294,23 @@ public class DiscoveryServiceManagerTest {
         dsm.init(new DummyUpdate(), TypeUrl.RDS);
 
         final var update = new DummyUpdate();
-        final var cdsRequest = new CommonDiscoveryRequest<>(null, TypeUrl.CDS.getTypeUrl(), null, null);
 
-        dsm.processUpdate(cdsRequest);
-        dsm.processUpdate(cdsRequest);
+        subscribe(dsm, cds);
+        ack(dsm, cds);
 
         dsm.pushUpdates(update);
 
-        dsm.processUpdate(cdsRequest);
-        dsm.processUpdate(cdsRequest);
+        subscribe(dsm, cds);
+        ack(dsm, cds);
 
-        verify(mockDiscoveryServiceA, never()).sendNetworkUpdatePre();
-        verify(mockDiscoveryServiceB, never()).sendNetworkUpdatePre();
+        verify(cds, never()).sendNetworkUpdatePre();
+        verify(rds, never()).sendNetworkUpdatePre();
     }
 
     @Test
     public void testConfiguredDelayGivesUpWithoutAnAck() {
-        final DiscoveryService<Message, DummyUpdate> cds = spy(StateAwareFakeDiscoveryService.class);
-        final DiscoveryService<Message, DummyUpdate> rds = spy(StateAwareFakeDiscoveryService.class);
+        final DiscoveryService<Message, DummyUpdate> cds = spy(new StateAwareFakeDiscoveryService(TypeUrl.CDS));
+        final DiscoveryService<Message, DummyUpdate> rds = spy(new StateAwareFakeDiscoveryService(TypeUrl.RDS));
         DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
             Map.of(TypeUrl.CDS, cds, TypeUrl.RDS, rds), List.of(TypeUrl.CDS, TypeUrl.RDS), List.of(TypeUrl.RDS, TypeUrl.CDS),
             new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS);
@@ -353,7 +329,7 @@ public class DiscoveryServiceManagerTest {
 
     @Test
     public void testConfiguredDelayIgnoredForATypeTheClientDoesNotUse() {
-        final DiscoveryService<Message, DummyUpdate> cds = spy(StateAwareFakeDiscoveryService.class);
+        final DiscoveryService<Message, DummyUpdate> cds = spy(new StateAwareFakeDiscoveryService(TypeUrl.CDS));
         DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
             Map.of(TypeUrl.CDS, cds), List.of(TypeUrl.CDS), List.of(TypeUrl.CDS), new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS);
         dsm.init(new DummyUpdate(), TypeUrl.RDS, Set.of(TypeUrl.CDS, TypeUrl.EDS));
@@ -363,19 +339,44 @@ public class DiscoveryServiceManagerTest {
         verify(cds).onNetworkUpdate(update);
     }
 
+    /** Envoy subscribes to something of this type, which the fake answers. */
+    private static void subscribe(DiscoveryServiceManager<Message, DummyUpdate> dsm, DiscoveryService<Message, DummyUpdate> service) {
+        assertThat(service.awaitingAck()).as("%s awaiting an ACK", service.getTypeUrl()).isFalse();
+        dsm.processUpdate(request(service.getTypeUrl()));
+    }
+
+    /** Envoy ACKs what this service last sent. */
+    private static void ack(DiscoveryServiceManager<Message, DummyUpdate> dsm, DiscoveryService<Message, DummyUpdate> service) {
+        assertThat(service.awaitingAck()).as("%s awaiting an ACK", service.getTypeUrl()).isTrue();
+        dsm.processUpdate(request(service.getTypeUrl()));
+    }
+
+    /** Envoy rejects what this service last sent. */
+    private static void nack(DiscoveryServiceManager<Message, DummyUpdate> dsm, DiscoveryService<Message, DummyUpdate> service) {
+        assertThat(service.awaitingAck()).as("%s awaiting an ACK", service.getTypeUrl()).isTrue();
+        dsm.processUpdate(new CommonDiscoveryRequest<>(null, service.getTypeUrl().getTypeUrl(), null, com.google.rpc.Status.newBuilder().setMessage("rejected").build()));
+    }
+
+    /** The fake doesn't look at requests, so one per type is enough. */
+    private static CommonDiscoveryRequest<Message> request(TypeUrl typeUrl) {
+        return new CommonDiscoveryRequest<>(null, typeUrl.getTypeUrl(), null, null);
+    }
+
     public static class StateAwareFakeDiscoveryService implements DiscoveryService<Message, DummyUpdate> {
 
+        private final TypeUrl typeUrl;
         private boolean initialized = false;
         private boolean awaitingAck = false;
 
-        public StateAwareFakeDiscoveryService() {
+        public StateAwareFakeDiscoveryService(TypeUrl typeUrl) {
+            this.typeUrl = typeUrl;
         }
 
         @Override
         public void processUpdate(CommonDiscoveryRequest<Message> value) {
             Preconditions.checkState(initialized);
             // If we're waiting, assume this was an ack
-            // If we're not waiting, assume it was a request to subscribe to new stuff.
+            // If we're not waiting, assume it was a request to subscribe to new stuff, which we answer.
             awaitingAck = !awaitingAck;
         }
 
@@ -414,7 +415,7 @@ public class DiscoveryServiceManagerTest {
 
         @Override
         public TypeUrl getTypeUrl() {
-            throw new UnsupportedOperationException("Not implemented");
+            return typeUrl;
         }
     }
 
