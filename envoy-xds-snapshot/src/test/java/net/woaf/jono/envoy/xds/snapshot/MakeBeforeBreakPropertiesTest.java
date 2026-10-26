@@ -2,7 +2,9 @@ package net.woaf.jono.envoy.xds.snapshot;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
+import com.google.protobuf.Any;
 import com.google.protobuf.InvalidProtocolBufferException;
+import com.google.protobuf.Message;
 import dev.hegel.HegelTest;
 import dev.hegel.Invariant;
 import dev.hegel.Rule;
@@ -19,7 +21,8 @@ import io.envoyproxy.envoy.config.route.v3.VirtualHost;
 import io.envoyproxy.envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
-import io.envoyproxy.envoy.service.discovery.v3.Resource;
+import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
+import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import io.envoyproxy.envoy.type.v3.SemanticVersion;
 import io.grpc.stub.StreamObserver;
 import java.util.ArrayDeque;
@@ -27,8 +30,10 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
@@ -49,7 +54,7 @@ import static net.woaf.jono.envoy.xds.snapshot.TestResources.route;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Make before break, against a model of what an Envoy holds. A delta ADS stream runs in-process on the real stack.
+ * Make before break, against a model of what an Envoy holds. A delta or SotW ADS stream runs in-process on the real stack.
  * Between random snapshot changes, the model applies our responses one at a time, as Envoy does: it ACKs each, then
  * subscribes to the endpoints of the clusters it holds and the route configs of its listeners. After every response,
  * what it serves from must refer only to config it holds, and once everything is delivered it holds the snapshot.
@@ -61,8 +66,13 @@ public class MakeBeforeBreakPropertiesTest {
     private static final List<String> LISTENERS = List.of("l1", "l2");
 
     @HegelTest
-    void envoyOnlyServesFromConfigItHolds(TestCase tc) {
-        Stateful.run(new Machine(), tc);
+    void deltaEnvoyOnlyServesFromConfigItHolds(TestCase tc) {
+        Stateful.run(new Machine(true), tc);
+    }
+
+    @HegelTest
+    void sotwEnvoyOnlyServesFromConfigItHolds(TestCase tc) {
+        Stateful.run(new Machine(false), tc);
     }
 
     /** A consistent snapshot: every reference resolves. */
@@ -115,9 +125,14 @@ public class MakeBeforeBreakPropertiesTest {
         }
     }
 
+    /** A response of either protocol. SotW has no removals: for LDS and CDS, what it leaves out is removed. */
+    private record Received(String typeUrl, Map<String, Any> resources, List<String> removed, String version, String nonce) {
+    }
+
     /** What an Envoy holds, and the route config each listener serves from. */
-    private static final class Envoy implements StreamObserver<DeltaDiscoveryResponse> {
-        private final Deque<DeltaDiscoveryResponse> inbox = new ArrayDeque<>();
+    private static final class Envoy implements StreamObserver<Message> {
+        private final boolean delta;
+        private final Deque<Received> inbox = new ArrayDeque<>();
         private final Map<String, Cluster> clusters = new HashMap<>();
         private final Map<String, ClusterLoadAssignment> endpoints = new HashMap<>();
         private final Map<String, Listener> listeners = new HashMap<>();
@@ -129,23 +144,41 @@ public class MakeBeforeBreakPropertiesTest {
         // Clusters that have had an EDS answer; until then they warm.
         private final Set<String> edsAnswered = new HashSet<>();
         // Envoy pauses CDS while clusters warm (ClusterManagerImpl), so its ACK waits for their endpoints.
-        private @Nullable DeltaDiscoveryResponse unackedCds = null;
+        private @Nullable Received unackedCds = null;
+        // SotW: the last response of each type ACKed, whose version and nonce later requests carry.
+        private final Map<String, Received> acked = new HashMap<>();
         private final List<String> problems = new ArrayList<>();
-        private StreamObserver<DeltaDiscoveryRequest> server = new NoServer();
+        private StreamObserver<Message> server = new NoServer();
 
-        void connect(StreamObserver<DeltaDiscoveryRequest> requests) {
+        Envoy(boolean delta) {
+            this.delta = delta;
+        }
+
+        void connect(StreamObserver<Message> requests) {
             server = requests;
             Node node = Node.newBuilder().setId("envoy").setCluster("test").setUserAgentName("envoy")
                 .setUserAgentBuildVersion(BuildVersion.newBuilder().setVersion(SemanticVersion.newBuilder().setMajorNumber(1).setMinorNumber(36)))
                 .build();
             // Wildcard subscriptions, as Envoy's first requests.
-            server.onNext(DeltaDiscoveryRequest.newBuilder().setNode(node).setTypeUrl(TypeUrl.CDS.getTypeUrl()).build());
-            server.onNext(DeltaDiscoveryRequest.newBuilder().setNode(node).setTypeUrl(TypeUrl.LDS.getTypeUrl()).build());
+            for (TypeUrl type : List.of(TypeUrl.CDS, TypeUrl.LDS)) {
+                server.onNext(delta
+                    ? DeltaDiscoveryRequest.newBuilder().setNode(node).setTypeUrl(type.getTypeUrl()).build()
+                    : DiscoveryRequest.newBuilder().setNode(node).setTypeUrl(type.getTypeUrl()).build());
+            }
         }
 
         @Override
-        public void onNext(DeltaDiscoveryResponse response) {
-            inbox.add(response);
+        public void onNext(Message message) {
+            Map<String, Any> resources = new LinkedHashMap<>();
+            if (message instanceof DeltaDiscoveryResponse r) {
+                r.getResourcesList().forEach(resource -> resources.put(resource.getName(), resource.getResource()));
+                inbox.add(new Received(r.getTypeUrl(), resources, r.getRemovedResourcesList(), "", r.getNonce()));
+            } else {
+                DiscoveryResponse r = (DiscoveryResponse) message;
+                Class<? extends Message> type = Objects.requireNonNull(TypeUrl.of(r.getTypeUrl()), r.getTypeUrl()).getMessageClazz();
+                r.getResourcesList().forEach(any -> resources.put(Snapshot.nameOf(unpack(any, type)), any));
+                inbox.add(new Received(r.getTypeUrl(), resources, List.of(), r.getVersionInfo(), r.getNonce()));
+            }
         }
 
         @Override
@@ -164,10 +197,10 @@ public class MakeBeforeBreakPropertiesTest {
 
         /** Apply the next response, ACK it, then follow the new config's references with subscriptions. */
         void deliver() {
-            DeltaDiscoveryResponse response = inbox.remove();
+            Received response = inbox.remove();
             apply(response);
             check(response);
-            if (response.getTypeUrl().equals(TypeUrl.CDS.getTypeUrl())) {
+            if (response.typeUrl().equals(TypeUrl.CDS.getTypeUrl())) {
                 unackedCds = response;
             } else {
                 ack(response);
@@ -183,8 +216,28 @@ public class MakeBeforeBreakPropertiesTest {
             resubscribe(TypeUrl.RDS, rdsSubscriptions, wantedRoutes, routeConfigs);
         }
 
-        private void ack(DeltaDiscoveryResponse response) {
-            server.onNext(DeltaDiscoveryRequest.newBuilder().setTypeUrl(response.getTypeUrl()).setResponseNonce(response.getNonce()).build());
+        private void ack(Received response) {
+            if (delta) {
+                server.onNext(DeltaDiscoveryRequest.newBuilder().setTypeUrl(response.typeUrl()).setResponseNonce(response.nonce()).build());
+                return;
+            }
+            acked.put(response.typeUrl(), response);
+            server.onNext(sotwRequest(response.typeUrl()));
+        }
+
+        /** A SotW request lists every name subscribed to, and carries the last version ACKed. */
+        private DiscoveryRequest sotwRequest(String typeUrl) {
+            DiscoveryRequest.Builder request = DiscoveryRequest.newBuilder().setTypeUrl(typeUrl);
+            if (typeUrl.equals(TypeUrl.EDS.getTypeUrl())) {
+                request.addAllResourceNames(edsSubscriptions);
+            } else if (typeUrl.equals(TypeUrl.RDS.getTypeUrl())) {
+                request.addAllResourceNames(rdsSubscriptions);
+            }
+            Received last = acked.get(typeUrl);
+            if (last != null) {
+                request.setVersionInfo(last.version()).setResponseNonce(last.nonce());
+            }
+            return request.build();
         }
 
         void settle() {
@@ -194,14 +247,14 @@ public class MakeBeforeBreakPropertiesTest {
             assertThat(inbox).as("still answering after 1000 responses").isEmpty();
         }
 
-        private void apply(DeltaDiscoveryResponse response) {
-            String type = response.getTypeUrl();
+        private void apply(Received response) {
+            String type = response.typeUrl();
             if (type.equals(TypeUrl.CDS.getTypeUrl())) {
                 update(response, clusters, Cluster.class, null, true);
             } else if (type.equals(TypeUrl.EDS.getTypeUrl())) {
                 update(response, endpoints, ClusterLoadAssignment.class, edsSubscriptions, true);
-                response.getResourcesList().forEach(r -> edsAnswered.add(r.getName()));
-                edsAnswered.addAll(response.getRemovedResourcesList());
+                edsAnswered.addAll(response.resources().keySet());
+                edsAnswered.addAll(response.removed());
             } else if (type.equals(TypeUrl.LDS.getTypeUrl())) {
                 update(response, listeners, Listener.class, null, true);
                 serving.keySet().retainAll(listeners.keySet());
@@ -220,7 +273,7 @@ public class MakeBeforeBreakPropertiesTest {
             });
         }
 
-        private void check(DeltaDiscoveryResponse after) {
+        private void check(Received after) {
             serving.forEach((listener, routeConfig) -> {
                 RouteConfiguration rc = routeConfigs.get(routeConfig);
                 if (rc == null) {
@@ -244,8 +297,9 @@ public class MakeBeforeBreakPropertiesTest {
             subscribed.addAll(add);
             subscribed.removeAll(drop);
             held.keySet().removeAll(drop); // Envoy forgets what it no longer subscribes to.
-            server.onNext(DeltaDiscoveryRequest.newBuilder().setTypeUrl(type.getTypeUrl())
-                .addAllResourceNamesSubscribe(add).addAllResourceNamesUnsubscribe(drop).build());
+            server.onNext(delta
+                ? DeltaDiscoveryRequest.newBuilder().setTypeUrl(type.getTypeUrl()).addAllResourceNamesSubscribe(add).addAllResourceNamesUnsubscribe(drop).build()
+                : sotwRequest(type.getTypeUrl()));
         }
 
         void assertHolds(Snapshot snapshot) {
@@ -257,21 +311,30 @@ public class MakeBeforeBreakPropertiesTest {
                 .filter(e -> used.contains(e.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue))));
         }
 
-        /** Apply a response; for a type Envoy subscribes to by name, it ignores names it no longer subscribes to. */
-        private static <M extends com.google.protobuf.Message> void update(DeltaDiscoveryResponse response, Map<String, M> held, Class<M> type,
-                                                                           @Nullable Set<String> subscribed, boolean honoursRemovals) {
-            for (Resource resource : response.getResourcesList()) {
-                if (subscribed != null && !subscribed.contains(resource.getName())) {
-                    continue;
+        /**
+         * Apply a response; for a type Envoy subscribes to by name, it ignores names it no longer subscribes to. A SotW
+         * response for a wildcard type (subscribed is null) is the whole set.
+         */
+        private <M extends Message> void update(Received response, Map<String, M> held, Class<M> type,
+                                                @Nullable Set<String> subscribed, boolean honoursRemovals) {
+            response.resources().forEach((name, any) -> {
+                if (subscribed == null || subscribed.contains(name)) {
+                    held.put(name, unpack(any, type));
                 }
-                try {
-                    held.put(resource.getName(), resource.getResource().unpack(type));
-                } catch (InvalidProtocolBufferException e) {
-                    throw new IllegalStateException(e);
-                }
-            }
+            });
             if (honoursRemovals) {
-                held.keySet().removeAll(response.getRemovedResourcesList());
+                held.keySet().removeAll(response.removed());
+            }
+            if (!delta && subscribed == null) {
+                held.keySet().retainAll(response.resources().keySet());
+            }
+        }
+
+        private static <M extends Message> M unpack(Any any, Class<M> type) {
+            try {
+                return any.unpack(type);
+            } catch (InvalidProtocolBufferException e) {
+                throw new IllegalStateException(e);
             }
         }
 
@@ -288,15 +351,14 @@ public class MakeBeforeBreakPropertiesTest {
                 .map(Route::getRoute).map(r -> r.getCluster()).collect(Collectors.toSet());
         }
 
-        private static String describe(DeltaDiscoveryResponse r) {
-            return r.getTypeUrl().substring(r.getTypeUrl().lastIndexOf('.') + 1) + " "
-                + r.getResourcesList().stream().map(Resource::getName).toList() + " removing " + r.getRemovedResourcesList();
+        private static String describe(Received r) {
+            return r.typeUrl().substring(r.typeUrl().lastIndexOf('.') + 1) + " " + r.resources().keySet() + " removing " + r.removed();
         }
     }
 
-    private static final class NoServer implements StreamObserver<DeltaDiscoveryRequest> {
+    private static final class NoServer implements StreamObserver<Message> {
         @Override
-        public void onNext(DeltaDiscoveryRequest value) {
+        public void onNext(Message value) {
             throw new IllegalStateException("not connected");
         }
 
@@ -312,9 +374,11 @@ public class MakeBeforeBreakPropertiesTest {
     // Not private: Hegel calls its rules and invariants reflectively, which Error Prone can't see.
     static final class Machine {
         private final SyncSource source = new SyncSource();
-        private final Envoy envoy = new Envoy();
+        private final Envoy envoy;
 
-        Machine() {
+        @SuppressWarnings("unchecked") // each protocol's stream takes that protocol's messages
+        Machine(boolean delta) {
+            envoy = new Envoy(delta);
             AggregatedDiscoveryService<SnapshotUpdate<Object>, Object> ads = new AggregatedDiscoveryService<>(
                 source,
                 SnapshotConfigBuilder.<Object>forTypes(Cluster.class, ClusterLoadAssignment.class, Listener.class, RouteConfiguration.class),
@@ -322,7 +386,10 @@ public class MakeBeforeBreakPropertiesTest {
                 ImmutableList.of(),
                 MergingStateBacklog.factory(),
                 DiscoveryServiceManagerMetrics.METRICS_DISABLED);
-            envoy.connect(ads.deltaAggregatedResources(envoy));
+            StreamObserver<?> requests = delta
+                ? ads.deltaAggregatedResources((StreamObserver<DeltaDiscoveryResponse>) (StreamObserver<?>) envoy)
+                : ads.streamAggregatedResources((StreamObserver<DiscoveryResponse>) (StreamObserver<?>) envoy);
+            envoy.connect((StreamObserver<Message>) requests);
         }
 
         @Rule(weight = 2)
