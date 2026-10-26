@@ -118,7 +118,15 @@ public class DeltaConversationAssertTest {
         c.onResponse(removal);
         c.onResponse(removal); // resent before Envoy ACKed it
         c.onRequest(ack(XdsTypes.CDS, "5"));
-        assertThatThrownBy(() -> DeltaConversationAssert.assertThat(c).allWereAcked()).hasMessageContaining("Sent nonce <5> multiple times");
+        assertThatThrownBy(() -> DeltaConversationAssert.assertThat(c).allWereAcked()).hasMessageContaining("Sent nonce <5> for <" + XdsTypes.CDS + "> multiple times");
+    }
+
+    @Test
+    public void catchesANonceReusedAfterItsAck() {
+        Conversation c = clustersOnly(); // nonce 1, ACKed
+        c.onResponse(DeltaDiscoveryResponse.newBuilder().setTypeUrl(XdsTypes.CDS).setNonce("1").addRemovedResources("v1").build());
+        c.onRequest(ack(XdsTypes.CDS, "1"));
+        assertThatThrownBy(() -> DeltaConversationAssert.assertThat(c).allWereAcked()).hasMessageContaining("Sent nonce <1> for <" + XdsTypes.CDS + "> multiple times");
     }
 
     @Test
