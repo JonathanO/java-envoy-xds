@@ -224,9 +224,6 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      */
     private boolean mayRemove(TypeUrl typeUrl) {
         for (DiscoveryService<RequestT, StateUpdT> earlier : postOrder) {
-            if (earlier == null) {
-                continue;
-            }
             if (earlier.getTypeUrl() == typeUrl) {
                 return true;
             }
@@ -397,9 +394,6 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     private boolean pushDeferredReconnectRemovalsIfAny() {
         Preconditions.checkState(currentChange == null, "Should not send deferred reconnect removals if we already have a current change to push.");
         for (DiscoveryService<RequestT, StateUpdT> discoveryService: postOrder) {
-            if (discoveryService == null) {
-                continue;
-            }
             if (discoveryService.hasDeferredReconnectRemovals()) {
                 if (!mayRemove(discoveryService.getTypeUrl())) {
                     return false; // and not a later type's: removals go in remove order
