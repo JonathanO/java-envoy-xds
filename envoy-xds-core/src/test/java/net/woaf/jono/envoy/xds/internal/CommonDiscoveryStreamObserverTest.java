@@ -24,20 +24,30 @@ import static org.mockito.Mockito.when;
 public class CommonDiscoveryStreamObserverTest {
 
     @Test
+    public void requestsAfterAResyncAreIgnored(@Mock StreamObserver<DiscoveryResponse> responseObserver,
+                                               @Mock ClusterEventSource<DummyUpdate> source,
+                                               @Mock DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory,
+                                               @Mock DiscoveryServiceManager<DiscoveryRequest, DummyUpdate> dsm) {
+        when(factory.build(any(StreamObserver.class), any(NodeConfig.class), any(DiscoveryServiceManagerMetrics.class))).thenReturn(dsm);
+        CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer = observer(responseObserver, source, factory);
+        DiscoveryRequest cds = DiscoveryRequest.newBuilder().setNode(Node.newBuilder().setId("envoy")).setTypeUrl(TypeUrl.CDS.getTypeUrl()).build();
+        observer.onNext(cds);
+
+        observer.resync();
+        observer.onNext(cds); // Envoy sent it before it saw the stream close
+
+        verify(dsm).processUpdate(any());
+        verify(responseObserver).onCompleted();
+        verify(responseObserver, never()).onError(any());
+    }
+
+    @Test
     public void testUnknownTypeIsIgnoredAndStreamStaysUp(@Mock StreamObserver<DiscoveryResponse> responseObserver,
                                                          @Mock ClusterEventSource<DummyUpdate> source,
                                                          @Mock DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory,
                                                          @Mock DiscoveryServiceManager<DiscoveryRequest, DummyUpdate> dsm) {
         when(factory.build(any(StreamObserver.class), any(NodeConfig.class), any(DiscoveryServiceManagerMetrics.class))).thenReturn(dsm);
-        CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer = new CommonDiscoveryStreamObserver<>(
-            responseObserver,
-            source,
-            factory,
-            r -> new CommonDiscoveryRequest<DiscoveryRequest>(r.getNode(), r.getTypeUrl(), r, null),
-            node -> XdsConfig.of(new Object()),
-            ImmutableList.of(),
-            DiscoveryServiceManagerMetrics.NOOP_METRICS
-        );
+        CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer = observer(responseObserver, source, factory);
         Node node = Node.newBuilder().setId("envoy").build();
 
         // e.g. ECDS, which we don't serve.
@@ -46,5 +56,19 @@ public class CommonDiscoveryStreamObserverTest {
 
         verify(responseObserver, never()).onError(any());
         verify(dsm).processUpdate(any());
+    }
+
+    private static CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer(
+        StreamObserver<DiscoveryResponse> responseObserver, ClusterEventSource<DummyUpdate> source,
+        DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory) {
+        return new CommonDiscoveryStreamObserver<>(
+            responseObserver,
+            source,
+            factory,
+            r -> new CommonDiscoveryRequest<DiscoveryRequest>(r.getNode(), r.getTypeUrl(), r, null),
+            node -> XdsConfig.of(new Object()),
+            ImmutableList.of(),
+            DiscoveryServiceManagerMetrics.NOOP_METRICS
+        );
     }
 }

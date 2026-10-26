@@ -61,6 +61,12 @@ public interface DiscoveryService<RequestT extends Message, StateUpdT> {
     void sendNetworkUpdatePost();
 
     /**
+     * Drops whatever is left of the change from onNetworkUpdate, so nothing more of it is sent. Called when Envoy
+     * NACKs: later answers to subscription changes cover only the names they add.
+     */
+    void abandonChange();
+
+    /**
      * Says whether removals discovered from a reconnecting delta client's initial_resource_versions must wait, for the
      * manager to send in ADS remove order. Asked when Envoy subscribes; removals it holds are sent later with
      * sendDeferredReconnectRemovals().
