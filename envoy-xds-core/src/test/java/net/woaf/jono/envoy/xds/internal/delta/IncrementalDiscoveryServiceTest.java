@@ -129,7 +129,7 @@ public class IncrementalDiscoveryServiceTest {
     }
 
     @Test
-    public void testSubscribedToNothing(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
+    public void requestNamingNothingGetsNoAnswer(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
                                                               @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
 
         final DummyUpdate initState = new DummyUpdate();
@@ -145,12 +145,13 @@ public class IncrementalDiscoveryServiceTest {
                 .setTypeUrl(TypeUrl.EDS.getTypeUrl())
                 .build(), null));
 
-        // Send it again to see what happens
+        // And again
         ds.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.EDS.getTypeUrl(), DeltaDiscoveryRequest.newBuilder()
                 .setTypeUrl(TypeUrl.EDS.getTypeUrl())
                 .build(), null));
 
-        // If envoy didn't ask for anything, we do not expect any attempt to send a response? Or do we? I have no idea!
+        // Neither changes a subscription, so neither needs an answer, and an empty one would hold up pushes until Envoy
+        // ACKs it (SubListSubManager).
         verify(responseObserver, never()).onNext(any());
         assertThat(ds.awaitingAck()).isFalse();
         verifyNoInteractions(configBuilder);
