@@ -125,14 +125,14 @@ public class MeshBenchmark {
 
     @Setup
     public void setUp() {
+        changedEndpoints[0] = endpoints(0, endpoints, 0);
+        changedEndpoints[1] = endpoints(0, endpoints, 1);
         Cluster[] clusters = new Cluster[services];
         ClusterLoadAssignment[] assignments = new ClusterLoadAssignment[services];
         for (int i = 0; i < services; i++) {
             clusters[i] = cluster(i);
-            assignments[i] = endpoints(i, endpoints, 0);
+            assignments[i] = i == 0 ? changedEndpoints[0] : endpoints(i, endpoints, 0);
         }
-        changedEndpoints[0] = assignments[0];
-        changedEndpoints[1] = endpoints(0, endpoints, 1);
 
         Random random = new Random(42);
         for (int v = 0; v < services; v++) {
