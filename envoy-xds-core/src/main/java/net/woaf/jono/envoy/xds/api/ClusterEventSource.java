@@ -26,6 +26,17 @@ public interface ClusterEventSource<StateUpdT> {
     StateUpdT subscribe(ClusterManagerEventListener<StateUpdT> listener);
 
     /**
+     * Subscribe a client's listener, telling the source which client it is, e.g. to pick the config it sees. The core
+     * calls this; by default it ignores the details and calls {@link #subscribe(ClusterManagerEventListener)}.
+     * @param listener The listener who should receive future updates.
+     * @param clientDetails the client details your ClientConfigProvider returned for this client
+     * @return The last state update.
+     */
+    default StateUpdT subscribe(ClusterManagerEventListener<StateUpdT> listener, Object clientDetails) {
+        return subscribe(listener);
+    }
+
+    /**
      * Stop listening to this event source.
      * Implementations must call close() on the listener if the listener was subscribed to the event source, and must release any references to the listener.
      * This may be called with a listener that was never subscribed to the event source.

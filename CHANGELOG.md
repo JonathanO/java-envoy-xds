@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 * JSpecify nullness annotations: every package is `@NullMarked`, so anything that may be null says `@Nullable`. NullAway checks this strictly at build time, and Error Prone and javac warnings now fail the build
 * Error Prone checks locking and immutability at build time: fields shared between threads are `@GuardedBy` their lock, and `Snapshot` and `NamedMessage` are `@Immutable`
 * Results of our methods must be used, unless marked `@CanIgnoreReturnValue` (`SnapshotSource.update` and `publish` are)
+* `ClusterEventSource.subscribe(listener, clientDetails)`: the core now tells your source which client is subscribing, so it can choose what that client sees. It defaults to `subscribe(listener)`, so existing sources need no change
 
 ### Changed
 * Built and tested against `net.woaf.jono.envoy:envoy-api` 1.36.0 (from [envoy-api-java](https://github.com/JonathanO/envoy-api-java), published for each Envoy release) instead of `com.transferwise.envoy:envoy-api` 1.17.0. It's still `compileOnly`, so bring the envoy-api you already use

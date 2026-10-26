@@ -23,6 +23,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 public class CommonDiscoveryStreamObserverTest {
 
+    private static final Object DETAILS = new Object();
+
     @Test
     public void requestsAfterAResyncAreIgnored(@Mock StreamObserver<DiscoveryResponse> responseObserver,
                                                @Mock ClusterEventSource<DummyUpdate> source,
@@ -58,6 +60,19 @@ public class CommonDiscoveryStreamObserverTest {
         verify(dsm).processUpdate(any());
     }
 
+    @Test
+    public void subscribesWithTheClientsDetails(@Mock StreamObserver<DiscoveryResponse> responseObserver,
+                                                @Mock ClusterEventSource<DummyUpdate> source,
+                                                @Mock DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory,
+                                                @Mock DiscoveryServiceManager<DiscoveryRequest, DummyUpdate> dsm) {
+        when(factory.build(any(StreamObserver.class), any(NodeConfig.class), any(DiscoveryServiceManagerMetrics.class))).thenReturn(dsm);
+        CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer = observer(responseObserver, source, factory);
+
+        observer.onNext(DiscoveryRequest.newBuilder().setNode(Node.newBuilder().setId("envoy")).setTypeUrl(TypeUrl.CDS.getTypeUrl()).build());
+
+        verify(source).subscribe(observer, DETAILS);
+    }
+
     private static CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer(
         StreamObserver<DiscoveryResponse> responseObserver, ClusterEventSource<DummyUpdate> source,
         DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory) {
@@ -66,7 +81,7 @@ public class CommonDiscoveryStreamObserverTest {
             source,
             factory,
             r -> new CommonDiscoveryRequest<DiscoveryRequest>(r.getNode(), r.getTypeUrl(), r, null),
-            node -> XdsConfig.of(new Object()),
+            node -> XdsConfig.of(DETAILS),
             ImmutableList.of(),
             DiscoveryServiceManagerMetrics.NOOP_METRICS
         );

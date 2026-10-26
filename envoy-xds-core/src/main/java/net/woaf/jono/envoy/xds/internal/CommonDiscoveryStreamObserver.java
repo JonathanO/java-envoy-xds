@@ -119,7 +119,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             }
             if (discoveryServiceManager == null) {
                 discoveryServiceManager = discoveryServiceManagerFactory.build(responseObserver, nodeConfig, metrics);
-                discoveryServiceManager.init(clusterManager.subscribe(this), nodeConfig.xdsConfig().delayUpdatesUntilAckOf(), nodeConfig.xdsConfig().subscribesTo());
+                discoveryServiceManager.init(clusterManager.subscribe(this, nodeConfig.xdsConfig().clientDetails()), nodeConfig.xdsConfig().delayUpdatesUntilAckOf(), nodeConfig.xdsConfig().subscribesTo());
             }
 
             discoveryServiceManager.processUpdate(value);
