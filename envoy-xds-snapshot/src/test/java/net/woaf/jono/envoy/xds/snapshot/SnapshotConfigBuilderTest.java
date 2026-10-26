@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Test;
 
 public class SnapshotConfigBuilderTest {
 
-    private final SnapshotSource<String> source = TestResources.oneGroup();
+    private final SnapshotSource<String, String, String> source = TestResources.oneGroup();
 
     @Test
     public void addingRouteClusterAndEndpointsTogetherIsAllAddOrder() {
@@ -85,7 +85,7 @@ public class SnapshotConfigBuilderTest {
 
     @Test
     public void firstGroupInTheViewWins() {
-        SnapshotSource<String> views = viewPerClient();
+        SnapshotSource<String, String, String> views = viewPerClient();
         views.update(c -> c.view("c", "own", "shared")
             .group("shared", e -> e.put(cluster("foo")))
             .group("own", e -> e.put(slow("foo"))));
@@ -100,7 +100,7 @@ public class SnapshotConfigBuilderTest {
 
     @Test
     public void changingAViewsGroupsComparesEverythingInIt() {
-        SnapshotSource<String> views = viewPerClient();
+        SnapshotSource<String, String, String> views = viewPerClient();
         views.update(c -> c.view("c", "a").group("a", e -> e.put(cluster("foo"))).group("b", e -> e.put(cluster("bar")).put(cluster("foo"))));
 
         SnapshotUpdate<String> update = sent(views.update(c -> c.view("c", "b")), "c");
@@ -112,7 +112,7 @@ public class SnapshotConfigBuilderTest {
 
     @Test
     public void onlyClientsWhoseViewHasTheGroupAreWoken() {
-        SnapshotSource<String> views = new SnapshotSource<>(Function.identity(), Runnable::run);
+        SnapshotSource<String, String, String> views = new SnapshotSource<>(Function.identity(), Runnable::run);
         views.update(c -> c.view("a", "own-a", "shared").view("b", "own-b"));
         List<String> woken = new ArrayList<>();
         assertThat(views.subscribe(update -> woken.add("a"), "a")).isNotNull();
@@ -130,7 +130,7 @@ public class SnapshotConfigBuilderTest {
 
     @Test
     public void updatesMergeAcrossVersionsTheClientSkipped() {
-        SnapshotSource<String> views = viewPerClient();
+        SnapshotSource<String, String, String> views = viewPerClient();
         views.update(c -> c.view("c", "mine").view("other", "theirs"));
         SnapshotUpdate<String> first = sent(views.update(c -> c.group("mine", e -> e.put(cluster("foo")))), "c");
         views.update(c -> c.group("theirs", e -> e.put(cluster("bar"))));
@@ -144,7 +144,7 @@ public class SnapshotConfigBuilderTest {
 
     @Test
     public void clientWithNoViewSeesNothingUntilItIsAdded() {
-        SnapshotSource<String> views = viewPerClient();
+        SnapshotSource<String, String, String> views = viewPerClient();
         views.update(c -> c.group("g", e -> e.put(cluster("foo"))));
 
         SnapshotUpdate<String> connected = views.subscribe(update -> { }, "c");
@@ -161,7 +161,7 @@ public class SnapshotConfigBuilderTest {
         return Objects.requireNonNull(updates.get(view), view + " wasn't sent an update");
     }
 
-    private static SnapshotSource<String> viewPerClient() {
+    private static SnapshotSource<String, String, String> viewPerClient() {
         return new SnapshotSource<>(Function.identity());
     }
 

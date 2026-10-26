@@ -30,7 +30,7 @@ public class SnapshotSourceScaleTest {
 
     @Test
     public void fiveThousandClientsShareTheExecutor() throws InterruptedException {
-        SnapshotSource<Object> source = TestResources.oneGroup();
+        SnapshotSource<Object, String, String> source = TestResources.oneGroup();
         Set<Thread> threads = ConcurrentHashMap.newKeySet();
         List<Client> clients = IntStream.range(0, 5000).mapToObj(i -> new Client(threads)).toList();
         clients.forEach(c -> source.subscribe(c, "client"));

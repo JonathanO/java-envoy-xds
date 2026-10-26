@@ -72,12 +72,12 @@ public class MeshBenchmark {
     String design;
 
     /** Per view: the source a replica of it subscribes to. */
-    private final List<SnapshotSource<Object>> sourceOf = new ArrayList<>();
+    private final List<SnapshotSource<Object, String, String>> sourceOf = new ArrayList<>();
 
     /** perViewSnapshots: the control plane's own bookkeeping, the views that call each service. */
     private final List<List<Integer>> callersOf = new ArrayList<>();
 
-    private SnapshotSource<Object> groups;
+    private SnapshotSource<Object, String, String> groups;
 
     private final ClusterLoadAssignment[] changedEndpoints = new ClusterLoadAssignment[2];
 
@@ -171,7 +171,7 @@ public class MeshBenchmark {
                 called.add(1 + random.nextInt(services - 1));
             }
             String caller = "caller-" + v;
-            SnapshotSource<Object> source;
+            SnapshotSource<Object, String, String> source;
             if (design.equals("groups")) {
                 source = groups;
                 List<String> list = new ArrayList<>();

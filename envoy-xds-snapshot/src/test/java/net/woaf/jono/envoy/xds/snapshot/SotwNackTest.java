@@ -29,7 +29,7 @@ public class SotwNackTest {
 
     private final Queue<Runnable> tasks = new ArrayDeque<>();
 
-    private final SnapshotSource<Object> source = TestResources.oneGroup(tasks::add);
+    private final SnapshotSource<Object, String, String> source = TestResources.oneGroup(tasks::add);
 
     private final List<DiscoveryResponse> responses = new ArrayList<>();
 

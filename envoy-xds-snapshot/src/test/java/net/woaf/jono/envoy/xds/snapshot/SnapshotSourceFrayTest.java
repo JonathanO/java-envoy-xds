@@ -46,7 +46,7 @@ public class SnapshotSourceFrayTest {
         @GuardedBy("this")
         private String problem = "";
 
-        synchronized void connect(SnapshotSource<Object> source) {
+        synchronized void connect(SnapshotSource<Object, String, String> source) {
             seen = source.subscribe(this, "client").current();
         }
 
@@ -86,7 +86,7 @@ public class SnapshotSourceFrayTest {
     @FrayTest(iterations = 100)
     void subscribingWhilePublishingMissesNothing() throws InterruptedException {
         ExecutorService pool = pool();
-        SnapshotSource<Object> source = TestResources.oneGroup(pool);
+        SnapshotSource<Object, String, String> source = TestResources.oneGroup(pool);
         Client client = new Client();
 
         // A small message, so each interleaving doesn't load Envoy's API.
@@ -150,7 +150,7 @@ public class SnapshotSourceFrayTest {
     @FrayTest(iterations = 150)
     void streamEndingWhileChangesArriveEndsCleanly() throws InterruptedException {
         ExecutorService pool = pool();
-        SnapshotSource<Object> source = TestResources.oneGroup(pool);
+        SnapshotSource<Object, String, String> source = TestResources.oneGroup(pool);
         AggregatedDiscoveryService<SnapshotUpdate<Object>, Object> ads = new AggregatedDiscoveryService<>(source,
             SnapshotConfigBuilder.<Object>forTypes(Cluster.class), node -> XdsConfig.of(new Object()), ImmutableList.of(),
             MergingStateBacklog.factory(), DiscoveryServiceManagerMetrics.METRICS_DISABLED);

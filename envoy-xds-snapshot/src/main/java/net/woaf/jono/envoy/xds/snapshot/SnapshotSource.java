@@ -8,6 +8,7 @@ import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.google.protobuf.Message;
 import org.jspecify.annotations.Nullable;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -36,44 +37,49 @@ import net.woaf.jono.envoy.xds.api.utils.SerialEventListener;
  *
  * <p>Everyone seeing the same config is one group in one view:
  * <pre>{@code
- * SnapshotSource<Object> source = new SnapshotSource<>(details -> "all");
+ * SnapshotSource<Object, String, String> source = new SnapshotSource<>(details -> "all");
  * source.update(c -> c.view("all", "all").group("all", g -> g.put(cluster)));
  * }</pre>
  *
+ * <p>Groups and views are named by keys of your choosing, compared with equals and hashCode: strings, or types of your
+ * own, so the compiler stops a view name or a stray string being used as a group.
+ *
  * @param <D> client details type
+ * @param <G> group key type
+ * @param <V> view key type
  */
-public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> {
+public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdate<D>> {
 
-    private final ConcurrentHashMap<ClusterManagerEventListener<SnapshotUpdate<D>>, Target<D>> targets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<ClusterManagerEventListener<SnapshotUpdate<D>>, Target<D, V>> targets = new ConcurrentHashMap<>();
 
-    private final ConcurrentHashMap<String, Set<SerialEventListener<SnapshotUpdate<D>>>> byView = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<V, Set<SerialEventListener<SnapshotUpdate<D>>>> byView = new ConcurrentHashMap<>();
 
-    private final Function<? super D, String> viewOf;
+    private final Function<? super D, ? extends V> viewOf;
 
     private final Executor executor;
 
     @GuardedBy("this")
-    private final Map<String, Snapshot> groups = new HashMap<>();
+    private final Map<G, Snapshot> groups = new HashMap<>();
 
     @GuardedBy("this")
-    private final Map<String, ImmutableList<String>> views = new HashMap<>();
+    private final Map<V, ImmutableList<G>> views = new HashMap<>();
 
     /** The views each group is in. */
     @GuardedBy("this")
-    private final Map<String, Set<String>> viewsByGroup = new HashMap<>();
+    private final Map<G, Set<V>> viewsByGroup = new HashMap<>();
 
     /** Each view's state as its clients were last sent it. */
     @GuardedBy("this")
-    private final Map<String, ViewState> states = new HashMap<>();
+    private final Map<V, ViewState> states = new HashMap<>();
 
-    private record Target<D>(SerialEventListener<SnapshotUpdate<D>> listener, String view) {
+    private record Target<D, V>(SerialEventListener<SnapshotUpdate<D>> listener, V view) {
     }
 
     /**
      * A source delivering on {@link SerialEventListener#sharedExecutor()}.
      * @param viewOf the name of the view a client sees, given its details
      */
-    public SnapshotSource(Function<? super D, String> viewOf) {
+    public SnapshotSource(Function<? super D, ? extends V> viewOf) {
         this(viewOf, SerialEventListener.sharedExecutor());
     }
 
@@ -86,7 +92,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
      * @param viewOf the name of the view a client sees, given its details
      * @param executor runs each client's updates, one at a time per client, on threads other than the caller's
      */
-    public SnapshotSource(Function<? super D, String> viewOf, Executor executor) {
+    public SnapshotSource(Function<? super D, ? extends V> viewOf, Executor executor) {
         this.viewOf = viewOf;
         this.executor = executor;
     }
@@ -95,7 +101,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
      * {@return a group as last published, empty if there's none}
      * @param name the group's name
      */
-    public synchronized Snapshot group(String name) {
+    public synchronized Snapshot group(G name) {
         return groups.getOrDefault(name, Snapshot.empty());
     }
 
@@ -103,7 +109,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
      * {@return a view's groups as last published, empty if there's no such view}
      * @param name the view's name
      */
-    public synchronized ImmutableList<String> view(String name) {
+    public synchronized ImmutableList<G> view(V name) {
         return views.getOrDefault(name, ImmutableList.of());
     }
 
@@ -114,14 +120,14 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
      * @return the update sent to each view that changed, by view name
      */
     @CanIgnoreReturnValue
-    public synchronized ImmutableMap<String, SnapshotUpdate<D>> update(Consumer<Change> change) {
-        Change edits = new Change(groups);
+    public synchronized ImmutableMap<V, SnapshotUpdate<D>> update(Consumer<Change<G, V>> change) {
+        Change<G, V> edits = new Change<>(groups);
         change.accept(edits);
 
-        Set<String> changedViews = new HashSet<>();
+        Set<V> changedViews = new HashSet<>();
         edits.views.forEach((name, list) -> {
-            ImmutableList<String> old = views.getOrDefault(name, ImmutableList.of());
-            ImmutableList<String> next = list == null ? ImmutableList.of() : list;
+            ImmutableList<G> old = views.getOrDefault(name, ImmutableList.of());
+            ImmutableList<G> next = list == null ? ImmutableList.of() : list;
             if (old.equals(next)) {
                 return;
             }
@@ -135,7 +141,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
             changedViews.add(name);
         });
 
-        Map<String, List<ImmutableMap<Class<? extends Message>, ImmutableSet<String>>>> touchedByView = new HashMap<>();
+        Map<V, List<ImmutableMap<Class<? extends Message>, ImmutableSet<String>>>> touchedByView = new HashMap<>();
         edits.touched.forEach((name, byType) -> {
             Snapshot group = edits.groups.get(name);
             boolean touchedAny = byType.values().stream().anyMatch(names -> !names.isEmpty());
@@ -153,7 +159,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
         });
         changedViews.forEach(view -> touchedByView.putIfAbsent(view, List.of()));
 
-        ImmutableMap.Builder<String, SnapshotUpdate<D>> updates = ImmutableMap.builder();
+        ImmutableMap.Builder<V, SnapshotUpdate<D>> updates = ImmutableMap.builder();
         touchedByView.forEach((view, touched) -> {
             ViewState before = states.getOrDefault(view, ViewState.EMPTY);
             ViewState after = stateOf(view);
@@ -172,13 +178,13 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
     }
 
     @GuardedBy("this")
-    private ViewState stateOf(String view) {
-        ImmutableList<String> names = views.get(view);
+    private ViewState stateOf(V view) {
+        ImmutableList<G> names = views.get(view);
         if (names == null) {
             return ViewState.EMPTY;
         }
         ImmutableList.Builder<Snapshot> contents = ImmutableList.builderWithExpectedSize(names.size());
-        for (String name : names) {
+        for (G name : names) {
             contents.add(groups.getOrDefault(name, Snapshot.empty()));
         }
         return new ViewState(names, contents.build());
@@ -196,8 +202,8 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
     @Override
     @SuppressWarnings("unchecked") // the details our SnapshotConfigBuilders are typed for, from the same ClientConfigProvider
     public synchronized SnapshotUpdate<D> subscribe(ClusterManagerEventListener<SnapshotUpdate<D>> listener, Object clientDetails) {
-        String view = viewOf.apply((D) clientDetails);
-        Target<D> target = targets.computeIfAbsent(listener, l -> new Target<>(new SerialEventListener<>(executor, l), view));
+        V view = viewOf.apply((D) clientDetails);
+        Target<D, V> target = targets.computeIfAbsent(listener, l -> new Target<D, V>(new SerialEventListener<>(executor, l), view));
         // Inside compute, so it can't race an unsubscribe dropping the view's empty set.
         byView.compute(target.view(), (v, listeners) -> {
             Set<SerialEventListener<SnapshotUpdate<D>>> set = listeners != null ? listeners : ConcurrentHashMap.newKeySet();
@@ -209,7 +215,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
 
     @Override
     public void unsubscribe(ClusterManagerEventListener<SnapshotUpdate<D>> listener) {
-        Target<D> old = targets.remove(listener);
+        Target<D, V> old = targets.remove(listener);
         if (old != null) {
             byView.computeIfPresent(old.view(), (v, listeners) -> {
                 listeners.remove(old.listener());
@@ -221,21 +227,24 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
 
     /**
      * Changes to groups and views, published together by {@link #update}. Not thread safe.
+     *
+     * @param <G> group key type
+     * @param <V> view key type
      */
-    public static final class Change {
+    public static final class Change<G, V> {
 
-        private final Map<String, Snapshot> base;
+        private final Map<G, Snapshot> base;
 
         /** Groups as changed so far; a null value means removed. */
-        private final Map<String, @Nullable Snapshot> groups = new HashMap<>();
+        private final Map<G, @Nullable Snapshot> groups = new HashMap<>();
 
         /** Names touched in each changed group, by type. */
-        private final Map<String, Map<Class<? extends Message>, Set<String>>> touched = new HashMap<>();
+        private final Map<G, Map<Class<? extends Message>, Set<String>>> touched = new HashMap<>();
 
         /** Views as changed so far; a null value means removed. */
-        private final Map<String, @Nullable ImmutableList<String>> views = new LinkedHashMap<>();
+        private final Map<V, @Nullable ImmutableList<G>> views = new LinkedHashMap<>();
 
-        private Change(Map<String, Snapshot> base) {
+        private Change(Map<G, Snapshot> base) {
             this.base = base;
         }
 
@@ -246,7 +255,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
          * @return this change
          */
         @CanIgnoreReturnValue // returns the change for chaining
-        public Change group(String name, UnaryOperator<Snapshot.Editor> edit) {
+        public Change<G, V> group(G name, UnaryOperator<Snapshot.Editor> edit) {
             Snapshot edited = edit.apply(group(name).edit()).build();
             Map<Class<? extends Message>, Set<String>> names = touched.computeIfAbsent(name, n -> new HashMap<>());
             Map<Class<? extends Message>, ImmutableSet<String>> editTouched = edited.touched();
@@ -264,7 +273,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
          * @return this change
          */
         @CanIgnoreReturnValue // returns the change for chaining
-        public Change group(String name, Snapshot snapshot) {
+        public Change<G, V> group(G name, Snapshot snapshot) {
             touchAll(name, group(name));
             touchAll(name, snapshot);
             groups.put(name, snapshot);
@@ -275,7 +284,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
          * {@return a group as this change has it so far, empty if there's none}
          * @param name the group's name
          */
-        public Snapshot group(String name) {
+        public Snapshot group(G name) {
             if (groups.containsKey(name)) {
                 Snapshot changed = groups.get(name);
                 return changed == null ? Snapshot.empty() : changed;
@@ -289,7 +298,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
          * @return this change
          */
         @CanIgnoreReturnValue // returns the change for chaining
-        public Change removeGroup(String name) {
+        public Change<G, V> removeGroup(G name) {
             touchAll(name, group(name));
             groups.put(name, null);
             return this;
@@ -302,7 +311,7 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
          * @return this change
          */
         @CanIgnoreReturnValue // returns the change for chaining
-        public Change view(String name, List<String> groups) {
+        public Change<G, V> view(V name, List<? extends G> groups) {
             views.put(name, ImmutableList.copyOf(groups));
             return this;
         }
@@ -314,8 +323,10 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
          * @return this change
          */
         @CanIgnoreReturnValue // returns the change for chaining
-        public Change view(String name, String... groups) {
-            return view(name, List.of(groups));
+        @SafeVarargs
+        @SuppressWarnings("varargs") // only read
+        public final Change<G, V> view(V name, G... groups) {
+            return view(name, Arrays.asList(groups));
         }
 
         /**
@@ -324,12 +335,12 @@ public class SnapshotSource<D> implements ClusterEventSource<SnapshotUpdate<D>> 
          * @return this change
          */
         @CanIgnoreReturnValue // returns the change for chaining
-        public Change removeView(String name) {
+        public Change<G, V> removeView(V name) {
             views.put(name, null);
             return this;
         }
 
-        private void touchAll(String name, Snapshot snapshot) {
+        private void touchAll(G name, Snapshot snapshot) {
             Map<Class<? extends Message>, Set<String>> names = touched.computeIfAbsent(name, n -> new HashMap<>());
             for (Class<? extends Message> type : snapshot.types()) {
                 names.computeIfAbsent(type, t -> new HashSet<>()).addAll(snapshot.get(type).keySet());

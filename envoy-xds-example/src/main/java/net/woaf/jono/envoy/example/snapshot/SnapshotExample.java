@@ -70,8 +70,8 @@ public class SnapshotExample {
 
     public static void main(String[] args) throws IOException, InterruptedException {
 
-        // Each Envoy sees the view for the port it listens on.
-        SnapshotSource<ClientConfig> source = new SnapshotSource<>(client -> view(client.listenPort()));
+        // Groups are named by strings, views by the port their Envoys listen on.
+        SnapshotSource<ClientConfig, String, Long> source = new SnapshotSource<>(ClientConfig::listenPort);
 
         AggregatedDiscoveryService<SnapshotUpdate<ClientConfig>, ClientConfig> ads = new AggregatedDiscoveryService<>(
             source, // The snapshot source tells every connected Envoy when the snapshot changes
@@ -105,23 +105,19 @@ public class SnapshotExample {
         server.awaitTermination();
     }
 
-    private static String view(long port) {
-        return "port-" + port;
-    }
-
     private static String routesGroup(long port) {
         return "routes-" + port;
     }
 
     /** Give a new port its route config and view. Adding one that already exists changes nothing. */
-    private static void addPort(SnapshotSource<ClientConfig> source, long port) {
+    private static void addPort(SnapshotSource<ClientConfig, String, Long> source, long port) {
         ports.add(port);
-        source.update(c -> c.view(view(port), routesGroup(port), CLUSTERS)
+        source.update(c -> c.view(port, routesGroup(port), CLUSTERS)
             .group(routesGroup(port), e -> e.put(routesFor(c.group(CLUSTERS), port))));
     }
 
     /** Change the clusters, and every port's routes to match, in one update. */
-    private static void changeClusters(SnapshotSource<ClientConfig> source, UnaryOperator<Snapshot.Editor> edit) {
+    private static void changeClusters(SnapshotSource<ClientConfig, String, Long> source, UnaryOperator<Snapshot.Editor> edit) {
         source.update(c -> {
             c.group(CLUSTERS, edit);
             for (long port : ports) {
@@ -197,7 +193,7 @@ public class SnapshotExample {
         return addr;
     }
 
-    private static void cmdList(SnapshotSource<ClientConfig> source) {
+    private static void cmdList(SnapshotSource<ClientConfig, String, Long> source) {
         System.out.println("Services:");
         source.group(CLUSTERS).get(Cluster.class).keySet().forEach(name -> {
             System.out.print('\t');
@@ -205,7 +201,7 @@ public class SnapshotExample {
         });
     }
 
-    private static void cmdShow(SnapshotSource<ClientConfig> source, String name) {
+    private static void cmdShow(SnapshotSource<ClientConfig, String, Long> source, String name) {
         System.out.println("Service: " + name);
         Snapshot current = source.group(CLUSTERS);
         if (!current.get(Cluster.class).containsKey(name)) {
@@ -219,7 +215,7 @@ public class SnapshotExample {
         });
     }
 
-    private static void cmdAdd(SnapshotSource<ClientConfig> source, String name, String endpoint) {
+    private static void cmdAdd(SnapshotSource<ClientConfig, String, Long> source, String name, String endpoint) {
         LbEndpoint added = lbEndpoint(parseEndpoint(endpoint));
         List<LbEndpoint> endpoints = endpoints(source.group(CLUSTERS), name);
         if (endpoints.contains(added)) {
@@ -230,7 +226,7 @@ public class SnapshotExample {
         changeClusters(source, e -> e.put(cluster(name)).put(withEndpoints(name, ImmutableList.<LbEndpoint>builder().addAll(endpoints).add(added).build())));
     }
 
-    private static void cmdRemove(SnapshotSource<ClientConfig> source, String name, String endpoint) {
+    private static void cmdRemove(SnapshotSource<ClientConfig, String, Long> source, String name, String endpoint) {
         LbEndpoint removed = lbEndpoint(parseEndpoint(endpoint));
         List<LbEndpoint> endpoints = endpoints(source.group(CLUSTERS), name);
         if (!endpoints.contains(removed)) {
@@ -239,12 +235,12 @@ public class SnapshotExample {
         source.update(c -> c.group(CLUSTERS, e -> e.put(withEndpoints(name, endpoints.stream().filter(ep -> !ep.equals(removed)).toList()))));
     }
 
-    private static void cmdRemove(SnapshotSource<ClientConfig> source, String name) {
+    private static void cmdRemove(SnapshotSource<ClientConfig, String, Long> source, String name) {
         // Removing the cluster drops it from every client's route config too; Envoy gets the new routes first.
         changeClusters(source, e -> e.remove(Cluster.class, name).remove(ClusterLoadAssignment.class, name));
     }
 
-    private static void mainLoop(SnapshotSource<ClientConfig> source) throws IOException {
+    private static void mainLoop(SnapshotSource<ClientConfig, String, Long> source) throws IOException {
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, Charset.defaultCharset()));
         System.out.println("CLI driven service mesh, snapshot edition!");
         cliIntro();

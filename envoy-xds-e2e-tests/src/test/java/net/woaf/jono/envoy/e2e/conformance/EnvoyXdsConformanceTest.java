@@ -49,7 +49,7 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
     private static final class EnvoyXds implements ControlPlane {
 
         // Every Envoy sees one view of two groups, so real Envoys check that a view merges its groups.
-        private final SnapshotSource<String> source = new SnapshotSource<>(node -> "envoy");
+        private final SnapshotSource<String, String, String> source = new SnapshotSource<>(node -> "envoy");
 
         {
             source.update(c -> c.view("envoy", "routing", "clusters"));

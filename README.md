@@ -50,10 +50,11 @@ out in add order, deleted ones in remove order.
 A group is a `Snapshot`: any resources, of any types. A view is an ordered list of groups, and a client sees every
 resource in its view's groups; where two groups have a resource of the same type and name, the first one's wins. You
 pick each client's view from the client details your `ClientConfigProvider` returned, so clients with the same details
-share a view.
+share a view. Groups and views are named by keys of any type with equals and hashCode, e.g. strings, or your own
+types, so the compiler stops a view name or a stray string being used as a group.
 
 ```java
-SnapshotSource<ClientConfig> source = new SnapshotSource<>(client -> client.callingService());
+SnapshotSource<ClientConfig, String, String> source = new SnapshotSource<>(client -> client.callingService());
 AggregatedDiscoveryService<SnapshotUpdate<ClientConfig>, ClientConfig> ads = new AggregatedDiscoveryService<>(
     source,
     SnapshotConfigBuilder.forTypes(Cluster.class, ClusterLoadAssignment.class, Listener.class, RouteConfiguration.class),

@@ -54,7 +54,7 @@ public class SnapshotUpdateBenchmark {
         }
 
 
-        SnapshotSource<Object> source = new SnapshotSource<>(details -> "all", Runnable::run);
+        SnapshotSource<Object, String, String> source = new SnapshotSource<>(details -> "all", Runnable::run);
         source.update(c -> c.view("all", "all").group("all", first));
         edited = source.update(c -> c.group("all", e -> {
             for (int i = 0; i < changed; i++) {
@@ -62,7 +62,7 @@ public class SnapshotUpdateBenchmark {
             }
             return e;
         })).get("all");
-        SnapshotSource<Object> other = new SnapshotSource<>(details -> "all", Runnable::run);
+        SnapshotSource<Object, String, String> other = new SnapshotSource<>(details -> "all", Runnable::run);
         other.update(c -> c.view("all", "all").group("all", first));
         rebuilt = other.update(c -> c.group("all", fresh.build())).get("all");
     }

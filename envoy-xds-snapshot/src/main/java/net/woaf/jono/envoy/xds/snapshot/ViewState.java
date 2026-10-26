@@ -17,7 +17,7 @@ final class ViewState {
 
     static final ViewState EMPTY = new ViewState(ImmutableList.of(), ImmutableList.of());
 
-    private final ImmutableList<String> names;
+    private final ImmutableList<?> names;
 
     private final ImmutableList<Snapshot> groups;
 
@@ -27,7 +27,7 @@ final class ViewState {
      */
     private final Map<Class<? extends Message>, ImmutableMap<String, Message>> merged = new ConcurrentHashMap<>();
 
-    ViewState(ImmutableList<String> names, ImmutableList<Snapshot> groups) {
+    ViewState(ImmutableList<?> names, ImmutableList<Snapshot> groups) {
         this.names = names;
         this.groups = groups;
     }
@@ -35,7 +35,7 @@ final class ViewState {
     /**
      * {@return a group's contents in this view, empty if it hasn't that group}
      */
-    Snapshot group(String name) {
+    Snapshot group(Object name) {
         int i = names.indexOf(name);
         return i < 0 ? Snapshot.empty() : groups.get(i);
     }

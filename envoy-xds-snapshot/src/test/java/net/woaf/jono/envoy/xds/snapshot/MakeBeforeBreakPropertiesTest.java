@@ -389,7 +389,7 @@ public class MakeBeforeBreakPropertiesTest {
     static final class Machine {
         // Updates wait here until a rule delivers them, so they can pile up and merge.
         private final Queue<Runnable> updates = new ArrayDeque<>();
-        private final SnapshotSource<Object> source = new SnapshotSource<>(details -> "envoy", updates::add);
+        private final SnapshotSource<Object, String, String> source = new SnapshotSource<>(details -> "envoy", updates::add);
         private final Envoy envoy;
         private Snapshot intended = Snapshot.empty();
         private int elsewhere;
@@ -439,7 +439,7 @@ public class MakeBeforeBreakPropertiesTest {
         }
 
         /** A change to a group the Envoy's view doesn't have, whatever its list. */
-        private void changeElsewhere(SnapshotSource.Change change) {
+        private void changeElsewhere(SnapshotSource.Change<String, String> change) {
             change.group("other", e -> e.put(cluster("a").toBuilder().setAltStatName("elsewhere-" + elsewhere++).build()));
         }
 

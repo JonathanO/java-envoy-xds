@@ -40,12 +40,12 @@ public class SnapshotSourceConcurrencyTest {
         @GuardedBy("this")
         private String problem = "";
 
-        synchronized void connect(SnapshotSource<Object> source) {
+        synchronized void connect(SnapshotSource<Object, String, String> source) {
             seen = source.subscribe(this, "client").current();
             connected = true;
         }
 
-        synchronized void disconnect(SnapshotSource<Object> source) {
+        synchronized void disconnect(SnapshotSource<Object, String, String> source) {
             source.unsubscribe(this);
             connected = false;
         }
@@ -72,7 +72,7 @@ public class SnapshotSourceConcurrencyTest {
 
     // Not private: Hegel calls its rules and invariants reflectively, which Error Prone can't see.
     static final class Machine {
-        private final SnapshotSource<Object> source = TestResources.oneGroup();
+        private final SnapshotSource<Object, String, String> source = TestResources.oneGroup();
         private final Queue<Client> everyClient = new ConcurrentLinkedQueue<>();
         private final ConcurrentPool<Client> connected;
         private final AtomicInteger changes = new AtomicInteger();

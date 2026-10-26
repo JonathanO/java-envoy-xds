@@ -34,18 +34,18 @@ final class TestResources {
     }
 
     /** A source where every client sees one group, "all". */
-    static <D> SnapshotSource<D> oneGroup(Executor executor) {
-        SnapshotSource<D> source = new SnapshotSource<>(details -> "all", executor);
+    static <D> SnapshotSource<D, String, String> oneGroup(Executor executor) {
+        SnapshotSource<D, String, String> source = new SnapshotSource<>(details -> "all", executor);
         source.update(c -> c.view("all", "all"));
         return source;
     }
 
-    static <D> SnapshotSource<D> oneGroup() {
+    static <D> SnapshotSource<D, String, String> oneGroup() {
         return oneGroup(SerialEventListener.sharedExecutor());
     }
 
     /** Edits the group "all". */
-    static Consumer<SnapshotSource.Change> all(UnaryOperator<Snapshot.Editor> edit) {
+    static Consumer<SnapshotSource.Change<String, String>> all(UnaryOperator<Snapshot.Editor> edit) {
         return c -> c.group("all", edit);
     }
 
