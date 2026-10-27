@@ -153,6 +153,13 @@ public class SnapshotConfigBuilderTest {
     }
 
     @Test
+    public void viewOfReturningNullFailsClearly() {
+        SnapshotSource<String, String, String> views = new SnapshotSource<>(details -> null);
+
+        assertThatThrownBy(() -> views.subscribe(update -> { }, "c")).isInstanceOf(NullPointerException.class).hasMessageContaining("viewOf returned null for c");
+    }
+
+    @Test
     public void subscribingNeedsTheClientsDetails() {
         assertThatThrownBy(() -> source.subscribe(update -> { })).isInstanceOf(UnsupportedOperationException.class);
     }
