@@ -338,7 +338,7 @@ public class IncrementalDiscoveryServiceTest {
             TypeUrl.CDS, service(TypeUrl.CDS, clusterConfigBuilder),
             TypeUrl.RDS, service(TypeUrl.RDS, routeConfigBuilder)));
 
-        dsm.init(initState, TypeUrl.RDS);
+        dsm.init(initState, TypeUrl.RDS, null);
         InOrder inOrder = inOrder(responseObserver);
 
         dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-a"));
@@ -371,7 +371,7 @@ public class IncrementalDiscoveryServiceTest {
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> cds = service(TypeUrl.CDS, clusterConfigBuilder);
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = manager(Map.of(TypeUrl.CDS, cds));
 
-        dsm.init(initState);
+        dsm.init(initState, null, null);
         InOrder inOrder = inOrder(responseObserver);
 
         dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-a"));
@@ -393,7 +393,7 @@ public class IncrementalDiscoveryServiceTest {
         serves(clusterConfigBuilder);
         serves(routeConfigBuilder);
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
-        dsm.init(initState);
+        dsm.init(initState, null, null);
         InOrder inOrder = inOrder(responseObserver);
 
         dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-stale"));
@@ -431,7 +431,7 @@ public class IncrementalDiscoveryServiceTest {
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = manager(Map.of(
             TypeUrl.CDS, service(TypeUrl.CDS, clusterConfigBuilder),
             TypeUrl.RDS, service(TypeUrl.RDS, new NoOpConfigBuilder<RouteConfiguration, DummyUpdate, Object>(RouteConfiguration.class))));
-        dsm.init(initState);
+        dsm.init(initState, null, null);
 
         dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-stale"));
         assertThat(nextResponse(inOrder(responseObserver)).getRemovedResourcesList()).containsExactly("cluster-stale");
@@ -445,7 +445,7 @@ public class IncrementalDiscoveryServiceTest {
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
         AtomicLong now = new AtomicLong();
         dsm.setClock(now::get);
-        dsm.init(initState);
+        dsm.init(initState, null, null);
         InOrder inOrder = inOrder(responseObserver);
 
         dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-stale"));
@@ -465,7 +465,7 @@ public class IncrementalDiscoveryServiceTest {
         serves(endpointConfigBuilder, endpoints("new"));
         serves(routeConfigBuilder, routes("routes"));
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
-        dsm.init(initState);
+        dsm.init(initState, null, null);
         InOrder inOrder = inOrder(responseObserver);
 
         // Envoy's reconnect burst: everything at once.
@@ -497,7 +497,7 @@ public class IncrementalDiscoveryServiceTest {
             TypeUrl.CDS, service(TypeUrl.CDS, clusterConfigBuilder),
             TypeUrl.RDS, service(TypeUrl.RDS, routeConfigBuilder)));
 
-        dsm.init(initState, TypeUrl.RDS);
+        dsm.init(initState, TypeUrl.RDS, null);
         InOrder inOrder = inOrder(responseObserver);
 
         dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-a"));
@@ -539,7 +539,7 @@ public class IncrementalDiscoveryServiceTest {
         serves(endpointConfigBuilder);
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
 
-        dsm.init(initState, TypeUrl.RDS);
+        dsm.init(initState, TypeUrl.RDS, null);
         InOrder inOrder = inOrder(responseObserver);
 
         dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-stale"));
