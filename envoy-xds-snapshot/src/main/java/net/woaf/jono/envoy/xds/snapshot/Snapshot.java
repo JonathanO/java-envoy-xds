@@ -12,7 +12,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Immutable desired xDS config: resources keyed by type, then by name.
@@ -24,13 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
 @Immutable
 public final class Snapshot {
 
-    private static final AtomicLong IDS = new AtomicLong();
-
-    private static final Snapshot EMPTY = new Snapshot(-1, ImmutableMap.of(), null);
-
-    private final long id = IDS.incrementAndGet();
-
-    private final long parentId;
+    private static final Snapshot EMPTY = new Snapshot(ImmutableMap.of(), null);
 
     private final ImmutableMap<Class<? extends Message>, ImmutableMap<String, Message>> resources;
 
@@ -38,9 +31,8 @@ public final class Snapshot {
     @Nullable
     private final ImmutableMap<Class<? extends Message>, ImmutableSet<String>> touched;
 
-    private Snapshot(long parentId, ImmutableMap<Class<? extends Message>, ImmutableMap<String, Message>> resources,
+    private Snapshot(ImmutableMap<Class<? extends Message>, ImmutableMap<String, Message>> resources,
         @Nullable ImmutableMap<Class<? extends Message>, ImmutableSet<String>> touched) {
-        this.parentId = parentId;
         this.resources = resources;
         this.touched = touched;
     }
@@ -75,14 +67,6 @@ public final class Snapshot {
      */
     public Editor edit() {
         return new Editor();
-    }
-
-    long id() {
-        return id;
-    }
-
-    long parentId() {
-        return parentId;
     }
 
     @Nullable
@@ -165,7 +149,7 @@ public final class Snapshot {
             edited.forEach((type, values) -> merged.put(type, ImmutableMap.copyOf(values)));
             ImmutableMap.Builder<Class<? extends Message>, ImmutableSet<String>> touchedBuilder = ImmutableMap.builder();
             touchedNames.forEach((type, names) -> touchedBuilder.put(type, ImmutableSet.copyOf(names)));
-            return new Snapshot(id, ImmutableMap.copyOf(merged), touchedBuilder.build());
+            return new Snapshot(ImmutableMap.copyOf(merged), touchedBuilder.build());
         }
 
         private Map<String, ? extends Message> current(Class<? extends Message> type) {

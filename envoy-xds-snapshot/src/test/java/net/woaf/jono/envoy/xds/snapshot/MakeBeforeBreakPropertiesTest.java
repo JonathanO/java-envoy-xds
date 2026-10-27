@@ -5,6 +5,7 @@ import com.google.common.collect.Sets;
 import com.google.protobuf.Any;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
+import com.google.protobuf.UnknownFieldSet;
 import dev.hegel.HegelTest;
 import dev.hegel.Invariant;
 import dev.hegel.Rule;
@@ -58,14 +59,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * subscribes to the endpoints of the clusters it holds and the route configs of its listeners. After every response,
  * what it serves from must refer only to config it holds, and once everything is delivered it holds the snapshot.
  *
- * <p>Snapshots are published whole or as edits of the current one, so clients compare only the names touched, and
- * updates wait until a rule delivers them, so several can merge on the way.
+ * <p>The Envoy's view is one or two groups. Each snapshot is split across them at random, with decoys in the group
+ * that should lose, and published with the view's list of groups as one change: whole groups or edits of the current
+ * ones, so clients compare only the names touched. A group in another view also changes, which this Envoy must never
+ * see, so the updates it does get skip versions. Updates wait until a rule delivers them, so several can merge on the
+ * way.
  */
 public class MakeBeforeBreakPropertiesTest {
 
     private static final List<String> CLUSTERS = List.of("a", "b", "c");
     private static final List<String> ROUTE_CONFIGS = List.of("r1", "r2");
     private static final List<String> LISTENERS = List.of("l1", "l2");
+    private static final List<List<String>> VIEWS = List.of(List.of("own", "shared"), List.of("shared", "own"), List.of("own"), List.of("shared"));
 
     @HegelTest
     void deltaEnvoyOnlyServesFromConfigItHolds(TestCase tc) {
@@ -97,6 +102,32 @@ public class MakeBeforeBreakPropertiesTest {
             }
         }
         return editor.build();
+    }
+
+    /** The same resource, but not equal to it: what Envoy holds if a group that should lose wins. */
+    private static Message decoy(Message resource) {
+        return resource.toBuilder().setUnknownFields(UnknownFieldSet.newBuilder()
+            .addField(99999, UnknownFieldSet.Field.newBuilder().addVarint(1).build()).build()).build();
+    }
+
+    /** Splits a snapshot across the view's groups: each resource in one of them, or in the first with a decoy after. */
+    private static Map<String, Snapshot> split(TestCase tc, Snapshot snapshot, List<String> view) {
+        Map<String, Snapshot.Editor> groups = new LinkedHashMap<>();
+        List.of("own", "shared").forEach(g -> groups.put(g, Snapshot.empty().edit()));
+        String hidden = view.size() == 1 ? (view.get(0).equals("own") ? "shared" : "own") : null;
+        for (Class<? extends Message> type : snapshot.types()) {
+            snapshot.get(type).forEach((name, resource) -> {
+                String first = view.size() == 1 ? view.get(0) : tc.draw(sampledFrom(view), "group of " + name);
+                groups.get(first).put(name, resource);
+                String after = hidden != null ? hidden : view.get(1 - view.indexOf(first));
+                if (view.indexOf(first) == 0 && tc.draw(booleans(), "decoy of " + name)) {
+                    groups.get(after).put(name, decoy(resource));
+                }
+            });
+        }
+        Map<String, Snapshot> built = new LinkedHashMap<>();
+        groups.forEach((name, editor) -> built.put(name, editor.build()));
+        return built;
     }
 
     /** Edits current into next, so clients compare only the names that changed. */
@@ -358,8 +389,10 @@ public class MakeBeforeBreakPropertiesTest {
     static final class Machine {
         // Updates wait here until a rule delivers them, so they can pile up and merge.
         private final Queue<Runnable> updates = new ArrayDeque<>();
-        private final SnapshotSource<Object> source = new SnapshotSource<>(null, updates::add);
+        private final SnapshotSource<Object, String, String> source = new SnapshotSource<>(details -> "envoy", updates::add);
         private final Envoy envoy;
+        private Snapshot intended = Snapshot.empty();
+        private int elsewhere;
 
         @SuppressWarnings("unchecked") // each protocol's stream takes that protocol's messages
         Machine(boolean delta) {
@@ -375,16 +408,39 @@ public class MakeBeforeBreakPropertiesTest {
                 ? ads.deltaAggregatedResources((StreamObserver<DeltaDiscoveryResponse>) (StreamObserver<?>) envoy)
                 : ads.streamAggregatedResources((StreamObserver<DiscoveryResponse>) (StreamObserver<?>) envoy);
             envoy.connect((StreamObserver<Message>) requests);
+            source.update(c -> c.view("elsewhere", "other"));
         }
 
         @Rule(weight = 2)
         void publish(TestCase tc) {
             Snapshot next = drawSnapshot(tc);
-            if (tc.draw(booleans(), "as an edit")) {
-                source.update(e -> editTo(e, source.current(), next));
-            } else {
-                source.publish(next);
-            }
+            List<String> view = tc.draw(sampledFrom(VIEWS), "view");
+            Map<String, Snapshot> groups = split(tc, next, view);
+            boolean alsoElsewhere = tc.draw(booleans(), "also elsewhere");
+            source.update(c -> {
+                c.view("envoy", view);
+                groups.forEach((name, group) -> {
+                    if (tc.draw(booleans(), "edit " + name)) {
+                        c.group(name, e -> editTo(e, c.group(name), group));
+                    } else {
+                        c.group(name, group);
+                    }
+                });
+                if (alsoElsewhere) {
+                    changeElsewhere(c);
+                }
+            });
+            intended = next;
+        }
+
+        @Rule
+        void publishElsewhere(TestCase tc) {
+            source.update(this::changeElsewhere);
+        }
+
+        /** A change to a group the Envoy's view doesn't have, whatever its list. */
+        private void changeElsewhere(SnapshotSource.Change<String, String> change) {
+            change.group("other", e -> e.put(cluster("a").toBuilder().setAltStatName("elsewhere-" + elsewhere++).build()));
         }
 
         @Rule(weight = 2)
@@ -405,7 +461,7 @@ public class MakeBeforeBreakPropertiesTest {
                 updates.remove().run();
             }
             envoy.settle();
-            envoy.assertHolds(source.current());
+            envoy.assertHolds(intended);
         }
 
         @Invariant(alwaysRun = true)

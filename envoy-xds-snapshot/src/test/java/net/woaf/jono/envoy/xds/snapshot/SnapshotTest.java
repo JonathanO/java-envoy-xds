@@ -22,7 +22,6 @@ public class SnapshotTest {
         assertThat(next.get(RouteConfiguration.class)).isSameAs(base.get(RouteConfiguration.class));
         assertThat(next.touched()).containsOnlyKeys(Cluster.class);
         assertThat(next.touched().get(Cluster.class)).containsExactly("bar");
-        assertThat(next.parentId()).isEqualTo(base.id());
         assertThat(base.get(Cluster.class)).containsOnlyKeys("foo");
     }
 

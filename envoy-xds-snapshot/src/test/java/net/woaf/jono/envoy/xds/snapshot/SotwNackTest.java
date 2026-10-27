@@ -20,6 +20,7 @@ import net.woaf.jono.envoy.xds.api.utils.MergingStateBacklog;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
+import static net.woaf.jono.envoy.xds.snapshot.TestResources.all;
 import static net.woaf.jono.envoy.xds.snapshot.TestResources.cla;
 import static net.woaf.jono.envoy.xds.snapshot.TestResources.cluster;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,7 +29,7 @@ public class SotwNackTest {
 
     private final Queue<Runnable> tasks = new ArrayDeque<>();
 
-    private final SnapshotSource<Object> source = new SnapshotSource<>(null, tasks::add);
+    private final SnapshotSource<Object, String, String> source = TestResources.oneGroup(tasks::add);
 
     private final List<DiscoveryResponse> responses = new ArrayList<>();
 
@@ -36,13 +37,13 @@ public class SotwNackTest {
 
     @Test
     public void subscribingAfterANackSendsNoMoreOfTheRejectedChange() {
-        source.update(e -> e.put(cluster("a")).put(cla("a", "10.0.0.1")));
+        source.update(all(e -> e.put(cluster("a")).put(cla("a", "10.0.0.1"))));
         DiscoveryResponse cds = request(TypeUrl.CDS, null);
         ack(cds);
         ack(request(TypeUrl.EDS, null, "a"), "a");
 
         // Clusters go first, so the new endpoints for a wait for Envoy to ACK them. It NACKs instead.
-        source.update(e -> e.put(cluster("b")).put(cla("a", "10.0.0.2")).put(cla("b", "10.0.0.3")));
+        source.update(all(e -> e.put(cluster("b")).put(cla("a", "10.0.0.2")).put(cla("b", "10.0.0.3"))));
         runTasks();
         DiscoveryResponse rejected = last();
         assertThat(rejected.getTypeUrl()).isEqualTo(TypeUrl.CDS.getTypeUrl());

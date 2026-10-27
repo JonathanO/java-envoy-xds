@@ -12,10 +12,10 @@ import java.util.function.Predicate;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder;
 
 /**
- * Serves one resource type straight from snapshots.
+ * Serves one resource type straight from each client's view of a SnapshotSource.
  *
  * <p>Added and changed resources go out in add order, deleted ones in remove order. Because the core's add order puts
- * referenced types before the types that reference them, a single snapshot change is applied make-before-break without
+ * referenced types before the types that reference them, a single SnapshotSource update is applied make-before-break without
  * any hand-written ordering.
  *
  * @param <R> resource type
@@ -26,7 +26,7 @@ public final class SnapshotConfigBuilder<R extends Message, D> implements Increm
     private final Class<R> type;
 
     /**
-     * Serves one type from the snapshot and each client's overlay.
+     * Serves one type from each client's view.
      * @param type the resource class to serve, e.g. Cluster.class
      */
     public SnapshotConfigBuilder(Class<R> type) {
@@ -52,12 +52,12 @@ public final class SnapshotConfigBuilder<R extends Message, D> implements Increm
     @Override
     public Response<R> addOrder(SnapshotUpdate<D> diff, Predicate<String> resourceInSubListChange, D clientDetails) {
         List<NamedMessage<R>> addAndUpdates = new ArrayList<>();
-        for (String name : diff.candidates(type, clientDetails)) {
+        for (String name : diff.candidates(type)) {
             if (!resourceInSubListChange.test(name)) {
                 continue;
             }
-            R after = diff.after(type, name, clientDetails);
-            R before = diff.before(type, name, clientDetails);
+            R after = diff.after(type, name);
+            R before = diff.before(type, name);
             if (after != null && !after.equals(before)) { // protobuf equals() checks identity first, so shared resources are cheap
                 addAndUpdates.add(new NamedMessage<>(name, after));
             }
@@ -68,10 +68,10 @@ public final class SnapshotConfigBuilder<R extends Message, D> implements Increm
     @Override
     public Response<R> removeOrder(SnapshotUpdate<D> diff, Predicate<String> resourceInSubListChange, D clientDetails) {
         List<String> removes = new ArrayList<>();
-        for (String name : diff.candidates(type, clientDetails)) {
+        for (String name : diff.candidates(type)) {
             if (resourceInSubListChange.test(name)
-                && diff.after(type, name, clientDetails) == null
-                && diff.before(type, name, clientDetails) != null) {
+                && diff.after(type, name) == null
+                && diff.before(type, name) != null) {
                 removes.add(name);
             }
         }
@@ -81,16 +81,16 @@ public final class SnapshotConfigBuilder<R extends Message, D> implements Increm
     /** Mid-change state: everything new is in, nothing old has been removed yet. */
     @Override
     public Resources<R> getResourcesAddOrder(SnapshotUpdate<D> services, Predicate<String> resourceInSubListChange, D clientDetails) {
-        Set<String> names = new HashSet<>(services.namesBefore(type, clientDetails));
-        names.addAll(services.namesAfter(type, clientDetails));
+        Set<String> names = new HashSet<>(services.namesBefore(type));
+        names.addAll(services.namesAfter(type));
         List<NamedMessage<R>> resources = new ArrayList<>();
         for (String name : names) {
             if (!resourceInSubListChange.test(name)) {
                 continue;
             }
-            R value = services.after(type, name, clientDetails);
+            R value = services.after(type, name);
             // Named before or after, so one of them has it.
-            resources.add(new NamedMessage<>(name, value != null ? value : Preconditions.checkNotNull(services.before(type, name, clientDetails))));
+            resources.add(new NamedMessage<>(name, value != null ? value : Preconditions.checkNotNull(services.before(type, name))));
         }
         return new Resources<>(resources);
     }
@@ -98,9 +98,9 @@ public final class SnapshotConfigBuilder<R extends Message, D> implements Increm
     @Override
     public Resources<R> getResourcesRemoveOrder(SnapshotUpdate<D> services, Predicate<String> resourceInSubListChange, D clientDetails) {
         List<NamedMessage<R>> resources = new ArrayList<>();
-        for (String name : services.namesAfter(type, clientDetails)) {
+        for (String name : services.namesAfter(type)) {
             if (resourceInSubListChange.test(name)) {
-                resources.add(new NamedMessage<>(name, Preconditions.checkNotNull(services.after(type, name, clientDetails))));
+                resources.add(new NamedMessage<>(name, Preconditions.checkNotNull(services.after(type, name))));
             }
         }
         return new Resources<>(resources);

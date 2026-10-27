@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.snapshot;
 
+import com.google.common.collect.ImmutableList;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import java.util.concurrent.TimeUnit;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder.Resources;
@@ -31,9 +32,8 @@ public class SnapshotUpdateBenchmark {
     private final SnapshotConfigBuilder<Cluster, Object> clusters = new SnapshotConfigBuilder<>(Cluster.class);
     private final Object client = new Object();
 
-    private Published<Object> before = Published.none();
-    private Published<Object> edited = Published.none();
-    private Published<Object> rebuilt = Published.none();
+    private SnapshotUpdate<Object> edited;
+    private SnapshotUpdate<Object> rebuilt;
 
     private static Cluster cluster(int i, int version) {
         return Cluster.newBuilder().setName("cluster-" + i).setAltStatName("v" + version).build();
@@ -47,38 +47,41 @@ public class SnapshotUpdateBenchmark {
         }
         Snapshot first = base.build();
 
-        Snapshot.Editor change = first.edit();
-        for (int i = 0; i < changed; i++) {
-            change.put(cluster(i, 2));
-        }
-        Snapshot next = change.build();
-
         // The same config built from scratch, as a control plane that rebuilds its whole snapshot would publish it.
         Snapshot.Editor fresh = Snapshot.empty().edit();
         for (int i = 0; i < resources; i++) {
             fresh.put(cluster(i, i < changed ? 2 : 1));
         }
 
-        before = new Published<>(first, null);
-        edited = new Published<>(next, null);
-        rebuilt = new Published<>(fresh.build(), null);
+
+        SnapshotSource<Object, String, String> source = new SnapshotSource<>(details -> "all", Runnable::run);
+        source.update(c -> c.view("all", "all").group("all", first));
+        edited = source.update(c -> c.group("all", e -> {
+            for (int i = 0; i < changed; i++) {
+                e.put(cluster(i, 2));
+            }
+            return e;
+        })).get("all");
+        SnapshotSource<Object, String, String> other = new SnapshotSource<>(details -> "all", Runnable::run);
+        other.update(c -> c.view("all", "all").group("all", first));
+        rebuilt = other.update(c -> c.group("all", fresh.build())).get("all");
     }
 
-    /** A change made with Snapshot.edit(): only the names it touched are compared. */
+    /** A change made by editing the group: only the names it touched are compared. */
     @Benchmark
     public Response<Cluster> editedSnapshot() {
-        return clusters.addOrder(new SnapshotUpdate<>(before, edited, edited.base().touched()), name -> true, client);
+        return clusters.addOrder(edited, name -> true, client);
     }
 
-    /** The same change in a rebuilt snapshot: every resource is compared, field by field. */
+    /** The same change as a rebuilt group: every resource is compared, field by field. */
     @Benchmark
     public Response<Cluster> rebuiltSnapshot() {
-        return clusters.addOrder(new SnapshotUpdate<>(before, rebuilt, null), name -> true, client);
+        return clusters.addOrder(rebuilt, name -> true, client);
     }
 
     /** Everything a client gets when it connects or reconnects. */
     @Benchmark
     public Resources<Cluster> connect() {
-        return clusters.getResourcesRemoveOrder(new SnapshotUpdate<>(Published.none(), edited, null), name -> true, client);
+        return clusters.getResourcesRemoveOrder(new SnapshotUpdate<>(ViewState.EMPTY, edited.current(), true, ImmutableList.of()), name -> true, client);
     }
 }

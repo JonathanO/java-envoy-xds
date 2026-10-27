@@ -52,7 +52,12 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
 
     private static final class EnvoyXds implements ControlPlane {
 
-        private final SnapshotSource<String> source = new SnapshotSource<>();
+        // Every Envoy sees one view of two groups, so real Envoys check that a view merges its groups.
+        private final SnapshotSource<String, String, String> source = new SnapshotSource<>(node -> "envoy");
+
+        {
+            source.update(c -> c.view("envoy", "routing", "clusters"));
+        }
 
         private final List<ClientHandle> clients = Collections.synchronizedList(new ArrayList<>());
 
@@ -87,9 +92,11 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
 
         @Override
         public void setConfig(Collection<? extends Message> resources) {
-            Snapshot.Editor editor = Snapshot.empty().edit();
-            resources.forEach(editor::put);
-            source.publish(editor.build());
+            Snapshot.Editor routing = Snapshot.empty().edit();
+            Snapshot.Editor clusters = Snapshot.empty().edit();
+            resources.forEach(r -> (r instanceof Listener || r instanceof RouteConfiguration || r instanceof ScopedRouteConfiguration
+                || r instanceof VirtualHost ? routing : clusters).put(r));
+            source.update(c -> c.group("routing", routing.build()).group("clusters", clusters.build()));
         }
 
         @Override
