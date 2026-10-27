@@ -13,8 +13,10 @@ import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.Resource;
 import io.grpc.stub.StreamObserver;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
@@ -38,6 +40,9 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
 
     private BooleanSupplier deferReconnectRemovals = () -> false;
 
+    /** What we answered subscriptions with while the current change waits its turn, so the change needn't send it again. */
+    private final Map<String, E> answeredDuringChange = new HashMap<>();
+
     IncrementalDiscoveryService(TypeUrl myTypeUrl, StreamObserver<DeltaDiscoveryResponse> responseObserver, IncrementalConfigBuilder<E, StateUpdT, DetailsT> configBuilder, XdsConfig<DetailsT> xdsConfig,
                                 SubManager subManager) {
         super(myTypeUrl, configBuilder, xdsConfig);
@@ -57,15 +62,10 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
         }
         ImmutableSet<String> subscribeSet = ImmutableSet.copyOf(value.getResourceNamesSubscribeList());
         ImmutableSet<String> unsubscribeSet = ImmutableSet.copyOf(value.getResourceNamesUnsubscribeList());
-        subManager.processResourceListChange(subscribeSet, unsubscribeSet).ifPresent(newSubFilter -> {
-            // Subscriptions changed.
-            if (isAck) {
-                // The xDS docs suggest that envoy won't both ack something and change subscriptions lists in the same request.
-                // But I don't entirely trust that it won't. So we support that case, but log about it.
-                log.info("Client included subscriptions changes in an ack!");
-            }
-            processSubUpdate(subscribeSet, newSubFilter, ImmutableSet.copyOf(value.getInitialResourceVersionsMap().keySet()));
-        });
+        // Envoy puts any subscription changes it has queued into its ACKs (SubscriptionState::getNextRequestWithAck),
+        // so a request can both answer a response and change subscriptions.
+        subManager.processResourceListChange(subscribeSet, unsubscribeSet).ifPresent(newSubFilter ->
+            processSubUpdate(subscribeSet, newSubFilter, ImmutableSet.copyOf(value.getInitialResourceVersionsMap().keySet())));
     }
 
     @Override
@@ -101,6 +101,10 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
             deferredReconnectRemovals.remove(msg.name());
         }
 
+        if (getCurrentSubState() == SubState.PRE) {
+            // Answered from the change we haven't pushed yet.
+            resources.resources().forEach(msg -> answeredDuringChange.put(msg.name(), msg.message()));
+        }
         if (deferReconnectRemovals.getAsBoolean()) {
             deferredReconnectRemovals.addAll(reconnectRemovals);
         } else {
@@ -121,10 +125,20 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
 
     @Override
     public void pushNewState(IncrementalConfigBuilder.Response<E> response) {
-        if (response.addAndUpdates().isEmpty() && response.removes().isEmpty()) {
+        List<IncrementalConfigBuilder.NamedMessage<E>> addAndUpdates = response.addAndUpdates().stream()
+            .filter(msg -> !msg.message().equals(answeredDuringChange.get(msg.name())))
+            .toList();
+        answeredDuringChange.clear();
+        if (addAndUpdates.isEmpty() && response.removes().isEmpty()) {
             return;
         }
-        pushResources(response.addAndUpdates(), response.removes());
+        pushResources(addAndUpdates, response.removes());
+    }
+
+    @Override
+    public void onNetworkUpdate(StateUpdT changes) {
+        super.onNetworkUpdate(changes);
+        answeredDuringChange.clear();
     }
 
     @Override

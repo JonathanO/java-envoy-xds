@@ -1,9 +1,7 @@
 package net.woaf.jono.envoy.xds.internal.sotw;
 
 import com.google.common.collect.ImmutableList;
-import com.google.protobuf.Message;
 import net.woaf.jono.envoy.xds.XdsConfig;
-import net.woaf.jono.envoy.xds.internal.NoOpConfigBuilder;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder;
 import net.woaf.jono.envoy.xds.internal.DiscoveryService;
 import net.woaf.jono.envoy.xds.internal.DiscoveryServiceFactory;
@@ -13,17 +11,10 @@ import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import io.grpc.stub.StreamObserver;
 
 
-public class SotwDiscoveryServiceFactory<StateUpdT, DetailsT> implements DiscoveryServiceFactory<DiscoveryRequest, DiscoveryResponse, StateUpdT, DetailsT> {
-
-    private final ImmutableList<IncrementalConfigBuilder<?, StateUpdT, DetailsT>> configBuilders;
+public class SotwDiscoveryServiceFactory<StateUpdT, DetailsT> extends DiscoveryServiceFactory<DiscoveryRequest, DiscoveryResponse, StateUpdT, DetailsT> {
 
     public SotwDiscoveryServiceFactory(ImmutableList<IncrementalConfigBuilder<?, StateUpdT, DetailsT>> configBuilders) {
-        this.configBuilders = configBuilders;
-        for (IncrementalConfigBuilder<?, StateUpdT, DetailsT> icb : configBuilders) {
-            if (!TypeUrl.getMessageClazzes().contains(icb.handlesType())) {
-                throw new IllegalArgumentException(icb.handlesType() + " is not a known ADS message type. Valid types are: " + TypeUrl.getMessageClazzes());
-            }
-        }
+        super(configBuilders);
     }
 
     private SubManager getSubmanagerForType(TypeUrl type) {
@@ -32,11 +23,6 @@ public class SotwDiscoveryServiceFactory<StateUpdT, DetailsT> implements Discove
         } else {
             return new SubListSubManager();
         }
-    }
-
-    @SuppressWarnings("unchecked")
-    public <E extends Message> IncrementalConfigBuilder<E, StateUpdT, DetailsT> getConfigBuilderForType(TypeUrl type) {
-        return (IncrementalConfigBuilder<E, StateUpdT, DetailsT>) configBuilders.stream().filter(b -> type.getMessageClazz().equals(b.handlesType())).findAny().orElseGet(() -> new NoOpConfigBuilder<>(type.getMessageClazz()));
     }
 
     @Override

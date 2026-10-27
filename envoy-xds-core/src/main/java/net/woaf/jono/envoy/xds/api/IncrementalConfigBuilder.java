@@ -91,26 +91,26 @@ public interface IncrementalConfigBuilder<ResourceT extends Message, StateUpdT, 
 
         /**
          * {@return it, named by its name}
-         * @param cla the resource
+         * @param cluster the resource
          */
-        public static NamedMessage<Cluster> of(Cluster cla) {
-            return new NamedMessage<>(cla.getName(), cla);
+        public static NamedMessage<Cluster> of(Cluster cluster) {
+            return new NamedMessage<>(cluster.getName(), cluster);
         }
 
         /**
          * {@return it, named by its name}
-         * @param cla the resource
+         * @param listener the resource
          */
-        public static NamedMessage<Listener> of(Listener cla) {
-            return new NamedMessage<>(cla.getName(), cla);
+        public static NamedMessage<Listener> of(Listener listener) {
+            return new NamedMessage<>(listener.getName(), listener);
         }
 
         /**
          * {@return it, named by its name}
-         * @param cla the resource
+         * @param route the resource
          */
-        public static NamedMessage<RouteConfiguration> of(RouteConfiguration cla) {
-            return new NamedMessage<>(cla.getName(), cla);
+        public static NamedMessage<RouteConfiguration> of(RouteConfiguration route) {
+            return new NamedMessage<>(route.getName(), route);
         }
 
     }

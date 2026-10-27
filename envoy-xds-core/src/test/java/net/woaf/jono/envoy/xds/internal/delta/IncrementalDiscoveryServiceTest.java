@@ -110,6 +110,33 @@ public class IncrementalDiscoveryServiceTest {
     }
 
     @Test
+    public void namesAnsweredWhileAChangeWaitsItsTurnAreNotSentAgainByTheChange(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        final DummyUpdate next = new DummyUpdate();
+        serves(configBuilder, endpoints("a"));
+        when(configBuilder.getResourcesAddOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(endpoints("b"))));
+        when(configBuilder.addOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<>(List.of(endpoints("a"), endpoints("b")), List.of()));
+        when(configBuilder.removeOrder(eq(next), any(), any())).thenReturn(IncrementalConfigBuilder.Response.<ClusterLoadAssignment>empty());
+        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+        InOrder inOrder = inOrder(responseObserver);
+        ds.processUpdate(subscribeRequest(TypeUrl.EDS, "a"));
+        ds.processUpdate(ackRequest(TypeUrl.EDS, nextResponse(inOrder).getNonce()));
+
+        // A change adds cluster b. Envoy has it, and asks for its endpoints, before the change gets to EDS.
+        ds.onNetworkUpdate(next);
+        ds.processUpdate(subscribeRequest(TypeUrl.EDS, "b"));
+        DeltaDiscoveryResponse answer = nextResponse(inOrder);
+        assertThat(answer.getResourcesList()).extracting(Resource::getName).containsExactly("b");
+        ds.processUpdate(ackRequest(TypeUrl.EDS, answer.getNonce()));
+
+        ds.sendNetworkUpdatePre();
+        ds.sendNetworkUpdatePost();
+
+        assertThat(nextResponse(inOrder).getResourcesList()).extracting(Resource::getName).as("b already went").containsExactly("a");
+        assertNoAdditionalResponsesSent(3);
+    }
+
+    @Test
     public void requestNamingNothingGetsNoAnswer(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
 
@@ -337,7 +364,7 @@ public class IncrementalDiscoveryServiceTest {
             TypeUrl.CDS, service(TypeUrl.CDS, clusterConfigBuilder),
             TypeUrl.RDS, service(TypeUrl.RDS, routeConfigBuilder)));
 
-        dsm.init(initState, TypeUrl.RDS);
+        dsm.init(initState, TypeUrl.RDS, null);
         InOrder inOrder = inOrder(responseObserver);
 
         dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-a"));
@@ -370,7 +397,7 @@ public class IncrementalDiscoveryServiceTest {
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> cds = service(TypeUrl.CDS, clusterConfigBuilder);
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = manager(Map.of(TypeUrl.CDS, cds));
 
-        dsm.init(initState);
+        dsm.init(initState, null, null);
         InOrder inOrder = inOrder(responseObserver);
 
         dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-a"));
@@ -392,7 +419,7 @@ public class IncrementalDiscoveryServiceTest {
         serves(clusterConfigBuilder);
         serves(routeConfigBuilder);
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
-        dsm.init(initState);
+        dsm.init(initState, null, null);
         InOrder inOrder = inOrder(responseObserver);
 
         dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-stale"));
@@ -430,7 +457,7 @@ public class IncrementalDiscoveryServiceTest {
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = manager(Map.of(
             TypeUrl.CDS, service(TypeUrl.CDS, clusterConfigBuilder),
             TypeUrl.RDS, service(TypeUrl.RDS, new NoOpConfigBuilder<RouteConfiguration, DummyUpdate, Object>(RouteConfiguration.class))));
-        dsm.init(initState);
+        dsm.init(initState, null, null);
 
         dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-stale"));
         assertThat(nextResponse(inOrder(responseObserver)).getRemovedResourcesList()).containsExactly("cluster-stale");
@@ -444,7 +471,7 @@ public class IncrementalDiscoveryServiceTest {
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
         AtomicLong now = new AtomicLong();
         dsm.setClock(now::get);
-        dsm.init(initState);
+        dsm.init(initState, null, null);
         InOrder inOrder = inOrder(responseObserver);
 
         dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-stale"));
@@ -464,7 +491,7 @@ public class IncrementalDiscoveryServiceTest {
         serves(endpointConfigBuilder, endpoints("new"));
         serves(routeConfigBuilder, routes("routes"));
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
-        dsm.init(initState);
+        dsm.init(initState, null, null);
         InOrder inOrder = inOrder(responseObserver);
 
         // Envoy's reconnect burst: everything at once.
@@ -496,7 +523,7 @@ public class IncrementalDiscoveryServiceTest {
             TypeUrl.CDS, service(TypeUrl.CDS, clusterConfigBuilder),
             TypeUrl.RDS, service(TypeUrl.RDS, routeConfigBuilder)));
 
-        dsm.init(initState, TypeUrl.RDS);
+        dsm.init(initState, TypeUrl.RDS, null);
         InOrder inOrder = inOrder(responseObserver);
 
         dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-a"));
@@ -538,7 +565,7 @@ public class IncrementalDiscoveryServiceTest {
         serves(endpointConfigBuilder);
         DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
 
-        dsm.init(initState, TypeUrl.RDS);
+        dsm.init(initState, TypeUrl.RDS, null);
         InOrder inOrder = inOrder(responseObserver);
 
         dsm.processUpdate(reconnectSubscription(TypeUrl.CDS, "*", "cluster-stale"));
