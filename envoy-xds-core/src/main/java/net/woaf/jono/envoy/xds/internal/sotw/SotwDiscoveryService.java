@@ -2,7 +2,7 @@ package net.woaf.jono.envoy.xds.internal.sotw;
 
 import org.jspecify.annotations.Nullable;
 import com.google.protobuf.Message;
-import net.woaf.jono.envoy.xds.internal.NodeConfig;
+import net.woaf.jono.envoy.xds.XdsConfig;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder;
 import net.woaf.jono.envoy.xds.internal.AbstractDiscoveryService;
 import net.woaf.jono.envoy.xds.TypeUrl;
@@ -33,8 +33,8 @@ class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends Abstr
 
     private final Map<String, NamedMessage<E>> resourceState = new LinkedHashMap<>();
 
-    SotwDiscoveryService(TypeUrl myTypeUrl, StreamObserver<DiscoveryResponse> responseObserver, SubManager subManager, VersionManager versionManager, IncrementalConfigBuilder<E, StateUpdT, DetailsT> configBuilder, NodeConfig<DetailsT> nodeConfig) {
-        super(myTypeUrl, configBuilder, nodeConfig);
+    SotwDiscoveryService(TypeUrl myTypeUrl, StreamObserver<DiscoveryResponse> responseObserver, SubManager subManager, VersionManager versionManager, IncrementalConfigBuilder<E, StateUpdT, DetailsT> configBuilder, XdsConfig<DetailsT> xdsConfig) {
+        super(myTypeUrl, configBuilder, xdsConfig);
         this.responseObserver = responseObserver;
         this.subManager = subManager;
         this.versionManager = versionManager;

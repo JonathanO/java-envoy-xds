@@ -5,7 +5,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.protobuf.Message;
 import net.woaf.jono.envoy.xds.internal.AbstractDiscoveryService;
-import net.woaf.jono.envoy.xds.internal.NodeConfig;
+import net.woaf.jono.envoy.xds.XdsConfig;
 import net.woaf.jono.envoy.xds.TypeUrl;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
@@ -38,9 +38,9 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
 
     private BooleanSupplier deferReconnectRemovals = () -> false;
 
-    IncrementalDiscoveryService(TypeUrl myTypeUrl, StreamObserver<DeltaDiscoveryResponse> responseObserver, IncrementalConfigBuilder<E, StateUpdT, DetailsT> configBuilder, NodeConfig<DetailsT> nodeConfig,
+    IncrementalDiscoveryService(TypeUrl myTypeUrl, StreamObserver<DeltaDiscoveryResponse> responseObserver, IncrementalConfigBuilder<E, StateUpdT, DetailsT> configBuilder, XdsConfig<DetailsT> xdsConfig,
                                 SubManager subManager) {
-        super(myTypeUrl, configBuilder, nodeConfig);
+        super(myTypeUrl, configBuilder, xdsConfig);
         this.responseObserver = responseObserver;
         this.subManager = subManager;
     }

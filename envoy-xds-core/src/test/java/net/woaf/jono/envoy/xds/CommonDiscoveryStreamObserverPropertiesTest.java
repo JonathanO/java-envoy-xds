@@ -10,7 +10,6 @@ import dev.hegel.Rule;
 import dev.hegel.Stateful;
 import dev.hegel.TestCase;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
-import io.envoyproxy.envoy.config.core.v3.BuildVersion;
 import io.envoyproxy.envoy.config.core.v3.Node;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import io.envoyproxy.envoy.config.listener.v3.Listener;
@@ -24,7 +23,6 @@ import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.Resource;
 import io.envoyproxy.envoy.service.runtime.v3.Runtime;
-import io.envoyproxy.envoy.type.v3.SemanticVersion;
 import io.grpc.stub.StreamObserver;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -250,10 +248,7 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
         }
 
         private Node node(TestCase tc) {
-            int minor = tc.draw(sampledFrom(17, 36), "envoy minor version");
-            return Node.newBuilder().setId(tc.draw(text().maxSize(3), "node id")).setUserAgentName(tc.draw(sampledFrom("envoy", "grpc"), "agent"))
-                .setUserAgentBuildVersion(BuildVersion.newBuilder().setVersion(SemanticVersion.newBuilder().setMajorNumber(1).setMinorNumber(minor)))
-                .build();
+            return Node.newBuilder().setId(tc.draw(text().maxSize(3), "node id")).build();
         }
 
         private String nonce(TestCase tc) {

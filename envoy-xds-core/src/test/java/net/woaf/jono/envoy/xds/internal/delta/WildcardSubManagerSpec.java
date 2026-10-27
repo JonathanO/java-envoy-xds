@@ -1,8 +1,6 @@
 package net.woaf.jono.envoy.xds.internal.delta;
 
-import net.woaf.jono.envoy.xds.XdsConfig;
 import com.google.common.collect.ImmutableSet;
-import net.woaf.jono.envoy.xds.internal.NodeConfig;
 import net.woaf.jono.envoy.xds.internal.delta.WildcardSubManager;
 import org.junit.jupiter.api.Test;
 
@@ -15,7 +13,7 @@ public class WildcardSubManagerSpec {
 
     @Test
     public void testSubscribeEmptyFirstMessageIsWildcard() {
-        WildcardSubManager subManager = new WildcardSubManager(new NodeConfig<>(XdsConfig.of(new Object()), false));
+        WildcardSubManager subManager = new WildcardSubManager();
 
         Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of()).orElseThrow();
 
@@ -26,7 +24,7 @@ public class WildcardSubManagerSpec {
 
     @Test
     public void testSubscribeStarIsWildcard() {
-        WildcardSubManager subManager = new WildcardSubManager(new NodeConfig<>(XdsConfig.of(new Object()), false));
+        WildcardSubManager subManager = new WildcardSubManager();
 
         Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of("*"), ImmutableSet.of()).orElseThrow();
 
@@ -37,23 +35,8 @@ public class WildcardSubManagerSpec {
     }
 
     @Test
-    public void testBugClientSendsResourceListOnReconnectToWildcard() {
-        // Prior to 1.19 a reconnecting envoy would send a resource list on connection to a wildcard DS if it already had state for that DS (e.g. if it was reconnecting to the control plane.)
-        // While the spec says this should be treated as a normal SubList style subscribe, Envoy actually wanted a wildcard subscription, so we have a bug flag to allow this.
-        WildcardSubManager subManager = new WildcardSubManager(new NodeConfig<>(XdsConfig.of(new Object()), true));
-
-        Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of("foo", "bar"), ImmutableSet.of()).orElseThrow();
-        assertThat(wouldSendUpdates).accepts("foo", "bar", "baz");
-
-        // Nothing changes, so no filter returned.
-        assertThat(subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of("foo"))).isNotPresent();
-
-        assertThat(wouldSendUpdates).accepts("foo", "bar", "baz");
-    }
-
-    @Test
     public void testSubUnsubSubWildcard() {
-        WildcardSubManager subManager = new WildcardSubManager(new NodeConfig<>(XdsConfig.of(new Object()), false));
+        WildcardSubManager subManager = new WildcardSubManager();
 
         Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of("*", "foo"), ImmutableSet.of()).orElseThrow();
         assertThat(wouldSendUpdates).accepts("foo", "bar", "baz", "cat");

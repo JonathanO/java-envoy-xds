@@ -104,33 +104,16 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
 
     @Override
     @CanIgnoreReturnValue
-    public SotwConversationAssert nothingSentUnaskedPre119Reconnect() {
-        return nothingSentUnasked(true);
-    }
-
-    @Override
-    @CanIgnoreReturnValue
     public SotwConversationAssert nothingSentUnasked() {
-        return nothingSentUnasked(false);
-    }
-
-    @Override
-    @CanIgnoreReturnValue
-    public SotwConversationAssert nothingSentUnasked(boolean allowBrokenReconnectWildcardBehaviourPre119) {
         isNotNull();
 
         HashMultimap<String, String> subs = HashMultimap.create();
         HashSet<String> wildcards = new HashSet<>();
-        HashSet<String> seen = new HashSet<>();
         HashSet<String> seenSubs = new HashSet<>();
 
         for (Object message : actual.getMessages()) {
             if (message instanceof DiscoveryRequest r) {
                 Set<String> requestedSubs = Set.copyOf(r.getResourceNamesList());
-                if (seen.add(r.getTypeUrl()) && (XdsTypes.isWildcard(r.getTypeUrl()) && allowBrokenReconnectWildcardBehaviourPre119)) {
-                    // First request, allow bad behaviour from old versions.
-                    requestedSubs = Set.of();
-                }
                 if (requestedSubs.isEmpty() && !seenSubs.contains(r.getTypeUrl())) {
                     // Old wildcard behaviour
                     wildcards.add(r.getTypeUrl());

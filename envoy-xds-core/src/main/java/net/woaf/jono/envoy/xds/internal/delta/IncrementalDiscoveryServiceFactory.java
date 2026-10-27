@@ -1,7 +1,7 @@
 package net.woaf.jono.envoy.xds.internal.delta;
 
 import com.google.protobuf.Message;
-import net.woaf.jono.envoy.xds.internal.NodeConfig;
+import net.woaf.jono.envoy.xds.XdsConfig;
 import net.woaf.jono.envoy.xds.internal.NoOpConfigBuilder;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder;
 import net.woaf.jono.envoy.xds.internal.DiscoveryService;
@@ -27,11 +27,11 @@ public class IncrementalDiscoveryServiceFactory<StateUpdT, DetailsT> implements 
         }
     }
 
-    private SubManager getSubmanagerForType(TypeUrl type, NodeConfig<DetailsT> nodeConfig) {
+    private SubManager getSubmanagerForType(TypeUrl type) {
         if (type.isWildcard()) {
-            return new WildcardSubManager(nodeConfig);
+            return new WildcardSubManager();
         } else {
-            return new SubListSubManager(nodeConfig);
+            return new SubListSubManager();
         }
     }
 
@@ -41,8 +41,8 @@ public class IncrementalDiscoveryServiceFactory<StateUpdT, DetailsT> implements 
     }
 
     @Override
-    public DiscoveryService<DeltaDiscoveryRequest, StateUpdT> createDiscoveryService(StreamObserver<DeltaDiscoveryResponse> responseObserver, NodeConfig<DetailsT> nodeConfig, TypeUrl type) {
-        return new IncrementalDiscoveryService<>(type, responseObserver, getConfigBuilderForType(type), nodeConfig, getSubmanagerForType(type, nodeConfig));
+    public DiscoveryService<DeltaDiscoveryRequest, StateUpdT> createDiscoveryService(StreamObserver<DeltaDiscoveryResponse> responseObserver, XdsConfig<DetailsT> xdsConfig, TypeUrl type) {
+        return new IncrementalDiscoveryService<>(type, responseObserver, getConfigBuilderForType(type), xdsConfig, getSubmanagerForType(type));
     }
 
 }

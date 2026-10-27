@@ -15,7 +15,6 @@ import net.woaf.jono.envoy.xds.internal.CommonDiscoveryRequest;
 import net.woaf.jono.envoy.xds.internal.DiscoveryService;
 import net.woaf.jono.envoy.xds.internal.DiscoveryServiceManager;
 import net.woaf.jono.envoy.xds.internal.NoOpConfigBuilder;
-import net.woaf.jono.envoy.xds.internal.NodeConfig;
 import net.woaf.jono.envoy.xds.TypeUrl;
 import net.woaf.jono.envoy.xds.XdsConfig;
 import net.woaf.jono.envoy.xds.api.DiscoveryServiceManagerMetrics;
@@ -51,7 +50,7 @@ public class IncrementalDiscoveryServiceTest {
     }
 
     private final DummyUpdate initState = new DummyUpdate();
-    private final NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), false);
+    private final XdsConfig<Object> xdsConfig = XdsConfig.of(new Object());
 
     @Mock StreamObserver<DeltaDiscoveryResponse> responseObserver;
     @Captor ArgumentCaptor<DeltaDiscoveryResponse> responseCaptor;
@@ -605,8 +604,8 @@ public class IncrementalDiscoveryServiceTest {
 
     /** A service over responseObserver, with the sub manager the factory would give this type. */
     private <E extends Message> DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> service(TypeUrl typeUrl, IncrementalConfigBuilder<E, DummyUpdate, Object> configBuilder) {
-        return new IncrementalDiscoveryService<>(typeUrl, responseObserver, configBuilder, nodeConfig,
-            typeUrl.isWildcard() ? new WildcardSubManager(nodeConfig) : new SubListSubManager(nodeConfig));
+        return new IncrementalDiscoveryService<>(typeUrl, responseObserver, configBuilder, xdsConfig,
+            typeUrl.isWildcard() ? new WildcardSubManager() : new SubListSubManager());
     }
 
     /** A manager for these services, in ADS add and remove order. */

@@ -1,6 +1,5 @@
 package net.woaf.jono.envoy.xds.internal.delta;
 
-import net.woaf.jono.envoy.xds.XdsConfig;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import dev.hegel.HegelTest;
@@ -12,7 +11,6 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
-import net.woaf.jono.envoy.xds.internal.NodeConfig;
 
 import static dev.hegel.Generators.booleans;
 import static dev.hegel.Generators.integers;
@@ -34,20 +32,16 @@ public class SubManagerPropertiesTest {
     /** What the spec says the client is subscribed to: the wildcard and the names it asked for are tracked apart. */
     private static final class Model {
         private final boolean wildcardType;
-        private final boolean preWildcardBugClient;
         private boolean first = true;
         private boolean wildcard = false;
         private final Set<String> names = new HashSet<>();
 
-        Model(boolean wildcardType, boolean preWildcardBugClient) {
+        Model(boolean wildcardType) {
             this.wildcardType = wildcardType;
-            this.preWildcardBugClient = preWildcardBugClient;
         }
 
         void apply(Set<String> subscribe, Set<String> unsubscribe) {
-            boolean legacyWildcard = wildcardType && first && unsubscribe.isEmpty()
-                // Envoy before 1.19 sends names on reconnect when it wants the wildcard.
-                && (subscribe.isEmpty() || preWildcardBugClient);
+            boolean legacyWildcard = wildcardType && first && unsubscribe.isEmpty() && subscribe.isEmpty();
             first = false;
             if (legacyWildcard) {
                 wildcard = true;
@@ -70,10 +64,8 @@ public class SubManagerPropertiesTest {
     /** Send the manager a random request sequence, checking each step. */
     private static void run(TestCase tc, Consumer<Step> check) {
         boolean wildcardType = tc.draw(booleans(), "wildcardType");
-        boolean preWildcardBugClient = wildcardType && tc.draw(booleans(), "preWildcardBugClient");
-        NodeConfig<Object> nodeConfig = new NodeConfig<>(XdsConfig.of(new Object()), preWildcardBugClient);
-        SubManager manager = wildcardType ? new WildcardSubManager(nodeConfig) : new SubListSubManager(nodeConfig);
-        Model model = new Model(wildcardType, preWildcardBugClient);
+        SubManager manager = wildcardType ? new WildcardSubManager() : new SubListSubManager();
+        Model model = new Model(wildcardType);
         List<String> names = wildcardType ? List.of("a", "b", "c", WILDCARD) : NAMES;
 
         int requests = tc.draw(integers().min(1).max(8), "requests");

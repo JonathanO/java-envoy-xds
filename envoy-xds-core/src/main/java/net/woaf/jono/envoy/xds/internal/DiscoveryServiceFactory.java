@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.internal;
 
+import net.woaf.jono.envoy.xds.XdsConfig;
 import net.woaf.jono.envoy.xds.TypeUrl;
 import com.google.protobuf.Message;
 import io.grpc.stub.StreamObserver;
@@ -11,12 +12,12 @@ import java.util.stream.Collectors;
 
 public interface DiscoveryServiceFactory<RequestT extends Message, ResponseT extends Message, StateUpdT, DetailsT> {
 
-    DiscoveryService<RequestT, StateUpdT> createDiscoveryService(StreamObserver<ResponseT> responseObserver, NodeConfig<DetailsT> nodeConfig, TypeUrl type);
+    DiscoveryService<RequestT, StateUpdT> createDiscoveryService(StreamObserver<ResponseT> responseObserver, XdsConfig<DetailsT> xdsConfig, TypeUrl type);
 
-    default Map<TypeUrl, DiscoveryService<RequestT, StateUpdT>> createAll(StreamObserver<ResponseT> responseObserver, NodeConfig<DetailsT> nodeConfig) {
+    default Map<TypeUrl, DiscoveryService<RequestT, StateUpdT>> createAll(StreamObserver<ResponseT> responseObserver, XdsConfig<DetailsT> xdsConfig) {
         return Arrays.stream(TypeUrl.values()).collect(Collectors.toMap(
                 Function.identity(),
-                t -> createDiscoveryService(responseObserver, nodeConfig, t)
+                t -> createDiscoveryService(responseObserver, xdsConfig, t)
             ));
     }
 

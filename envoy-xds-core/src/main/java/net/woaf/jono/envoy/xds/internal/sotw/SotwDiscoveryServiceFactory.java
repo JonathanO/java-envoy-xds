@@ -2,7 +2,7 @@ package net.woaf.jono.envoy.xds.internal.sotw;
 
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.Message;
-import net.woaf.jono.envoy.xds.internal.NodeConfig;
+import net.woaf.jono.envoy.xds.XdsConfig;
 import net.woaf.jono.envoy.xds.internal.NoOpConfigBuilder;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder;
 import net.woaf.jono.envoy.xds.internal.DiscoveryService;
@@ -40,8 +40,8 @@ public class SotwDiscoveryServiceFactory<StateUpdT, DetailsT> implements Discove
     }
 
     @Override
-    public DiscoveryService<DiscoveryRequest, StateUpdT> createDiscoveryService(StreamObserver<DiscoveryResponse> responseObserver, NodeConfig<DetailsT> nodeConfig, TypeUrl type) {
-        return new SotwDiscoveryService<>(type, responseObserver, getSubmanagerForType(type), new VersionManager(), getConfigBuilderForType(type), nodeConfig);
+    public DiscoveryService<DiscoveryRequest, StateUpdT> createDiscoveryService(StreamObserver<DiscoveryResponse> responseObserver, XdsConfig<DetailsT> xdsConfig, TypeUrl type) {
+        return new SotwDiscoveryService<>(type, responseObserver, getSubmanagerForType(type), new VersionManager(), getConfigBuilderForType(type), xdsConfig);
     }
 
 }

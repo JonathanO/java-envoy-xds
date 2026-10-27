@@ -1,8 +1,5 @@
 package net.woaf.jono.envoy.testing;
 
-import io.envoyproxy.envoy.config.core.v3.Node;
-import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
-import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Map;
@@ -84,10 +81,10 @@ public final class Checkpoint {
 
     /**
      * As {@link #assertSane()}, for a conversation that started with Envoy reconnecting. We can't know what config Envoy
-     * kept, so make before break isn't checked, and Envoy before 1.19 may resend resource names for wildcard types.
+     * kept, so make before break isn't checked.
      */
     public void assertSaneAfterReconnect() {
-        EnvoyAssert.of(conversation).nothingSentUnasked(envoyMinorVersion() < 19).allWereAcked().sentNoEmptyResponses(message);
+        EnvoyAssert.of(conversation).nothingSentUnasked().allWereAcked().sentNoEmptyResponses(message);
         assertEnvoyHealthy();
     }
 
@@ -97,7 +94,7 @@ public final class Checkpoint {
      * @param before the previous conversation with this Envoy
      */
     public void assertSaneAfterReconnect(Conversation before) {
-        EnvoyAssert.of(conversation).nothingSentUnasked(envoyMinorVersion() < 19).allWereAcked().sentNoEmptyResponses(message)
+        EnvoyAssert.of(conversation).nothingSentUnasked().allWereAcked().sentNoEmptyResponses(message)
             .wasMakeBeforeBreak(0, before);
         assertEnvoyHealthy();
     }
@@ -111,18 +108,4 @@ public final class Checkpoint {
         EnvoyChecks.assertNoWarningsSince(envoy, logLine);
     }
 
-    /**
-
-     * Envoy's minor version, from the node in its first request, or a recent one if it didn't say.
-
-     */
-    private int envoyMinorVersion() {
-        for (Object m : conversation.getMessages()) {
-            Node node = m instanceof DiscoveryRequest r ? r.getNode() : m instanceof DeltaDiscoveryRequest r ? r.getNode() : null;
-            if (node != null && node.hasUserAgentBuildVersion()) {
-                return node.getUserAgentBuildVersion().getVersion().getMinorNumber();
-            }
-        }
-        return Integer.MAX_VALUE;
-    }
 }

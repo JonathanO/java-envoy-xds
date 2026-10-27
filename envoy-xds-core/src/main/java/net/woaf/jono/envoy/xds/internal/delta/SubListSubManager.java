@@ -1,16 +1,12 @@
 package net.woaf.jono.envoy.xds.internal.delta;
 
 import com.google.common.collect.ImmutableSet;
-import net.woaf.jono.envoy.xds.internal.NodeConfig;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 
 class SubListSubManager implements SubManager {
-
-    public SubListSubManager(NodeConfig<?> unused) {
-    }
 
     private final Set<String> subs = new HashSet<>();
 

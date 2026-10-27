@@ -30,7 +30,7 @@ public class CommonDiscoveryStreamObserverTest {
                                                @Mock ClusterEventSource<DummyUpdate> source,
                                                @Mock DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory,
                                                @Mock DiscoveryServiceManager<DiscoveryRequest, DummyUpdate> dsm) {
-        when(factory.build(any(StreamObserver.class), any(NodeConfig.class), any(DiscoveryServiceManagerMetrics.class))).thenReturn(dsm);
+        when(factory.build(any(StreamObserver.class), any(XdsConfig.class), any(DiscoveryServiceManagerMetrics.class))).thenReturn(dsm);
         CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer = observer(responseObserver, source, factory);
         DiscoveryRequest cds = DiscoveryRequest.newBuilder().setNode(Node.newBuilder().setId("envoy")).setTypeUrl(TypeUrl.CDS.getTypeUrl()).build();
         observer.onNext(cds);
@@ -48,7 +48,7 @@ public class CommonDiscoveryStreamObserverTest {
                                                          @Mock ClusterEventSource<DummyUpdate> source,
                                                          @Mock DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory,
                                                          @Mock DiscoveryServiceManager<DiscoveryRequest, DummyUpdate> dsm) {
-        when(factory.build(any(StreamObserver.class), any(NodeConfig.class), any(DiscoveryServiceManagerMetrics.class))).thenReturn(dsm);
+        when(factory.build(any(StreamObserver.class), any(XdsConfig.class), any(DiscoveryServiceManagerMetrics.class))).thenReturn(dsm);
         CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer = observer(responseObserver, source, factory);
         Node node = Node.newBuilder().setId("envoy").build();
 
@@ -65,7 +65,7 @@ public class CommonDiscoveryStreamObserverTest {
                                                 @Mock ClusterEventSource<DummyUpdate> source,
                                                 @Mock DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory,
                                                 @Mock DiscoveryServiceManager<DiscoveryRequest, DummyUpdate> dsm) {
-        when(factory.build(any(StreamObserver.class), any(NodeConfig.class), any(DiscoveryServiceManagerMetrics.class))).thenReturn(dsm);
+        when(factory.build(any(StreamObserver.class), any(XdsConfig.class), any(DiscoveryServiceManagerMetrics.class))).thenReturn(dsm);
         CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer = observer(responseObserver, source, factory);
 
         observer.onNext(DiscoveryRequest.newBuilder().setNode(Node.newBuilder().setId("envoy")).setTypeUrl(TypeUrl.CDS.getTypeUrl()).build());
