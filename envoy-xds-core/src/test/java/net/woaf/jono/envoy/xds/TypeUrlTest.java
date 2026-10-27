@@ -27,8 +27,10 @@ class TypeUrlTest {
     @Test
     void wildcardTypesAreTheOnesEnvoySubscribesToWithAWildcard() {
         // The xDS docs name only LDS and CDS, but Envoy's SRDS subscription also starts with no names:
-        // source/common/router/scoped_rds.h, subscription_->start({}).
+        // source/common/router/scoped_rds.h, subscription_->start({}). So does VHDS: it watches its route config's name
+        // as a namespace, which isn't sent (use_namespace_matching), and an empty answer only reaches wildcard watches
+        // (source/extensions/config_subscription/grpc/watch_map.cc), so it needs the virtual hosts to start.
         assertThat(Arrays.stream(TypeUrl.values()).filter(TypeUrl::isWildcard))
-            .containsExactlyInAnyOrder(TypeUrl.LDS, TypeUrl.CDS, TypeUrl.SRDS);
+            .containsExactlyInAnyOrder(TypeUrl.LDS, TypeUrl.CDS, TypeUrl.SRDS, TypeUrl.VHDS);
     }
 }

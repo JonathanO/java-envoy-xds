@@ -38,7 +38,7 @@ public final class XdsTypes {
     /** Runtime layers' type URL. */
     public static final String RTDS = PREFIX + Runtime.getDescriptor().getFullName();
 
-    private static final Set<String> WILDCARD = Set.of(LDS, CDS, SRDS);
+    private static final Set<String> WILDCARD = Set.of(LDS, CDS, SRDS, VHDS);
 
     private static final Map<String, Class<? extends Message>> CLASSES = Map.of(
         LDS, Listener.class, RDS, RouteConfiguration.class, SRDS, ScopedRouteConfiguration.class, VHDS, VirtualHost.class,
@@ -50,7 +50,7 @@ public final class XdsTypes {
     /**
      * Whether Envoy subscribes to this type as a wildcard (all resources) by default.
      * @param typeUrl xDS type URL
-     * @return true for LDS, CDS and SRDS
+     * @return true for LDS, CDS, SRDS and VHDS
      */
     public static boolean isWildcard(String typeUrl) {
         return WILDCARD.contains(typeUrl);

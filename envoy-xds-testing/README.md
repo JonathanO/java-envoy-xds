@@ -153,7 +153,7 @@ assertThat(envoy.admin().stats(), hasStat("cluster.foo-v2.upstream_rq_total", gr
 - Resources: `cluster(...)`, `routeConfig(...)`, `endpointAssignment(...)`, with `named`, `ofType`, `routingTo`,
   `routing(virtualHost, cluster)` and `withEndpoint(address, port)`.
 - Messages: `response(...)`, `request(...)`, `nack(...)`, with `ofType`, `containing`, `removing`, `subscribingTo`,
-  `unsubscribingFrom` (delta only) and `withMessage`. For SotW, `removing` matches a wildcard (LDS, CDS, SRDS) response
+  `unsubscribingFrom` (delta only) and `withMessage`. For SotW, `removing` matches a wildcard (LDS, CDS, SRDS, VHDS) response
   without the resource.
 - Conversations: `hasMessage`, and `hasInOrder` with `ackOf`, Envoy's ACK of a matching response.
 - Envoy: `hasActiveCluster`, `activeClusterNames` and `hasRouteConfig` on a config dump, and `hasStat` on `stats()`.
@@ -264,8 +264,10 @@ make Envoy reconnect. The scenarios:
   it arrives, and that first request must succeed.
 - `onDemandClusters` (ODCDS): Envoy subscribes to no clusters as it starts, and asks for one, then its endpoints, when
   the first request routed to it arrives. That first request must succeed.
-- `onDemandVirtualHosts` (VHDS): Envoy's route config has no virtual hosts of its own, and Envoy asks for one, named
-  `<route config>/<host>`, when the first request for that host arrives. That first request must succeed.
+- `onDemandVirtualHosts` (VHDS): Envoy's route config has no virtual hosts of its own. Envoy holds it until it gets
+  virtual hosts named `<route config>/...`, so a library sends some to start, and others when Envoy asks for one on the
+  first request for its host. Either way, requests for each host get routed. It's skipped on Envoy 1.36, which only
+  takes VHDS from a config source of its own, not over ADS.
 
 After each change, the suite checks that the conversation stayed sane. Every response was ACKed, nothing was sent
 unasked, there were no empty responses, and changes were make before break. It also checks that Envoy is healthy and
