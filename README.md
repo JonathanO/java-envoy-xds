@@ -93,7 +93,8 @@ Envoy keeps its config while it's disconnected, and re-subscribes to everything 
 route and listener subscriptions only once the clusters and endpoints they may use are ACKed. With delta, we remove
 what Envoy kept that no longer exists in remove order, once the types that may still use it have been answered and
 ACKed. If a client doesn't get every type from us, say so with `XdsConfig.subscribesTo`, e.g. `Set.of(TypeUrl.CDS,
-TypeUrl.EDS)` for an Envoy with static routes, or its removals wait up to 30 seconds for types it never asks for. This
+TypeUrl.EDS)` for an Envoy with static routes, or its removals wait for types it never asks for: at least 30 seconds
+after it connects, then until its next request or your next change. This
 matters most when you serve types only some Envoys use, such as scoped routes (SRDS) or VHDS: we can't tell an Envoy
 that won't ask for them from one that hasn't yet, as Envoy only asks once the listeners and routes naming them arrive.
 `subscribesTo` only changes what removals wait for: an Envoy asking for a type left out still gets it.
