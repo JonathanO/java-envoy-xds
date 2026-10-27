@@ -141,7 +141,7 @@ public class SotwNackTest {
         return previous(type, 0);
     }
 
-    /** The last response of a type, or the one {@code back} before it. */
+    // The last response of a type, or the one back before it.
     private DiscoveryResponse previous(TypeUrl type, int back) {
         List<DiscoveryResponse> ofType = responses.stream().filter(r -> r.getTypeUrl().equals(type.getTypeUrl())).toList();
         return ofType.get(ofType.size() - 1 - back);
