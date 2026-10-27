@@ -13,10 +13,8 @@ import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
 
@@ -111,17 +109,18 @@ class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends Abstr
         String version = versionManager.getNext();
         DiscoveryResponse.Builder responseBuilder = DiscoveryResponse.newBuilder();
         log.debug("Sending {} of {}", version, getTypeUrl());
-        List<String> names = new ArrayList<>(resources.size());
         for (IncrementalConfigBuilder.NamedMessage<? extends Message> namedMessage : resources) {
             responseBuilder.addResources(pack(namedMessage.message()));
-            names.add(namedMessage.name());
         }
         responseBuilder.setTypeUrl(getTypeUrl().getTypeUrl());
         responseBuilder.setVersionInfo(version);
         responseBuilder.setNonce(versionManager.pushedVersion(version));
 
         DiscoveryResponse discoveryResponse = responseBuilder.build();
-        log.debug("DiscoveryResponse: V={},R={},N={},T={}", discoveryResponse.getVersionInfo(), names, discoveryResponse.getNonce(), discoveryResponse.getTypeUrl());
+        if (log.isDebugEnabled()) {
+            log.debug("DiscoveryResponse: V={},R={},N={},T={}", discoveryResponse.getVersionInfo(),
+                resources.stream().map(IncrementalConfigBuilder.NamedMessage::name).toList(), discoveryResponse.getNonce(), discoveryResponse.getTypeUrl());
+        }
 
         awaitingVersion = version;
         markAnswered();
