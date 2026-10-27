@@ -178,12 +178,12 @@ public abstract class XdsConformanceTest {
     }
 
     /**
-     * A scenario, the protocols Envoy supports it on, and whether Envoy subscribes to every cluster (else it only
-     * asks for clusters on demand).
+     * A scenario, the protocols Envoy supports it on, whether Envoy subscribes to every cluster (else it only asks for
+     * clusters on demand), and the oldest Envoy minor version that supports it, with why, if not all do.
      */
-    private record Scenario(Steps steps, Set<Protocol> protocols, boolean allClusters) {
+    private record Scenario(Steps steps, Set<Protocol> protocols, boolean allClusters, int minEnvoyMinor, String why) {
         static Scenario everywhere(Steps steps) {
-            return new Scenario(steps, EnumSet.allOf(Protocol.class), true);
+            return new Scenario(steps, EnumSet.allOf(Protocol.class), true, 0, "");
         }
     }
 
@@ -201,8 +201,9 @@ public abstract class XdsConformanceTest {
         scenarios.put("scopedRoutes", Scenario.everywhere(Harness::scopedRoutes));
         scenarios.put("onDemandScopes", Scenario.everywhere(Harness::onDemandScopes));
         // Envoy only does on-demand clusters and virtual hosts over delta.
-        scenarios.put("onDemandClusters", new Scenario(Harness::onDemandClusters, EnumSet.of(Protocol.DELTA), false));
-        scenarios.put("onDemandVirtualHosts", new Scenario(Harness::onDemandVirtualHosts, EnumSet.of(Protocol.DELTA), true));
+        scenarios.put("onDemandClusters", new Scenario(Harness::onDemandClusters, EnumSet.of(Protocol.DELTA), false, 0, ""));
+        scenarios.put("onDemandVirtualHosts", new Scenario(Harness::onDemandVirtualHosts, EnumSet.of(Protocol.DELTA), true, 40,
+            "Envoy 1.36 only takes VHDS from a DELTA_GRPC config source of its own, not over ADS"));
         return Collections.unmodifiableMap(scenarios);
     }
 
@@ -226,6 +227,7 @@ public abstract class XdsConformanceTest {
                 Assumptions.abort(deviation.getValue());
             }
         }
+        Assumptions.assumeTrue(Integer.parseInt(version(image).substring(version(image).indexOf('.') + 1)) >= scenario.minEnvoyMinor(), scenario.why());
         Harness harness = new Harness(this::newControlPlane, image, protocol, rateLimited, scenario.allClusters());
         try {
             scenario.steps().run(harness);
@@ -397,8 +399,8 @@ public abstract class XdsConformanceTest {
     }
 
     /**
-     * Adds listener vhds on port 10001, whose route config vhds has no virtual hosts of its own: Envoy asks for one by
-     * VHDS, as vhds/name, when a request for that host arrives. Each routes to the cluster of that name.
+     * Adds listener vhds on port 10001, whose route config vhds has no virtual hosts of its own, and for each name a
+     * VHDS virtual host vhds/name routing to the cluster of that name.
      */
     private static List<Message> withVirtualHostsOnDemand(List<Message> config, String... names) {
         HttpConnectionManager hcm = HttpConnectionManager.newBuilder()
@@ -719,14 +721,23 @@ public abstract class XdsConformanceTest {
             assertFirstRequestRoutedVia(conversation, "bar", "bar");
         }
 
-        /** On-demand virtual hosts (VHDS): Envoy asks for a virtual host when the first request for its host arrives. */
+        /**
+         * Virtual hosts by VHDS: Envoy's route config has none of its own. Envoy holds the route config until it gets
+         * virtual hosts under the route config's name, so a library sends some (here, all) to start, and the rest when
+         * Envoy asks for one on the first request for its host. Either way, requests for each host get routed.
+         */
         void onDemandVirtualHosts() throws IOException {
             controlPlane.setConfig(withVirtualHostsOnDemand(services("foo", "bar"), "foo", "bar"));
             start();
             Conversation conversation = synced(1);
 
-            assertFirstRequestRoutedVia(conversation, "foo", "foo");
-            assertFirstRequestRoutedVia(conversation, "bar", "bar");
+            for (String name : List.of("foo", "bar")) {
+                // Unlike a held on-demand request, one for a virtual host sent ahead can race Envoy's workers getting it,
+                // so retry.
+                EnvoyChecks.assertRoutedVia(envoy, DYNAMIC_LISTENER_PORT, name, name);
+                await().atMost(10, TimeUnit.SECONDS).until(settled(conversation));
+                checkpoint().assertSane();
+            }
         }
 
         /** Start the control plane, then Envoy if it isn't running, so Envoy doesn't back off past its initial fetch timeout. */
@@ -790,9 +801,8 @@ public abstract class XdsConformanceTest {
          * retrying. Then everything Envoy was sent for it must have been make before break.
          */
         private void assertFirstRequestRoutedVia(Conversation conversation, String virtualHost, String cluster) throws IOException {
-            int mark = conversation.size();
             assertThat(envoy.httpStatus(DYNAMIC_LISTENER_PORT, virtualHost)).as("first request for " + virtualHost).isEqualTo(200);
-            await().atMost(10, TimeUnit.SECONDS).until(Settled.settledAfter(conversation, mark, settled(conversation)));
+            await().atMost(10, TimeUnit.SECONDS).until(settled(conversation));
             checkpoint().assertSane();
             EnvoyChecks.assertRoutedVia(envoy, DYNAMIC_LISTENER_PORT, virtualHost, cluster);
         }

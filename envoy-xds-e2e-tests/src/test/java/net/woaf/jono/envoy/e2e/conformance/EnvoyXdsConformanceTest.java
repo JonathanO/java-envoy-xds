@@ -38,9 +38,6 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
      * SotW's CDS answer is the whole set, so on a reconnect it removes a cluster Envoy kept and its kept routes still use.
      * We no longer have that cluster's config to send again.
      */
-    private static final String NO_SUCH_RESOURCE = "Known gap: a delta subscription to a name we have no resource for gets no answer,"
-        + " so Envoy's VHDS, which starts by subscribing to its route config's name, waits out its initial fetch timeout";
-
     private static final String SOTW_RECONNECT = "Known limit: after a SotW reconnect, a cluster Envoy kept is removed while its kept routes still use it";
 
     @Override
@@ -50,7 +47,7 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
 
     @Override
     protected Map<String, String> knownDeviations() {
-        return Map.of("sotw/changesWhileDisconnected", SOTW_RECONNECT, "sotw/controlPlaneRestarts", SOTW_RECONNECT, "onDemandVirtualHosts", NO_SUCH_RESOURCE);
+        return Map.of("sotw/changesWhileDisconnected", SOTW_RECONNECT, "sotw/controlPlaneRestarts", SOTW_RECONNECT);
     }
 
     private static final class EnvoyXds implements ControlPlane {

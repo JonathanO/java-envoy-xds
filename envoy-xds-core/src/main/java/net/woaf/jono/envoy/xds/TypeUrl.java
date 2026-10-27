@@ -27,7 +27,7 @@ public enum TypeUrl {
     /** Scoped route configurations. */
     SRDS(ScopedRouteConfiguration.getDescriptor().getFullName(), ScopedRouteConfiguration.class, true),
     /** Virtual hosts. */
-    VHDS(VirtualHost.getDescriptor().getFullName(), VirtualHost.class, false),
+    VHDS(VirtualHost.getDescriptor().getFullName(), VirtualHost.class, true),
     /** Clusters. */
     CDS(Cluster.getDescriptor().getFullName(), Cluster.class, true),
     /** Cluster load assignments: endpoints. */
@@ -94,7 +94,7 @@ public enum TypeUrl {
     }
 
     /**
-     * {@return whether clients may subscribe to every resource of this type with a wildcard (LDS, CDS and SRDS)}
+     * {@return whether clients may subscribe to every resource of this type with a wildcard (LDS, CDS, SRDS and VHDS)}
      */
     public boolean isWildcard() {
         return wildcard;
