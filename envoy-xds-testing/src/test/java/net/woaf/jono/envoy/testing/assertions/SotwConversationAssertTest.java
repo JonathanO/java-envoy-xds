@@ -11,6 +11,7 @@ import com.google.protobuf.Any;
 import com.google.protobuf.Message;
 import com.google.rpc.Status;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
+import io.envoyproxy.envoy.extensions.transport_sockets.tls.v3.Secret;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import java.util.List;
@@ -139,6 +140,17 @@ public class SotwConversationAssertTest {
         Conversation c = synced();
         send(c, XdsTypes.EDS, endpoints("v1"), endpoints("v2"));
         assertThatThrownBy(() -> SotwConversationAssert.assertThat(c).nothingSentUnasked()).hasMessageContaining("containing resource(s) <[v2]>");
+    }
+
+    @Test
+    public void checksSecretsLikeAnyOtherNamedType() {
+        Conversation c = new Conversation();
+        c.onRequest(request(XdsTypes.SDS, "", "cert"));
+        exchange(c, XdsTypes.SDS, Secret.newBuilder().setName("cert").build());
+        assertThatCode(() -> SotwConversationAssert.assertThat(c).nothingSentUnasked()).doesNotThrowAnyException();
+
+        send(c, XdsTypes.SDS, Secret.newBuilder().setName("cert").build(), Secret.newBuilder().setName("other").build());
+        assertThatThrownBy(() -> SotwConversationAssert.assertThat(c).nothingSentUnasked()).hasMessageContaining("containing resource(s) <[other]>");
     }
 
     @Test
