@@ -58,6 +58,31 @@ public class SotwNackTest {
             .containsExactlyInAnyOrder(cla("a", "10.0.0.1"), cla("b", "10.0.0.3"));
     }
 
+    @Test
+    public void subscribingAfterANackOfTheSameTypeRepeatsWhatWasRejected() {
+        source.update(all(e -> e.put(cluster("a")).put(cla("a", "10.0.0.1"))));
+        ack(request(TypeUrl.CDS, null));
+        ack(request(TypeUrl.EDS, null, "a"), "a");
+
+        source.update(all(e -> e.put(cluster("b")).put(cla("a", "10.0.0.2")).put(cla("b", "10.0.0.3"))));
+        runTasks();
+        ack(last());
+        DiscoveryResponse rejected = last();
+        assertThat(rejected.getResourcesList()).extracting(any -> any.unpack(ClusterLoadAssignment.class)).containsExactly(cla("a", "10.0.0.2"));
+
+        // Envoy NACKs the endpoints, and in the same request asks for b's, as it took cluster b.
+        int before = responses.size();
+        send(DiscoveryRequest.newBuilder().setTypeUrl(TypeUrl.EDS.getTypeUrl()).setVersionInfo(previous(TypeUrl.EDS, 1).getVersionInfo())
+            .setResponseNonce(rejected.getNonce()).addAllResourceNames(List.of("a", "b")).setErrorDetail(Status.newBuilder().setMessage("bad endpoints")));
+
+        // Envoy may have taken part of what it rejected, so the only answer that leaves it as it is, is the same one.
+        // Rolling a back would also roll back anything else in that answer that Envoy took.
+        assertThat(responses).hasSize(before + 1);
+        assertThat(last().getResourcesList()).extracting(any -> any.unpack(ClusterLoadAssignment.class))
+            .as("what Envoy rejected again, as SotW sends the whole set, and b, newly asked for")
+            .containsExactlyInAnyOrder(cla("a", "10.0.0.2"), cla("b", "10.0.0.3"));
+    }
+
     private StreamObserver<DiscoveryRequest> connect() {
         AggregatedDiscoveryService<SnapshotUpdate<Object>, Object> ads = new AggregatedDiscoveryService<>(source,
             SnapshotConfigBuilder.<Object>forTypes(Cluster.class, ClusterLoadAssignment.class), node -> XdsConfig.of(new Object()),
@@ -113,6 +138,12 @@ public class SotwNackTest {
     }
 
     private DiscoveryResponse previous(TypeUrl type) {
-        return responses.stream().filter(r -> r.getTypeUrl().equals(type.getTypeUrl())).reduce((a, b) -> b).orElseThrow();
+        return previous(type, 0);
+    }
+
+    // The last response of a type, or the one back before it.
+    private DiscoveryResponse previous(TypeUrl type, int back) {
+        List<DiscoveryResponse> ofType = responses.stream().filter(r -> r.getTypeUrl().equals(type.getTypeUrl())).toList();
+        return ofType.get(ofType.size() - 1 - back);
     }
 }

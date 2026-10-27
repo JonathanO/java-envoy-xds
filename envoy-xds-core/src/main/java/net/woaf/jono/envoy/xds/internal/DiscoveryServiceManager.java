@@ -131,19 +131,6 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
         this.metrics = metrics;
     }
 
-
-    public void init(StateUpdT initialStateChange, @Nullable TypeUrl delayUpdatesUntilAckOf) {
-        init(initialStateChange, delayUpdatesUntilAckOf, null);
-    }
-
-    /**
-     * Populate the initial state of the manager.
-     * All changes provided to pushUpdates are expected to apply sequentially from this initial state.
-     */
-    public void init(StateUpdT initialStateChange) {
-        init(initialStateChange, null, null);
-    }
-
     /**
      * Populate the initial state of the manager.
      * @param initialStateChange state that all changes provided to pushUpdates apply sequentially from
@@ -264,7 +251,9 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      * <p>A rejected change won't fix itself: resending it, or any later change that includes it, gets rejected again.
      * Envoy may also have applied part of it, so we no longer know what it has, and diffing from what we think it has
      * would make things worse. Dropping the stream instead would have Envoy reconnect straight away, be sent the same
-     * config, and loop. Subscription requests are still answered, from our own state.
+     * config, and loop. Subscription requests are still answered, from our own state. For SotW that includes what
+     * Envoy rejected, as each answer is the whole set: resending it changes nothing Envoy has, where rolling it back
+     * would undo any part of it Envoy took.
      */
     private void freeze() {
         if (frozen) {

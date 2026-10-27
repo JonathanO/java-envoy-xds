@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.snapshot;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -77,7 +78,8 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
 
     /**
      * A source delivering on {@link SerialEventListener#sharedExecutor()}.
-     * @param viewOf the name of the view a client sees, given its details
+     * @param viewOf the name of the view a client sees, given its details. Never null: give a client with no view yet a
+     *               name that has no view, and it sees nothing until you add one
      */
     public SnapshotSource(Function<? super D, ? extends V> viewOf) {
         this(viewOf, SerialEventListener.sharedExecutor());
@@ -89,7 +91,8 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
      * <p>It must run tasks on threads of its own, not the caller's: with {@code MoreExecutors.directExecutor()},
      * publishing delivers to a stream while holding this source's lock, and a stream subscribing at the same time holds
      * its own lock while it waits for this one, so they deadlock.
-     * @param viewOf the name of the view a client sees, given its details
+     * @param viewOf the name of the view a client sees, given its details. Never null: give a client with no view yet a
+     *               name that has no view, and it sees nothing until you add one
      * @param executor runs each client's updates, one at a time per client, on threads other than the caller's
      */
     public SnapshotSource(Function<? super D, ? extends V> viewOf, Executor executor) {
@@ -202,7 +205,7 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
     @Override
     @SuppressWarnings("unchecked") // the details our SnapshotConfigBuilders are typed for, from the same ClientConfigProvider
     public synchronized SnapshotUpdate<D> subscribe(ClusterManagerEventListener<SnapshotUpdate<D>> listener, Object clientDetails) {
-        V view = viewOf.apply((D) clientDetails);
+        V view = Preconditions.checkNotNull(viewOf.apply((D) clientDetails), "viewOf returned null for %s: return a key with no view instead", clientDetails);
         Target<D, V> target = targets.computeIfAbsent(listener, l -> new Target<D, V>(new SerialEventListener<>(executor, l), view));
         // Inside compute, so it can't race an unsubscribe dropping the view's empty set.
         byView.compute(target.view(), (v, listeners) -> {
