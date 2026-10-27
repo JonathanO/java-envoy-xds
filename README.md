@@ -77,6 +77,19 @@ and views changed in one `update()` reach each client as one change, so a new cl
 route to it in another. A client whose view doesn't exist sees nothing until you add it, which you can do when it
 connects, from an `XdsEventListener`.
 
+Make before break orders adds and removals by what refers to what. Some changes need an order it can't see: a cluster
+that drops a subset a route still selects, say, must wait until the route stops using it. Split such a change into
+phases with `then()`, and each client gets each phase, and ACKs it, before the next:
+
+```java
+source.update(c -> c
+    .group("routing", g -> g.put(routesWithoutSubset))
+    .then()
+    .group("svc-b", g -> g.put(clusterBWithoutSubset)));
+```
+
+Each phase is make before break within itself, and updates queued for a busy client are never merged across phases.
+
 `SnapshotExample` in [envoy-xds-example](envoy-xds-example/README.md) is a runnable version of the toy example built this way.
 
 ### Threads

@@ -14,7 +14,7 @@ import net.woaf.jono.envoy.xds.api.Mergeable;
  * A move of one view from one state to the next. One instance is shared by every client of that view.
  *
  * <p>Merging keeps the oldest previous and the newest current, so any number of updates arriving while a client is
- * busy collapse into one change.
+ * busy collapse into one change, except across the end of a {@linkplain SnapshotSource.Change#then() phase}.
  *
  * @param <D> client details type
  */
@@ -30,12 +30,28 @@ public final class SnapshotUpdate<D> implements Mergeable<SnapshotUpdate<D>> {
     /** Otherwise, the names touched in each changed group of the view, by type. */
     private final ImmutableList<ImmutableMap<Class<? extends Message>, ImmutableSet<String>>> touched;
 
+    /** A later phase of the same change follows, so nothing later merges into this. */
+    private final boolean endsPhase;
+
     SnapshotUpdate(ViewState previous, ViewState current, boolean full,
         ImmutableList<ImmutableMap<Class<? extends Message>, ImmutableSet<String>>> touched) {
+        this(previous, current, full, touched, false);
+    }
+
+    private SnapshotUpdate(ViewState previous, ViewState current, boolean full,
+        ImmutableList<ImmutableMap<Class<? extends Message>, ImmutableSet<String>>> touched, boolean endsPhase) {
         this.previous = previous;
         this.current = current;
         this.full = full;
         this.touched = touched;
+        this.endsPhase = endsPhase;
+    }
+
+    /**
+     * {@return this, as the end of a phase}
+     */
+    SnapshotUpdate<D> endingPhase() {
+        return new SnapshotUpdate<>(previous, current, full, touched, true);
     }
 
     ViewState previous() {
@@ -51,7 +67,12 @@ public final class SnapshotUpdate<D> implements Mergeable<SnapshotUpdate<D>> {
         Preconditions.checkArgument(next.previous == current, "Updates must be merged in the order they were published");
         return new SnapshotUpdate<>(previous, next.current, full || next.full,
             full || next.full ? ImmutableList.of() : ImmutableList.<ImmutableMap<Class<? extends Message>, ImmutableSet<String>>>builder()
-                .addAll(touched).addAll(next.touched).build());
+                .addAll(touched).addAll(next.touched).build(), next.endsPhase);
+    }
+
+    @Override
+    public boolean mergesWithLater() {
+        return !endsPhase;
     }
 
     @Nullable

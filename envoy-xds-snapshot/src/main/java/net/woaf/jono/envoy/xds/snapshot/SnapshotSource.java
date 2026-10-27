@@ -119,14 +119,39 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
     /**
      * Change any number of groups and views, and publish them together. Clients get the whole change as one, so it's
      * make before break: anything added is in place before anything referring to it, whatever groups they're in.
+     *
+     * <p>To order changes that make before break can't see, split the change into phases with {@link Change#then()}.
      * @param change makes your changes
-     * @return the update sent to each view that changed, by view name
+     * @return the update sent to each view that changed, by view name, all phases merged
      */
     @CanIgnoreReturnValue
     public synchronized ImmutableMap<V, SnapshotUpdate<D>> update(Consumer<Change<G, V>> change) {
         Change<G, V> edits = new Change<>(groups);
         change.accept(edits);
 
+        List<Map<V, SnapshotUpdate<D>>> phases = new ArrayList<>();
+        for (Phase<G, V> phase : edits.phases) {
+            phases.add(apply(phase));
+        }
+        Map<V, SnapshotUpdate<D>> whole = new LinkedHashMap<>();
+        for (int i = 0; i < phases.size(); i++) {
+            List<Map<V, SnapshotUpdate<D>>> later = phases.subList(i + 1, phases.size());
+            phases.get(i).forEach((view, update) -> {
+                // A view in a later phase gets this phase on its own first; one that isn't can merge as usual.
+                SnapshotUpdate<D> sent = later.stream().anyMatch(p -> p.containsKey(view)) ? update.endingPhase() : update;
+                whole.merge(view, update, SnapshotUpdate::merge);
+                // Hand over only: listeners run on the executor, so we never call into a stream while holding our lock.
+                byView.getOrDefault(view, Set.of()).forEach(t -> t.onNetworkChange(sent));
+            });
+        }
+        return ImmutableMap.copyOf(whole);
+    }
+
+    /**
+     * {@return the update to each view that one phase changes}
+     */
+    @GuardedBy("this")
+    private Map<V, SnapshotUpdate<D>> apply(Phase<G, V> edits) {
         Set<V> changedViews = new HashSet<>();
         edits.views.forEach((name, list) -> {
             ImmutableList<G> old = views.getOrDefault(name, ImmutableList.of());
@@ -162,7 +187,7 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
         });
         changedViews.forEach(view -> touchedByView.putIfAbsent(view, List.of()));
 
-        ImmutableMap.Builder<V, SnapshotUpdate<D>> updates = ImmutableMap.builder();
+        Map<V, SnapshotUpdate<D>> updates = new LinkedHashMap<>();
         touchedByView.forEach((view, touched) -> {
             ViewState before = states.getOrDefault(view, ViewState.EMPTY);
             ViewState after = stateOf(view);
@@ -172,12 +197,9 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
                 states.put(view, after);
             }
             boolean full = changedViews.contains(view);
-            SnapshotUpdate<D> update = new SnapshotUpdate<>(before, after, full, full ? ImmutableList.of() : ImmutableList.copyOf(touched));
-            updates.put(view, update);
-            // Hand over only: listeners run on the executor, so we never call into a stream while holding our lock.
-            byView.getOrDefault(view, Set.of()).forEach(t -> t.onNetworkChange(update));
+            updates.put(view, new SnapshotUpdate<>(before, after, full, full ? ImmutableList.of() : ImmutableList.copyOf(touched)));
         });
-        return updates.build();
+        return updates;
     }
 
     @GuardedBy("this")
@@ -238,17 +260,31 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
 
         private final Map<G, Snapshot> base;
 
-        /** Groups as changed so far; a null value means removed. */
-        private final Map<G, @Nullable Snapshot> groups = new HashMap<>();
-
-        /** Names touched in each changed group, by type. */
-        private final Map<G, Map<Class<? extends Message>, Set<String>>> touched = new HashMap<>();
-
-        /** Views as changed so far; a null value means removed. */
-        private final Map<V, @Nullable ImmutableList<G>> views = new LinkedHashMap<>();
+        /** The phases so far, in order; edits go to the last. */
+        private final List<Phase<G, V>> phases = new ArrayList<>(List.of(new Phase<>()));
 
         private Change(Map<G, Snapshot> base) {
             this.base = base;
+        }
+
+        private Phase<G, V> phase() {
+            return phases.get(phases.size() - 1);
+        }
+
+        /**
+         * Start the next phase. Each client is sent everything before this, and ACKs it, before it's sent anything
+         * after it, so you can order changes that make before break can't see: a route that stops using a cluster's
+         * subset, then the cluster that drops it, say. Each phase is still make before break within itself.
+         *
+         * <p>Only clients whose view changes in a later phase wait. A client connecting now gets the end result.
+         * @return this change
+         */
+        @CanIgnoreReturnValue // returns the change for chaining
+        public Change<G, V> then() {
+            if (!phase().isEmpty()) {
+                phases.add(new Phase<>());
+            }
+            return this;
         }
 
         /**
@@ -260,12 +296,12 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
         @CanIgnoreReturnValue // returns the change for chaining
         public Change<G, V> group(G name, UnaryOperator<Snapshot.Editor> edit) {
             Snapshot edited = edit.apply(group(name).edit()).build();
-            Map<Class<? extends Message>, Set<String>> names = touched.computeIfAbsent(name, n -> new HashMap<>());
+            Map<Class<? extends Message>, Set<String>> names = phase().touched.computeIfAbsent(name, n -> new HashMap<>());
             Map<Class<? extends Message>, ImmutableSet<String>> editTouched = edited.touched();
             if (editTouched != null) { // never null: the edit has a parent
                 editTouched.forEach((type, typeNames) -> names.computeIfAbsent(type, t -> new HashSet<>()).addAll(typeNames));
             }
-            groups.put(name, edited);
+            phase().groups.put(name, edited);
             return this;
         }
 
@@ -279,18 +315,21 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
         public Change<G, V> group(G name, Snapshot snapshot) {
             touchAll(name, group(name));
             touchAll(name, snapshot);
-            groups.put(name, snapshot);
+            phase().groups.put(name, snapshot);
             return this;
         }
 
         /**
-         * {@return a group as this change has it so far, empty if there's none}
+         * {@return a group as this change has it so far, earlier phases included, empty if there's none}
          * @param name the group's name
          */
         public Snapshot group(G name) {
-            if (groups.containsKey(name)) {
-                Snapshot changed = groups.get(name);
-                return changed == null ? Snapshot.empty() : changed;
+            for (int i = phases.size() - 1; i >= 0; i--) {
+                Map<G, @Nullable Snapshot> changed = phases.get(i).groups;
+                if (changed.containsKey(name)) {
+                    Snapshot group = changed.get(name);
+                    return group == null ? Snapshot.empty() : group;
+                }
             }
             return base.getOrDefault(name, Snapshot.empty());
         }
@@ -303,7 +342,7 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
         @CanIgnoreReturnValue // returns the change for chaining
         public Change<G, V> removeGroup(G name) {
             touchAll(name, group(name));
-            groups.put(name, null);
+            phase().groups.put(name, null);
             return this;
         }
 
@@ -315,7 +354,7 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
          */
         @CanIgnoreReturnValue // returns the change for chaining
         public Change<G, V> view(V name, List<? extends G> groups) {
-            views.put(name, ImmutableList.copyOf(groups));
+            phase().views.put(name, ImmutableList.copyOf(groups));
             return this;
         }
 
@@ -339,15 +378,32 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
          */
         @CanIgnoreReturnValue // returns the change for chaining
         public Change<G, V> removeView(V name) {
-            views.put(name, null);
+            phase().views.put(name, null);
             return this;
         }
 
         private void touchAll(G name, Snapshot snapshot) {
-            Map<Class<? extends Message>, Set<String>> names = touched.computeIfAbsent(name, n -> new HashMap<>());
+            Map<Class<? extends Message>, Set<String>> names = phase().touched.computeIfAbsent(name, n -> new HashMap<>());
             for (Class<? extends Message> type : snapshot.types()) {
                 names.computeIfAbsent(type, t -> new HashSet<>()).addAll(snapshot.get(type).keySet());
             }
+        }
+    }
+
+    /** One phase of a change. */
+    private static final class Phase<G, V> {
+
+        /** Groups as changed so far; a null value means removed. */
+        private final Map<G, @Nullable Snapshot> groups = new HashMap<>();
+
+        /** Names touched in each changed group, by type. */
+        private final Map<G, Map<Class<? extends Message>, Set<String>>> touched = new HashMap<>();
+
+        /** Views as changed so far; a null value means removed. */
+        private final Map<V, @Nullable ImmutableList<G>> views = new LinkedHashMap<>();
+
+        boolean isEmpty() {
+            return groups.isEmpty() && views.isEmpty();
         }
     }
 }
