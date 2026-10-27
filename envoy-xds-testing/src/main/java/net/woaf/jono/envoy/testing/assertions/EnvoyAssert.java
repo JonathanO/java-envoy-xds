@@ -41,27 +41,11 @@ public abstract class EnvoyAssert<SelfT extends EnvoyAssert<SelfT>> extends Abst
     public abstract SelfT allWereAcked();
 
     /**
-     * As {@link #nothingSentUnasked()}, allowing Envoy before 1.19's reconnect behaviour: a resource list on its first request for a wildcard type.
-     * @return this
-     */
-    @CanIgnoreReturnValue
-    public abstract SelfT nothingSentUnaskedPre119Reconnect();
-
-    /**
      * We never sent a resource Envoy hadn't subscribed to.
      * @return this
      */
     @CanIgnoreReturnValue
     public abstract SelfT nothingSentUnasked();
-
-    /**
-     * We never sent a resource Envoy hadn't subscribed to.
-     * @param allowBrokenReconnectWildcardBehaviourPre119 allow a resource list on Envoy's first request for a wildcard
-     *     type, as Envoy before 1.19 sends when reconnecting
-     * @return this
-     */
-    @CanIgnoreReturnValue
-    public abstract SelfT nothingSentUnasked(boolean allowBrokenReconnectWildcardBehaviourPre119);
 
     /**
      * Envoy subscribed to a resource, then unsubscribed from it.

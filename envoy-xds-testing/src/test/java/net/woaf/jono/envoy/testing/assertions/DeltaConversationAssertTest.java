@@ -187,17 +187,11 @@ public class DeltaConversationAssertTest {
     }
 
     @Test
-    public void pre119ReconnectAllowanceOnlyCoversWildcardTypes() {
+    public void namesOnTheFirstWildcardTypeRequestAreNotAWildcard() {
         Conversation c = new Conversation();
-        c.onRequest(subscribe(XdsTypes.CDS, "v1")); // Envoy before 1.19 reconnecting lists the clusters it had
+        c.onRequest(subscribe(XdsTypes.CDS, "v1"));
         exchange(c, XdsTypes.CDS, cluster("v2"));
         assertThatThrownBy(() -> DeltaConversationAssert.assertThat(c).nothingSentUnasked()).hasMessageContaining("containing resource(s) <[v2]>");
-        assertThatCode(() -> DeltaConversationAssert.assertThat(c).nothingSentUnaskedPre119Reconnect()).doesNotThrowAnyException();
-
-        c.onRequest(subscribe(XdsTypes.EDS, "v1"));
-        send(c, XdsTypes.EDS, endpoints("v2"));
-        assertThatThrownBy(() -> DeltaConversationAssert.assertThat(c).nothingSentUnaskedPre119Reconnect())
-            .hasMessageContaining("containing resource(s) <[v2]>");
     }
 
     @Test

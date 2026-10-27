@@ -34,7 +34,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
     private final StreamObserver<R> responseObserver;
     private final ClusterEventSource<StateUpdT> clusterManager;
     @GuardedBy("this")
-    private @Nullable NodeConfig<DetailsT> xdsConfig = null;
+    private @Nullable XdsConfig<DetailsT> xdsConfig = null;
 
     private final DiscoveryServiceManagerFactory<T, R, StateUpdT, DetailsT> discoveryServiceManagerFactory;
     @GuardedBy("this")
@@ -78,7 +78,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
         XdsConfig<DetailsT> config = configProvider.lookup(node);
 
         this.node = node;
-        xdsConfig = NodeConfig.forNode(node, config);
+        xdsConfig = config;
         notifyClientConnected(node, config);
 
         nodeId = node.getId();
@@ -100,7 +100,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
                 extractNodeData(value.node());
             }
             final Node node = Preconditions.checkNotNull(this.node);
-            final NodeConfig<DetailsT> nodeConfig = Preconditions.checkNotNull(xdsConfig);
+            final XdsConfig<DetailsT> xdsConfig = Preconditions.checkNotNull(this.xdsConfig);
 
             if (value.errorDetail() != null) {
                 log.warn("Client {} rejected {}, so we'll send it no more changes on this stream: {}", nodeId, value.typeUrl(), value.errorDetail());
@@ -118,8 +118,8 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
                 notifyClientNack(node, typeUrl, value.errorDetail());
             }
             if (discoveryServiceManager == null) {
-                discoveryServiceManager = discoveryServiceManagerFactory.build(responseObserver, nodeConfig, metrics);
-                discoveryServiceManager.init(clusterManager.subscribe(this, nodeConfig.xdsConfig().clientDetails()), nodeConfig.xdsConfig().delayUpdatesUntilAckOf(), nodeConfig.xdsConfig().subscribesTo());
+                discoveryServiceManager = discoveryServiceManagerFactory.build(responseObserver, xdsConfig, metrics);
+                discoveryServiceManager.init(clusterManager.subscribe(this, xdsConfig.clientDetails()), xdsConfig.delayUpdatesUntilAckOf(), xdsConfig.subscribesTo());
             }
 
             discoveryServiceManager.processUpdate(value);

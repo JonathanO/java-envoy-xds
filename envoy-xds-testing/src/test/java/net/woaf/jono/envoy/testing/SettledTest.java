@@ -38,6 +38,18 @@ public class SettledTest {
     }
 
     @Test
+    public void noncesAreAnsweredPerType() throws Exception {
+        Conversation conversation = new Conversation();
+        conversation.onResponse(DeltaDiscoveryResponse.newBuilder().setTypeUrl(XdsTypes.CDS).setNonce("1").build());
+        conversation.onResponse(DeltaDiscoveryResponse.newBuilder().setTypeUrl(XdsTypes.EDS).setNonce("1").build());
+        conversation.onRequest(DeltaDiscoveryRequest.newBuilder().setTypeUrl(XdsTypes.CDS).setResponseNonce("1").build());
+        assertThat(Settled.settled(conversation, () -> true).call()).as("EDS unanswered").isFalse();
+
+        conversation.onRequest(DeltaDiscoveryRequest.newBuilder().setTypeUrl(XdsTypes.EDS).setResponseNonce("1").build());
+        assertThat(Settled.settled(conversation, () -> true).call()).isTrue();
+    }
+
+    @Test
     public void settledAfterWaitsForSomethingToBeSent() throws Exception {
         Conversation conversation = new Conversation();
         int mark = conversation.size();

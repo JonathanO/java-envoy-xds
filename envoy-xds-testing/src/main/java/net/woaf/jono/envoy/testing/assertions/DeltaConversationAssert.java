@@ -9,7 +9,6 @@ import com.google.common.collect.HashMultimap;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.protobuf.Any;
 import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
-import net.woaf.jono.envoy.testing.XdsTypes;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.Resource;
@@ -81,19 +80,7 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
 
     @Override
     @CanIgnoreReturnValue
-    public DeltaConversationAssert nothingSentUnaskedPre119Reconnect() {
-        return nothingSentUnasked(true);
-    }
-
-    @Override
-    @CanIgnoreReturnValue
     public DeltaConversationAssert nothingSentUnasked() {
-        return nothingSentUnasked(false);
-    }
-
-    @Override
-    @CanIgnoreReturnValue
-    public DeltaConversationAssert nothingSentUnasked(boolean allowBrokenReconnectWildcardBehaviourPre119) {
         isNotNull();
 
         HashMultimap<String, String> subscriptionsByTypeUrl = HashMultimap.create();
@@ -103,9 +90,7 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
         for (Object message : actual.getMessages()) {
             if (message instanceof DeltaDiscoveryRequest r) {
                 List<String> addsSubs = r.getResourceNamesSubscribeList();
-                if (seenTypeUrls.add(r.getTypeUrl())
-                    && (addsSubs.isEmpty() || (XdsTypes.isWildcard(r.getTypeUrl()) && allowBrokenReconnectWildcardBehaviourPre119))
-                ) {
+                if (seenTypeUrls.add(r.getTypeUrl()) && addsSubs.isEmpty()) {
                     // First request of this type, allow old wildcard behaviour
                     addsSubs = List.of("*");
                 }

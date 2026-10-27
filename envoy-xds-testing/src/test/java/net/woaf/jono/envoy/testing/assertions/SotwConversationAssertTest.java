@@ -162,17 +162,11 @@ public class SotwConversationAssertTest {
     }
 
     @Test
-    public void pre119ReconnectAllowanceOnlyCoversWildcardTypes() {
+    public void namesOnTheFirstWildcardTypeRequestAreNotAWildcard() {
         Conversation c = new Conversation();
-        c.onRequest(request(XdsTypes.CDS, "", "v1")); // Envoy before 1.19 reconnecting lists the clusters it had
+        c.onRequest(request(XdsTypes.CDS, "", "v1"));
         exchange(c, XdsTypes.CDS, cluster("v1"), cluster("v2"));
         assertThatThrownBy(() -> SotwConversationAssert.assertThat(c).nothingSentUnasked()).hasMessageContaining("containing resource(s) <[v2]>");
-        assertThatCode(() -> SotwConversationAssert.assertThat(c).nothingSentUnaskedPre119Reconnect()).doesNotThrowAnyException();
-
-        c.onRequest(request(XdsTypes.EDS, "", "v1"));
-        send(c, XdsTypes.EDS, endpoints("v1"), endpoints("v2"));
-        assertThatThrownBy(() -> SotwConversationAssert.assertThat(c).nothingSentUnaskedPre119Reconnect())
-            .hasMessageContaining("containing resource(s) <[v2]>");
     }
 
     @Test
