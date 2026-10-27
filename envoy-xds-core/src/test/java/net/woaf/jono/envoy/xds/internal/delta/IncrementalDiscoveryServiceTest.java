@@ -111,6 +111,33 @@ public class IncrementalDiscoveryServiceTest {
     }
 
     @Test
+    public void namesAnsweredWhileAChangeWaitsItsTurnAreNotSentAgainByTheChange(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        final DummyUpdate next = new DummyUpdate();
+        serves(configBuilder, endpoints("a"));
+        when(configBuilder.getResourcesAddOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(endpoints("b"))));
+        when(configBuilder.addOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<>(List.of(endpoints("a"), endpoints("b")), List.of()));
+        when(configBuilder.removeOrder(eq(next), any(), any())).thenReturn(IncrementalConfigBuilder.Response.<ClusterLoadAssignment>empty());
+        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+        InOrder inOrder = inOrder(responseObserver);
+        ds.processUpdate(subscribeRequest(TypeUrl.EDS, "a"));
+        ds.processUpdate(ackRequest(TypeUrl.EDS, nextResponse(inOrder).getNonce()));
+
+        // A change adds cluster b. Envoy has it, and asks for its endpoints, before the change gets to EDS.
+        ds.onNetworkUpdate(next);
+        ds.processUpdate(subscribeRequest(TypeUrl.EDS, "b"));
+        DeltaDiscoveryResponse answer = nextResponse(inOrder);
+        assertThat(answer.getResourcesList()).extracting(Resource::getName).containsExactly("b");
+        ds.processUpdate(ackRequest(TypeUrl.EDS, answer.getNonce()));
+
+        ds.sendNetworkUpdatePre();
+        ds.sendNetworkUpdatePost();
+
+        assertThat(nextResponse(inOrder).getResourcesList()).extracting(Resource::getName).as("b already went").containsExactly("a");
+        assertNoAdditionalResponsesSent(3);
+    }
+
+    @Test
     public void requestNamingNothingGetsNoAnswer(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
 
