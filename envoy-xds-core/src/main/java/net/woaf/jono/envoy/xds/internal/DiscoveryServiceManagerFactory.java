@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.internal;
 
+import net.woaf.jono.envoy.xds.XdsConfig;
 import net.woaf.jono.envoy.xds.TypeUrl;
 import com.google.protobuf.Message;
 import net.woaf.jono.envoy.xds.api.StateBacklog;
@@ -19,8 +20,8 @@ public class DiscoveryServiceManagerFactory<RequestT extends Message, ResponseT 
         this.waitingStateBacklogFactory = waitingStateBacklogFactory;
     }
 
-    public DiscoveryServiceManager<RequestT, StateUpdT> build(StreamObserver<ResponseT> responseObserver, NodeConfig<DetailsT> nodeConfig, DiscoveryServiceManagerMetrics metrics) {
-        return build(discoveryServiceFactory.createAll(responseObserver, nodeConfig), waitingStateBacklogFactory.build(), metrics);
+    public DiscoveryServiceManager<RequestT, StateUpdT> build(StreamObserver<ResponseT> responseObserver, XdsConfig<DetailsT> xdsConfig, DiscoveryServiceManagerMetrics metrics) {
+        return build(discoveryServiceFactory.createAll(responseObserver, xdsConfig), waitingStateBacklogFactory.build(), metrics);
     }
 
     public DiscoveryServiceManager<RequestT, StateUpdT> build(Map<TypeUrl, DiscoveryService<RequestT, StateUpdT>> discoveryServices, StateBacklog<StateUpdT> waitingStateBacklog, DiscoveryServiceManagerMetrics metrics) {

@@ -104,7 +104,7 @@ For delta xDS, use `DeltaConversationAssert` and set `api_type: DELTA_GRPC` in E
   about, like a disconnect or a NACK.
   - `assertSane()`: all of the conversation checks below from the checkpoint on, then `assertEnvoyHealthy()`.
   - `assertSaneAfterReconnect()`: the same without make before break, for a conversation Envoy started by
-    reconnecting. It allows Envoy before 1.19 resending wildcard names.
+    reconnecting.
   - `assertSaneAfterReconnect(before)`: the same, plus make before break from the start of this conversation, starting
     from what Envoy last ACKed on `before`, the conversation before it.
   - `assertEnvoyHealthy()`: `EnvoyChecks.assertHealthy` and `assertNoWarningsSince`, both since the checkpoint.
@@ -162,8 +162,7 @@ assertThat(envoy.admin().stats(), hasStat("cluster.foo-v2.upstream_rq_total", gr
 
 To test a reconnect, shut down your gRPC server and start a new one on the same port with the same service and
 interceptor. Envoy then opens a second conversation. On that one, skip `wasMakeBeforeBreak`, because the checks can't
-know what config Envoy kept. Envoy before 1.19 resends resource names for wildcard types when it reconnects, so use
-`nothingSentUnasked(true)` there.
+know what config Envoy kept.
 
 ### Things to know
 

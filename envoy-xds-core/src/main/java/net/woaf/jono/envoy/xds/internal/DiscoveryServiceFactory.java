@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.internal;
 
+import net.woaf.jono.envoy.xds.XdsConfig;
 import net.woaf.jono.envoy.xds.TypeUrl;
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.Message;
@@ -24,17 +25,17 @@ public abstract class DiscoveryServiceFactory<RequestT extends Message, Response
         }
     }
 
-    public abstract DiscoveryService<RequestT, StateUpdT> createDiscoveryService(StreamObserver<ResponseT> responseObserver, NodeConfig<DetailsT> nodeConfig, TypeUrl type);
+    public abstract DiscoveryService<RequestT, StateUpdT> createDiscoveryService(StreamObserver<ResponseT> responseObserver, XdsConfig<DetailsT> xdsConfig, TypeUrl type);
 
     @SuppressWarnings("unchecked")
     protected <E extends Message> IncrementalConfigBuilder<E, StateUpdT, DetailsT> getConfigBuilderForType(TypeUrl type) {
         return (IncrementalConfigBuilder<E, StateUpdT, DetailsT>) configBuilders.stream().filter(b -> type.getMessageClazz().equals(b.handlesType())).findAny().orElseGet(() -> new NoOpConfigBuilder<>(type.getMessageClazz()));
     }
 
-    public Map<TypeUrl, DiscoveryService<RequestT, StateUpdT>> createAll(StreamObserver<ResponseT> responseObserver, NodeConfig<DetailsT> nodeConfig) {
+    public Map<TypeUrl, DiscoveryService<RequestT, StateUpdT>> createAll(StreamObserver<ResponseT> responseObserver, XdsConfig<DetailsT> xdsConfig) {
         return Arrays.stream(TypeUrl.values()).collect(Collectors.toMap(
                 Function.identity(),
-                t -> createDiscoveryService(responseObserver, nodeConfig, t)
+                t -> createDiscoveryService(responseObserver, xdsConfig, t)
             ));
     }
 

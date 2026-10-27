@@ -14,7 +14,7 @@ public class SubListSubManagerSpec {
 
     @Test
     public void testSubscribeTwice() {
-        SubListSubManager subManager = new SubListSubManager(null);
+        SubListSubManager subManager = new SubListSubManager();
 
         Predicate<String> filter = subManager.processResourceListChange(ImmutableSet.of("foo"), ImmutableSet.of()).orElseThrow();
 
@@ -37,7 +37,7 @@ public class SubListSubManagerSpec {
     
     @Test
     public void testSubscribeRemove() {
-        SubListSubManager subManager = new SubListSubManager(null);
+        SubListSubManager subManager = new SubListSubManager();
 
         Predicate<String> filter = subManager.processResourceListChange(ImmutableSet.of("foo", "bar"), ImmutableSet.of()).orElseThrow();
 
@@ -55,7 +55,7 @@ public class SubListSubManagerSpec {
 
     @Test
     public void testSubscribeToEmpty() {
-        SubListSubManager subManager = new SubListSubManager(null);
+        SubListSubManager subManager = new SubListSubManager();
 
         // Nothing changes, so no filter returned.
         assertThat(subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of())).isNotPresent();
@@ -65,7 +65,7 @@ public class SubListSubManagerSpec {
 
     @Test
     public void testSubscribeUnsubscribeSameResourceThrows() {
-        SubListSubManager subManager = new SubListSubManager(null);
+        SubListSubManager subManager = new SubListSubManager();
 
         assertThatThrownBy(() -> subManager.processResourceListChange(ImmutableSet.of("foo"), ImmutableSet.of("foo"))).isInstanceOf(IllegalArgumentException.class);
     }

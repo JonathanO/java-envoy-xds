@@ -1,7 +1,7 @@
 package net.woaf.jono.envoy.xds.internal.sotw;
 
 import com.google.common.collect.ImmutableList;
-import net.woaf.jono.envoy.xds.internal.NodeConfig;
+import net.woaf.jono.envoy.xds.XdsConfig;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder;
 import net.woaf.jono.envoy.xds.internal.DiscoveryService;
 import net.woaf.jono.envoy.xds.internal.DiscoveryServiceFactory;
@@ -26,8 +26,8 @@ public class SotwDiscoveryServiceFactory<StateUpdT, DetailsT> extends DiscoveryS
     }
 
     @Override
-    public DiscoveryService<DiscoveryRequest, StateUpdT> createDiscoveryService(StreamObserver<DiscoveryResponse> responseObserver, NodeConfig<DetailsT> nodeConfig, TypeUrl type) {
-        return new SotwDiscoveryService<>(type, responseObserver, getSubmanagerForType(type), new VersionManager(), getConfigBuilderForType(type), nodeConfig);
+    public DiscoveryService<DiscoveryRequest, StateUpdT> createDiscoveryService(StreamObserver<DiscoveryResponse> responseObserver, XdsConfig<DetailsT> xdsConfig, TypeUrl type) {
+        return new SotwDiscoveryService<>(type, responseObserver, getSubmanagerForType(type), new VersionManager(), getConfigBuilderForType(type), xdsConfig);
     }
 
 }

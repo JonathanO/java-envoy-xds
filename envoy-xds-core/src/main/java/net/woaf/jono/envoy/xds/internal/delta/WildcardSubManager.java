@@ -1,7 +1,6 @@
 package net.woaf.jono.envoy.xds.internal.delta;
 
 import com.google.common.collect.ImmutableSet;
-import net.woaf.jono.envoy.xds.internal.NodeConfig;
 import java.util.Optional;
 import java.util.function.Predicate;
 
@@ -10,25 +9,16 @@ class WildcardSubManager implements SubManager {
     private boolean firstResourceListChange = true;
     private boolean inWildcardMode = false;
 
-    private final SubListSubManager subListSubManager;
-
-    private final NodeConfig<?> nodeConfig;
+    private final SubListSubManager subListSubManager = new SubListSubManager();
 
     private static final String WILDCARD = "*";
-
-    public WildcardSubManager(NodeConfig<?> nodeConfig) {
-        this.nodeConfig = nodeConfig;
-        this.subListSubManager = new SubListSubManager(nodeConfig);
-    }
 
     @Override
     public Optional<Predicate<String>> processResourceListChange(ImmutableSet<String> resourceNamesSubscribe, ImmutableSet<String> resourceNamesUnsubscribe) {
 
         // The spec says to support old versions we should go into wildcard mode if this is the first request and the resource names is empty.
-        // However, some older versions of envoy also have a bug where they will send a list of resource names after reconnecting to an ADS, even though they really want a wildcard subscription.
         try {
-            if (firstResourceListChange && resourceNamesUnsubscribe.isEmpty()
-                && (resourceNamesSubscribe.isEmpty() || nodeConfig.bugClientSendsResourceListOnReconnectToWildcard())) {
+            if (firstResourceListChange && resourceNamesUnsubscribe.isEmpty() && resourceNamesSubscribe.isEmpty()) {
                 inWildcardMode = true;
                 return Optional.of(s -> !s.equals(WILDCARD));
             }
