@@ -1,13 +1,13 @@
 package net.woaf.jono.envoy.testing;
 
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.SetMultimap;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import java.time.Duration;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.Callable;
 import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
 
@@ -88,16 +88,17 @@ public final class Settled {
 
     /** Every response nonce was ACKed or NACKed. */
     private static boolean allAnswered(Conversation conversation) {
-        Set<String> unanswered = new HashSet<>();
+        // By type: Envoy keeps nonces per type, so a library may number them per type.
+        SetMultimap<String, String> unanswered = HashMultimap.create();
         for (Object message : conversation.getMessages()) {
             if (message instanceof DiscoveryResponse r) {
-                unanswered.add(r.getNonce());
+                unanswered.put(r.getTypeUrl(), r.getNonce());
             } else if (message instanceof DeltaDiscoveryResponse r) {
-                unanswered.add(r.getNonce());
+                unanswered.put(r.getTypeUrl(), r.getNonce());
             } else if (message instanceof DiscoveryRequest r) {
-                unanswered.remove(r.getResponseNonce());
+                unanswered.remove(r.getTypeUrl(), r.getResponseNonce());
             } else if (message instanceof DeltaDiscoveryRequest r) {
-                unanswered.remove(r.getResponseNonce());
+                unanswered.remove(r.getTypeUrl(), r.getResponseNonce());
             }
         }
         return unanswered.isEmpty();
