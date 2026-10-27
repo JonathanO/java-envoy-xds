@@ -42,6 +42,10 @@ public class MergingStateBacklog<StateUpdT extends Mergeable<StateUpdT>> impleme
         return backlog.pollFirst();
     }
 
+    /**
+     * {@return a factory of backlogs that merges updates, for AggregatedDiscoveryService}
+     * @param <StateUpdT> State update type
+     */
     public static <StateUpdT extends Mergeable<StateUpdT>> MergingStateBacklogFactory<StateUpdT> factory() {
         return new MergingStateBacklogFactory<>();
     }
