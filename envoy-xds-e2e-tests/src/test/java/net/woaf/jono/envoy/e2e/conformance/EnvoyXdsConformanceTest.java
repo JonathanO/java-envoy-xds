@@ -45,6 +45,13 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
         return new EnvoyXds();
     }
 
+    /** Every release upstream supports, not just the oldest and newest. */
+    @Override
+    protected List<String> envoyImages() {
+        return List.of("envoyproxy/envoy:v1.36-latest", "envoyproxy/envoy:v1.37-latest", "envoyproxy/envoy:v1.38-latest",
+            "envoyproxy/envoy:v1.39-latest", "envoyproxy/envoy:v1.40-latest");
+    }
+
     @Override
     protected Map<String, String> knownDeviations() {
         return Map.of("sotw/changesWhileDisconnected", SOTW_RECONNECT, "sotw/controlPlaneRestarts", SOTW_RECONNECT);

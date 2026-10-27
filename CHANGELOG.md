@@ -13,6 +13,8 @@ All notable changes to this project will be documented in this file.
 * Error Prone checks locking and immutability at build time: fields shared between threads are `@GuardedBy` their lock, and `Snapshot` and `NamedMessage` are `@Immutable`
 * Results of our methods must be used, unless marked `@CanIgnoreReturnValue` (`SnapshotSource.update` and `publish` are)
 * Conformance scenarios for scoped routes (SRDS) and on-demand discovery: `scopedRoutes`, `onDemandScopes`, `onDemandClusters` (ODCDS) and `onDemandVirtualHosts` (VHDS). The make-before-break checks now follow scoped route configs to their route configs, and VHDS virtual hosts to their clusters
+* `changesEndpoints` conformance scenario: only a service's endpoints change, the commonest change in a mesh, and Envoy must route to the new ones without rebuilding the cluster. `EnvoyAdminClient.clusters()` gives Envoy's per-host values, such as each endpoint's `rq_total`
+* `XdsConformanceTest.envoyImages()`: override it to run the suite on other Envoy versions than `ENVOY_IMAGES`
 * `ClusterEventSource.subscribe(listener, clientDetails)`: the core now tells your source which client is subscribing, so it can choose what that client sees. It defaults to `subscribe(listener)`, so existing sources need no change
 
 ### Changed

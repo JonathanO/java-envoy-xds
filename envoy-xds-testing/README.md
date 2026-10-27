@@ -20,8 +20,8 @@ whichever one your control plane already uses, e.g. `net.woaf.jono.envoy:envoy-a
 
 What's in it:
 
-- `EnvoyContainer`: an Envoy Testcontainer that keeps its log. It has an admin client (`admin()`, for `stats()` and
-  `configDump()`) and `httpStatus(port, host)` to send a request through one of Envoy's listeners.
+- `EnvoyContainer`: an Envoy Testcontainer that keeps its log. It has an admin client (`admin()`, for `stats()`, per-host
+  `clusters()` and `configDump()`) and `httpStatus(port, host)` to send a request through one of Envoy's listeners.
 - `ConversationLogger`: a gRPC `ServerInterceptor` that records each xDS stream to and from your server.
 - `SotwConversationAssert` / `DeltaConversationAssert`: AssertJ checks on a recorded stream.
 - `EnvoyChecks`: checks on Envoy itself. It is connected, rejected nothing, has nothing warming, timed out no initial
@@ -224,14 +224,15 @@ class MyLibraryConformanceTest extends XdsConformanceTest {
 The suite owns the matrix, so every library is tested the same way. It runs every scenario:
 - on both protocols, unless you override `protocols()` to support one. The on-demand cluster and virtual host
   scenarios run on delta only, as Envoy only does those over delta;
-- on each of `ENVOY_IMAGES`, the oldest Envoy release upstream still supports (1.36) and the newest (1.40);
+- on each of `ENVOY_IMAGES`, the oldest Envoy release upstream still supports (1.36) and the newest (1.40). Override
+  `envoyImages()` to run on others, e.g. every supported release;
 - with Envoy getting listeners from the control plane (LDS) as well as its static listener, so serve LDS too, and
   scoped route configs (SRDS) and virtual hosts (VHDS) for the scenarios that use them;
 - normally, and with Envoy's requests to the control plane rate limited (`rate_limit_settings`). Envoy then queues
   them, and delta Envoy sends ACKs ahead of queued subscriptions, so after a reconnect requests arrive in a different
   order. The reconnect scenarios check the limit was actually hit.
 
-That's 96 tests and takes several minutes, so run it in CI or before a release rather than on every build. Each test is
+That's 104 tests and takes several minutes, so run it in CI or before a release rather than on every build. Each test is
 named by its path, e.g. `sotw/v1.36/rate-limited/startsEmpty`.
 
 Implement `idleHook()` in your `ControlPlane` if your library can tell when a stream is idle, and `resync()` if it can
@@ -241,6 +242,8 @@ make Envoy reconnect. The scenarios:
   doesn't exist yet, then takes the first service.
 - `addsAndRemovesServices`: a route, its cluster and its endpoints added in one change, then removed in one change.
   It also adds a cluster with no endpoints, which still needs an empty assignment, or Envoy leaves it warming.
+- `changesEndpoints`: only a service's endpoints change, the commonest change in a mesh: one is replaced and one
+  added, then one removed. Envoy must route to the new endpoints, without rebuilding the cluster.
 - `movesRouteToNewCluster`: a route moved to a new cluster, and the old cluster removed, in one change.
 - `addsAndRemovesListener`: a listener, its route config, cluster and endpoints added in one change, then removed in
   one change. The listener mustn't be left warming, and a route config mustn't go while a listener Envoy has uses it.
@@ -274,4 +277,4 @@ logged no warnings. To record a known deviation, override `knownDeviations()`. K
 `Map.of("sotw/changesWhileDisconnected", "why")` skips that scenario on SotW, on every version and mode.
 
 Envoy connects to port 6566 on the host, so run these one at a time. `EnvoyXdsConformanceTest` in
-`envoy-xds-e2e-tests` runs the suite against envoy-xds.
+`envoy-xds-e2e-tests` runs the suite against envoy-xds, on every Envoy release upstream supports.

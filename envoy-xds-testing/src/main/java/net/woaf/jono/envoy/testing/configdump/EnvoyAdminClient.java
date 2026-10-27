@@ -114,6 +114,22 @@ public class EnvoyAdminClient {
         return stats;
     }
 
+    /**
+     * Call the clusters endpoint, for what Envoy has per host.
+     * @return numeric values by name, everything before the last {@code ::}, e.g. {@code foo::127.0.0.2:9901::rq_total}
+     * @throws IOException if there was an IO error trying to call envoy's admin interface
+     */
+    public Map<String, Long> clusters() throws IOException {
+        Map<String, Long> values = new HashMap<>();
+        for (String line : Splitter.on('\n').split(get("/clusters"))) {
+            int sep = line.lastIndexOf("::");
+            if (sep > 0 && line.substring(sep + 2).matches("\\d{1,18}")) {
+                values.put(line.substring(0, sep), Long.parseLong(line.substring(sep + 2)));
+            }
+        }
+        return values;
+    }
+
     private String get(String path) throws IOException {
         URLConnection connection = new URL("http://" + hostAndPort.toString() + path).openConnection();
         try (InputStream response = connection.getInputStream()) {
