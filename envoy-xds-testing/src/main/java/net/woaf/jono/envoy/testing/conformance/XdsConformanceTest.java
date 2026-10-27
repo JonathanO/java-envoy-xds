@@ -87,7 +87,7 @@ import org.testcontainers.images.builder.Transferable;
  *
  * <p>This tests the layer that serves config to Envoy (ordering, ACKs and NACKs, subscriptions, reconnects), not how a
  * control plane decides what config to serve. Extend it once and implement {@link #newControlPlane()}. The suite runs
- * every scenario on each protocol in {@link #protocols()}, on each of {@link #ENVOY_IMAGES}, with and without rate
+ * every scenario on each protocol in {@link #protocols()}, on each of {@link #envoyImages()}, with and without rate
  * limiting Envoy's requests. Record known deviations with {@link #knownDeviations()}.
  *
  * <p>Envoy connects to port 6566 on the host, so don't run these in parallel.
@@ -160,6 +160,14 @@ public abstract class XdsConformanceTest {
     }
 
     /**
+     * The Envoy images to run on; conformance results should say if it's not {@link #ENVOY_IMAGES}.
+     * @return images, tagged {@code v1.NN...}, by default {@link #ENVOY_IMAGES}
+     */
+    protected List<String> envoyImages() {
+        return ENVOY_IMAGES;
+    }
+
+    /**
      * Known deviations, which are skipped with their reason. A key is a test's path, or part of it: any of protocol
      * ({@code sotw}, {@code delta}), Envoy version ({@code v1.36}), mode ({@code normal}, {@code rate-limited}) and
      * scenario ({@code changesWhileDisconnected}), joined by {@code /}. {@code "sotw/changesWhileDisconnected"} skips
@@ -191,6 +199,7 @@ public abstract class XdsConformanceTest {
         Map<String, Scenario> scenarios = new LinkedHashMap<>();
         scenarios.put("startsEmpty", Scenario.everywhere(Harness::startsEmpty));
         scenarios.put("addsAndRemovesServices", Scenario.everywhere(Harness::addsAndRemovesServices));
+        scenarios.put("changesEndpoints", Scenario.everywhere(Harness::changesEndpoints));
         scenarios.put("movesRouteToNewCluster", Scenario.everywhere(Harness::movesRouteToNewCluster));
         scenarios.put("addsAndRemovesListener", Scenario.everywhere(Harness::addsAndRemovesListener));
         scenarios.put("churns", Scenario.everywhere(Harness::churns));
@@ -214,7 +223,7 @@ public abstract class XdsConformanceTest {
      */
     @TestFactory
     public Stream<DynamicTest> conformance() {
-        return protocols().stream().flatMap(protocol -> ENVOY_IMAGES.stream().flatMap(image -> Stream.of(false, true).flatMap(rateLimited ->
+        return protocols().stream().flatMap(protocol -> envoyImages().stream().flatMap(image -> Stream.of(false, true).flatMap(rateLimited ->
             SCENARIOS.entrySet().stream().filter(scenario -> scenario.getValue().protocols().contains(protocol)).map(scenario -> {
                 List<String> path = List.of(protocol.name().toLowerCase(Locale.ROOT), version(image), rateLimited ? "rate-limited" : "normal", scenario.getKey());
                 return dynamicTest(String.join("/", path), () -> run(path, protocol, image, rateLimited, scenario.getValue()));
@@ -440,13 +449,25 @@ public abstract class XdsConformanceTest {
             .build();
     }
 
-    /** Envoy's own admin port stands in for the upstream: every 127/8 address in its container reaches it. */
     private static ClusterLoadAssignment endpoints(String cluster) {
-        return ClusterLoadAssignment.newBuilder()
-            .setClusterName(cluster)
-            .addEndpoints(LocalityLbEndpoints.newBuilder().addLbEndpoints(LbEndpoint.newBuilder().setEndpoint(Endpoint.newBuilder()
-                .setAddress(Address.newBuilder().setSocketAddress(SocketAddress.newBuilder().setAddress("127.0.0.1").setPortValue(EnvoyContainer.ADMIN_PORT))))))
-            .build();
+        return endpoints(cluster, "127.0.0.1");
+    }
+
+    /** Envoy's own admin port stands in for the upstream: every 127/8 address in its container reaches it. */
+    private static ClusterLoadAssignment endpoints(String cluster, String... addresses) {
+        LocalityLbEndpoints.Builder locality = LocalityLbEndpoints.newBuilder();
+        for (String address : addresses) {
+            locality.addLbEndpoints(LbEndpoint.newBuilder().setEndpoint(Endpoint.newBuilder()
+                .setAddress(Address.newBuilder().setSocketAddress(SocketAddress.newBuilder().setAddress(address).setPortValue(EnvoyContainer.ADMIN_PORT)))));
+        }
+        return ClusterLoadAssignment.newBuilder().setClusterName(cluster).addEndpoints(locality).build();
+    }
+
+    /** Moves cluster's endpoints to these 127/8 addresses, changing nothing else. */
+    private static List<Message> withEndpoints(List<Message> config, String cluster, String... addresses) {
+        return config.stream()
+            .map(m -> m instanceof ClusterLoadAssignment c && c.getClusterName().equals(cluster) ? endpoints(cluster, addresses) : m)
+            .toList();
     }
 
     private static VirtualHost virtualHost(String name, String cluster) {
@@ -526,6 +547,28 @@ public abstract class XdsConformanceTest {
             checkpoint().assertSane();
             assertStatus("bar", 404);
             assertStatus("foo", 200);
+        }
+
+        /**
+         * Only a service's endpoints change, the commonest change in a mesh: one replaced and one added, then one removed.
+         * Envoy must route to the new endpoints, without rebuilding the cluster.
+         */
+        void changesEndpoints() throws IOException {
+            controlPlane.setConfig(services("foo"));
+            start();
+            Conversation conversation = synced(1);
+            assertRoutedToEndpoints("foo", "127.0.0.1");
+            final long clustersModified = envoy.admin().stats().getOrDefault("cluster_manager.cluster_modified", 0L);
+
+            change(conversation, withEndpoints(services("foo"), "foo", "127.0.0.2", "127.0.0.3"));
+            checkpoint().assertSane();
+            assertRoutedToEndpoints("foo", "127.0.0.2", "127.0.0.3");
+
+            change(conversation, withEndpoints(services("foo"), "foo", "127.0.0.3"));
+            checkpoint().assertSane();
+            assertRoutedToEndpoints("foo", "127.0.0.3");
+            assertThat(envoy.admin().stats()).as("clusters modified; only endpoints changed")
+                .containsEntry("cluster_manager.cluster_modified", clustersModified);
         }
 
         /** A route moved to a new cluster, and its old cluster removed, in one change. */
@@ -794,6 +837,23 @@ public abstract class XdsConformanceTest {
         private void assertStatus(int port, String virtualHost, int status) {
             // Envoy ACKs once its main thread has the config; workers get it a moment later.
             await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> assertThat(envoy.httpStatus(port, virtualHost)).as(virtualHost).isEqualTo(status));
+        }
+
+        /**
+         * The cluster of this name has just these endpoints, and a request for the virtual host of this name went to one
+         * of them: its rq_total went up. Retries while Envoy's workers catch up.
+         */
+        private void assertRoutedToEndpoints(String name, String... addresses) {
+            List<String> hosts = Stream.of(addresses).map(a -> name + "::" + a + ":" + EnvoyContainer.ADMIN_PORT).toList();
+            await().atMost(5, TimeUnit.SECONDS).ignoreExceptions().untilAsserted(() -> {
+                Map<String, Long> before = envoy.admin().clusters();
+                assertThat(before.keySet().stream().filter(k -> k.startsWith(name + "::") && k.endsWith("::rq_total")).map(k -> k.replace("::rq_total", "")))
+                    .as(name + "'s endpoints").containsExactlyInAnyOrderElementsOf(hosts);
+                assertThat(envoy.httpStatus(LISTENER_PORT, name)).as("status for " + name).isEqualTo(200);
+                Map<String, Long> after = envoy.admin().clusters();
+                assertThat(hosts.stream().mapToLong(h -> after.getOrDefault(h + "::rq_total", 0L) - before.getOrDefault(h + "::rq_total", 0L)).sum())
+                    .as("requests to " + hosts).isPositive();
+            });
         }
 
         /**
