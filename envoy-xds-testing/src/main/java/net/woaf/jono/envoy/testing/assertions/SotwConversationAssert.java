@@ -14,10 +14,6 @@ import com.google.protobuf.Any;
 import com.google.protobuf.Message;
 import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
 import net.woaf.jono.envoy.testing.XdsTypes;
-import io.envoyproxy.envoy.config.cluster.v3.Cluster;
-import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
-import io.envoyproxy.envoy.config.listener.v3.Listener;
-import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import java.util.HashMap;
@@ -165,20 +161,11 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
 
     private String getNameForResource(Any any) {
         Class<? extends Message> type = XdsTypes.messageClass(any.getTypeUrl());
-        Object resource = type == null ? any : sneakyUnpack(any, type); // an unknown type fails below
-        if (resource instanceof Cluster c) {
-            return c.getName();
+        String name = type == null ? null : XdsTypes.nameOf(sneakyUnpack(any, type));
+        if (name == null) {
+            throw failure("Found message of type I don't know how to decode <%s>", any.getTypeUrl());
         }
-        if (resource instanceof ClusterLoadAssignment cla) {
-            return cla.getClusterName();
-        }
-        if (resource instanceof Listener l) {
-            return l.getName();
-        }
-        if (resource instanceof RouteConfiguration r) {
-            return r.getName();
-        }
-        throw failure("Found message of type I don't know how to decode <%s>", any.getTypeUrl());
+        return name;
     }
 
     @Override
@@ -249,7 +236,7 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
         for (int i = 0; i < messages.size(); i++) {
             Object message = messages.get(i);
             if (message instanceof DiscoveryResponse r) {
-                // LDS, CDS, SRDS and VHDS are wildcard types: each response is the full set, so anything Envoy has that's missing is removed.
+                // CDS and LDS responses are the full set, so anything Envoy has that's missing is removed.
                 Set<String> removed = new HashSet<>();
                 if (r.getTypeUrl().equals(XdsTypes.CDS) || r.getTypeUrl().equals(XdsTypes.LDS)) {
                     removed.addAll(r.getTypeUrl().equals(XdsTypes.CDS) ? state.clusters() : state.listeners());
