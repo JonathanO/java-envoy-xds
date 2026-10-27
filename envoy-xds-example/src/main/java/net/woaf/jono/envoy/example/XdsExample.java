@@ -140,7 +140,7 @@ public class XdsExample {
                         cmdAdd(clusterManager, parts.get(1), parts.get(2));
                     }
                     case "remove" -> {
-                        if (parts.size() > 3) {
+                        if (parts.size() < 2 || parts.size() > 3) {
                             throw new IllegalArgumentException("Incorrect argument count.");
                         }
                         if (parts.size() == 2) {

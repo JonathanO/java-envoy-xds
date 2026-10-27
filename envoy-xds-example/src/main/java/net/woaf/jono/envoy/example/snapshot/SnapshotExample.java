@@ -110,7 +110,7 @@ public class SnapshotExample {
     }
 
     /** Give a new port its route config and view. Adding one that already exists changes nothing. */
-    private static void addPort(SnapshotSource<ClientConfig, String, Long> source, long port) {
+    static void addPort(SnapshotSource<ClientConfig, String, Long> source, long port) {
         ports.add(port);
         source.update(c -> c.view(port, routesGroup(port), CLUSTERS)
             .group(routesGroup(port), e -> e.put(routesFor(c.group(CLUSTERS), port))));
@@ -215,7 +215,7 @@ public class SnapshotExample {
         });
     }
 
-    private static void cmdAdd(SnapshotSource<ClientConfig, String, Long> source, String name, String endpoint) {
+    static void cmdAdd(SnapshotSource<ClientConfig, String, Long> source, String name, String endpoint) {
         LbEndpoint added = lbEndpoint(parseEndpoint(endpoint));
         List<LbEndpoint> endpoints = endpoints(source.group(CLUSTERS), name);
         if (endpoints.contains(added)) {
@@ -235,7 +235,7 @@ public class SnapshotExample {
         source.update(c -> c.group(CLUSTERS, e -> e.put(withEndpoints(name, endpoints.stream().filter(ep -> !ep.equals(removed)).toList()))));
     }
 
-    private static void cmdRemove(SnapshotSource<ClientConfig, String, Long> source, String name) {
+    static void cmdRemove(SnapshotSource<ClientConfig, String, Long> source, String name) {
         // Removing the cluster drops it from every client's route config too; Envoy gets the new routes first.
         changeClusters(source, e -> e.remove(Cluster.class, name).remove(ClusterLoadAssignment.class, name));
     }
