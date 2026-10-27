@@ -66,7 +66,7 @@ public class DiscoveryServiceManagerTest {
 
         var initUpdate = new DummyUpdate();
 
-        dsm.init(initUpdate);
+        dsm.init(initUpdate, null, null);
 
         InOrder inOrder = Mockito.inOrder(mockDiscoveryService);
         inOrder.verify(mockDiscoveryService).init(initUpdate);
@@ -92,7 +92,7 @@ public class DiscoveryServiceManagerTest {
 
         DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(Map.of(TypeUrl.EDS, eds), List.of(TypeUrl.EDS), List.of(TypeUrl.EDS), new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS);
 
-        dsm.init(new DummyUpdate());
+        dsm.init(new DummyUpdate(), null, null);
         final var update = new DummyUpdate();
         final var update2 = new DummyUpdate();
         final var update3 = new DummyUpdate();
@@ -136,7 +136,7 @@ public class DiscoveryServiceManagerTest {
             List.of(TypeUrl.EDS, TypeUrl.CDS), List.of(TypeUrl.CDS, TypeUrl.EDS),
             new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS
         );
-        dsm.init(new DummyUpdate());
+        dsm.init(new DummyUpdate(), null, null);
         final var update = new DummyUpdate();
 
         dsm.pushUpdates(update);
@@ -186,7 +186,7 @@ public class DiscoveryServiceManagerTest {
             new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS
         );
 
-        dsm.init(new DummyUpdate());
+        dsm.init(new DummyUpdate(), null, null);
 
         final var update = new DummyUpdate();
 
@@ -224,7 +224,7 @@ public class DiscoveryServiceManagerTest {
             new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS
         );
 
-        dsm.init(new DummyUpdate(), TypeUrl.RDS); // Note configuring delayUpdatesUntilAckOf
+        dsm.init(new DummyUpdate(), TypeUrl.RDS, null); // Note configuring delayUpdatesUntilAckOf
 
         final var update = new DummyUpdate();
 
@@ -262,7 +262,7 @@ public class DiscoveryServiceManagerTest {
         DiscoveryService<Message, DummyUpdate> eds = spy(new StateAwareFakeDiscoveryService(TypeUrl.EDS));
         QueueBacklog backlog = new QueueBacklog();
         DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(Map.of(TypeUrl.EDS, eds), List.of(TypeUrl.EDS), List.of(TypeUrl.EDS), backlog, metrics);
-        dsm.init(new DummyUpdate());
+        dsm.init(new DummyUpdate(), null, null);
         final var update = new DummyUpdate();
         final var queued = new DummyUpdate();
         final var later = new DummyUpdate();
@@ -291,7 +291,7 @@ public class DiscoveryServiceManagerTest {
             new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS
         );
 
-        dsm.init(new DummyUpdate(), TypeUrl.RDS);
+        dsm.init(new DummyUpdate(), TypeUrl.RDS, null);
 
         final var update = new DummyUpdate();
 
@@ -316,7 +316,7 @@ public class DiscoveryServiceManagerTest {
             new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS);
         AtomicLong now = new AtomicLong();
         dsm.setClock(now::get);
-        dsm.init(new DummyUpdate(), TypeUrl.RDS); // but this client never subscribes to RDS
+        dsm.init(new DummyUpdate(), TypeUrl.RDS, null); // but this client never subscribes to RDS
         final var update = new DummyUpdate();
 
         dsm.pushUpdates(update);
