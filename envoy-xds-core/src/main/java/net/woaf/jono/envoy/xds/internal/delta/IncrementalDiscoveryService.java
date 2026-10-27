@@ -57,15 +57,10 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
         }
         ImmutableSet<String> subscribeSet = ImmutableSet.copyOf(value.getResourceNamesSubscribeList());
         ImmutableSet<String> unsubscribeSet = ImmutableSet.copyOf(value.getResourceNamesUnsubscribeList());
-        subManager.processResourceListChange(subscribeSet, unsubscribeSet).ifPresent(newSubFilter -> {
-            // Subscriptions changed.
-            if (isAck) {
-                // The xDS docs suggest that envoy won't both ack something and change subscriptions lists in the same request.
-                // But I don't entirely trust that it won't. So we support that case, but log about it.
-                log.info("Client included subscriptions changes in an ack!");
-            }
-            processSubUpdate(subscribeSet, newSubFilter, ImmutableSet.copyOf(value.getInitialResourceVersionsMap().keySet()));
-        });
+        // Envoy puts any subscription changes it has queued into its ACKs (SubscriptionState::getNextRequestWithAck),
+        // so a request can both answer a response and change subscriptions.
+        subManager.processResourceListChange(subscribeSet, unsubscribeSet).ifPresent(newSubFilter ->
+            processSubUpdate(subscribeSet, newSubFilter, ImmutableSet.copyOf(value.getInitialResourceVersionsMap().keySet())));
     }
 
     @Override

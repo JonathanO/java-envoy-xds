@@ -29,6 +29,7 @@ All notable changes to this project will be documented in this file.
 * **Breaking:** the protocol machinery moved to `net.woaf.jono.envoy.xds.internal` (and `.internal.delta`, `.internal.sotw`), which is not API and may change in any release: `DiscoveryServiceManager`, `CommonDiscoveryStreamObserver`, `NodeConfig`, `CommonDiscoveryRequest`, the discovery services and their factories. Use `AggregatedDiscoveryService`; its constructor taking the per-protocol services is gone
 * Every public class and method in core, snapshot and testing has Javadoc, and the Javadoc build fails on warnings
 * **Breaking:** removed `XdsConfig.silentNacks`. Every NACK now freezes the stream, and is logged at warn; use `onClientNack` to act on it.
+* Delta: an ACK that also changes subscriptions is no longer logged at info. Envoy does this by design, so it was noise
 
 ### Fixed
 * VHDS is a wildcard type: Envoy's VHDS subscription names nothing on the wire (it watches its route config's name as a namespace), and only becomes ready once it gets virtual hosts under that name, so its first request now gets every virtual host instead of nothing
