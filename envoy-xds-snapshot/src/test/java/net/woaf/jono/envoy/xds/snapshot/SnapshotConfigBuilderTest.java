@@ -129,6 +129,26 @@ public class SnapshotConfigBuilderTest {
     }
 
     @Test
+    public void removingAGroupUncoversWhatItOverrode() {
+        SnapshotSource<String, String, String> views = new SnapshotSource<>(Function.identity(), Runnable::run);
+        views.update(c -> c.view("c", "own", "shared").view("other", "theirs")
+            .group("own", e -> e.put(slow("foo")).put(cluster("mine")))
+            .group("shared", e -> e.put(cluster("foo")))
+            .group("theirs", e -> e.put(cluster("bar"))));
+        List<String> woken = new ArrayList<>();
+        assertThat(views.subscribe(update -> woken.add("c"), "c")).isNotNull();
+        assertThat(views.subscribe(update -> woken.add("other"), "other")).isNotNull();
+
+        Map<String, SnapshotUpdate<String>> updates = views.update(c -> c.removeGroup("own"));
+
+        SnapshotUpdate<String> update = sent(updates, "c");
+        assertThat(added(Cluster.class, update)).containsExactly(cluster("foo"));
+        assertThat(removed(Cluster.class, update)).containsExactly("mine");
+        assertThat(updates).doesNotContainKey("other");
+        assertThat(woken).containsExactly("c");
+    }
+
+    @Test
     public void updatesMergeAcrossVersionsTheClientSkipped() {
         SnapshotSource<String, String, String> views = viewPerClient();
         views.update(c -> c.view("c", "mine").view("other", "theirs"));
