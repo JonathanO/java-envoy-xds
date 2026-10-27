@@ -102,7 +102,9 @@ SotW can't do the same for clusters: its CDS answer is the whole set, so a clust
 ### When Envoy rejects config
 
 Once an Envoy NACKs, we stop sending it changes on that stream. It keeps serving its last good config, which goes
-stale. Retrying would only be rejected again, and dropping the stream makes Envoy reconnect straight into the same
+stale. We still answer its new subscriptions. On SotW each answer is the whole set, so for the type Envoy rejected
+it repeats what was rejected: Envoy rejects it again and keeps what it has. Rolling it back instead would undo
+whatever part of the rejected answer Envoy did take. Retrying would only be rejected again, and dropping the stream makes Envoy reconnect straight into the same
 config, in a loop. `XdsEventListener.onClientNack` tells you it happened, so alert on it. `ClientHandle.resync()` closes
 the stream, so Envoy reconnects and syncs from scratch. Call it once the config is fixed, or add `ResyncAfterNack` to
 your listeners to retry on a backoff:

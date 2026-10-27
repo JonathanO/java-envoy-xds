@@ -35,7 +35,7 @@ All notable changes to this project will be documented in this file.
 * Scoped route configs (SRDS) are removed before the route configs they name, not after, so a scope never points at a route config Envoy no longer has
 * `ResyncAfterNack` forgets nodes that have gone 2 * maxDelay without a NACK, instead of keeping a backoff for every node id it ever saw
 * A request that arrives after we closed the stream to resync Envoy is ignored, instead of throwing and logging a misleading warning
-* SotW: after Envoy NACKs, a later subscription change no longer sends the rest of the rejected change. Its answer covers only the names newly asked for
+* SotW: after Envoy NACKs, a later subscription change no longer sends the rest of the rejected change. For the type Envoy rejected, the answer repeats what it rejected, as SotW answers with the whole set: Envoy rejects it again and keeps what it has
 * SRDS is a wildcard type, as Envoy subscribes to it with no names. Previously that first request went unanswered, so Envoy waited out its initial fetch timeout without scoped routes
 * Delta: names subscribed explicitly while subscribed to `*` are answered, with `removed_resources` for names that don't exist
 * SotW: an explicit `*` subscription, alone or with names, no longer closes the stream, and names sent alongside `*` stay subscribed after leaving wildcard
