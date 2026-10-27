@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 * **Breaking:** removed `XdsConfig.silentNacks`. Every NACK now freezes the stream, and is logged at warn; use `onClientNack` to act on it.
 
 ### Fixed
+* `Settled` matches Envoy's answers to responses by type as well as nonce, so a library that numbers nonces per type doesn't look settled while one type is still unanswered
 * VHDS is a wildcard type: Envoy's VHDS subscription names nothing on the wire (it watches its route config's name as a namespace), and only becomes ready once it gets virtual hosts under that name, so its first request now gets every virtual host instead of nothing
 * Scoped route configs (SRDS) are removed before the route configs they name, not after, so a scope never points at a route config Envoy no longer has
 * `ResyncAfterNack` forgets nodes that have gone 2 * maxDelay without a NACK, instead of keeping a backoff for every node id it ever saw
