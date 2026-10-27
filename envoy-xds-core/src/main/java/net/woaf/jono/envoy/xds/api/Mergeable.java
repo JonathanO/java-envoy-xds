@@ -15,4 +15,13 @@ public interface Mergeable<StateUpdT extends Mergeable<StateUpdT>> {
      */
     StateUpdT merge(StateUpdT update);
 
+    /**
+     * Whether a later update may be merged into this one. If not, a client gets this one, and ACKs it, before anything
+     * published after it, e.g. to order changes that make before break can't see.
+     * @return false to keep later updates out of this one
+     */
+    default boolean mergesWithLater() {
+        return true;
+    }
+
 }

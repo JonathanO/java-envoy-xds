@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 * Results of our methods must be used, unless marked `@CanIgnoreReturnValue` (`SnapshotSource.update` and `publish` are)
 * Conformance scenarios for scoped routes (SRDS) and on-demand discovery: `scopedRoutes`, `onDemandScopes`, `onDemandClusters` (ODCDS) and `onDemandVirtualHosts` (VHDS). The make-before-break checks now follow scoped route configs to their route configs, and VHDS virtual hosts to their clusters
 * `ClusterEventSource.subscribe(listener, clientDetails)`: the core now tells your source which client is subscribing, so it can choose what that client sees. It defaults to `subscribe(listener)`, so existing sources need no change
+* Phases in the snapshot module: `SnapshotSource.Change.then()` splits a change, so each client gets each phase, and ACKs it, before the next. It's for changes whose order make before break can't see, such as a route that must stop using a cluster's subset before the cluster drops it. `Mergeable.mergesWithLater()` lets any update type keep `MergingStateBacklog` from merging later updates into it
 
 ### Changed
 * Built and tested against `net.woaf.jono.envoy:envoy-api` 1.36.0 (from [envoy-api-java](https://github.com/JonathanO/envoy-api-java), published for each Envoy release) instead of `com.transferwise.envoy:envoy-api` 1.17.0. It's still `compileOnly`, so bring the envoy-api you already use
