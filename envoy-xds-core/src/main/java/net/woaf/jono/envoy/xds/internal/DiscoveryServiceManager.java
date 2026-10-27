@@ -131,19 +131,6 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
         this.metrics = metrics;
     }
 
-
-    public void init(StateUpdT initialStateChange, @Nullable TypeUrl delayUpdatesUntilAckOf) {
-        init(initialStateChange, delayUpdatesUntilAckOf, null);
-    }
-
-    /**
-     * Populate the initial state of the manager.
-     * All changes provided to pushUpdates are expected to apply sequentially from this initial state.
-     */
-    public void init(StateUpdT initialStateChange) {
-        init(initialStateChange, null, null);
-    }
-
     /**
      * Populate the initial state of the manager.
      * @param initialStateChange state that all changes provided to pushUpdates apply sequentially from
