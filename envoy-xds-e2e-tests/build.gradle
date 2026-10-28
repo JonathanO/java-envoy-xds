@@ -20,3 +20,10 @@ dependencies {
     testImplementation 'org.testcontainers:testcontainers:2.0.5'
     testImplementation 'org.awaitility:awaitility:4.3.0'
 }
+
+test {
+    // CI runs EnvoyXdsConformanceTest on one Envoy version per job; without this it runs on all of them.
+    if (project.hasProperty('envoyVersions')) {
+        systemProperty 'envoyVersions', project.property('envoyVersions')
+    }
+}

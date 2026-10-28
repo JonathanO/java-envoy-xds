@@ -7,13 +7,12 @@ on:
       - main
 
 jobs:
-  build-and-test:
-    name: "Build & Test"
+  build:
+    name: "Build & Check"
     runs-on:
       - ubuntu-latest
     permissions:
       contents: read
-      checks: write # action-junit-report
     env:
       GRADLE_OPTS: "-Djava.security.egd=file:/dev/./urandom -Dorg.gradle.parallel=true -Dorg.gradle.console=plain -Dorg.gradle.logging.stacktrace=all"
     steps:
@@ -31,13 +30,13 @@ jobs:
       - name: "Compile tests"
         run: ./gradlew compileTestJava --info --parallel
       - name: "Run checks"
-        run: ./gradlew check
-      - name: "Publish Test Report"
-        uses: mikepenz/action-junit-report@v6
+        run: ./gradlew check -x :envoy-xds-e2e-tests:test # the e2e job runs those
+      - name: "Upload test results"
         if: always()
+        uses: actions/upload-artifact@v7
         with:
-          report_paths: '**/build/test-results/**/*.xml'
-          require_tests: true
+          name: test-results-build
+          path: '**/build/test-results/**/*.xml'
       - name: "Upload reports"
         if: failure()
         uses: actions/upload-artifact@v7
@@ -46,6 +45,74 @@ jobs:
           path: '**/build/reports/'
       - name: "Test if publishing works"
         run: ./gradlew publishToMavenLocal --info
+
+  e2e:
+    name: "E2E (Envoy ${{ matrix.envoy }})"
+    runs-on:
+      - ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        envoy: ["1.36", "1.37", "1.38", "1.39", "1.40"]
+    env:
+      GRADLE_OPTS: "-Djava.security.egd=file:/dev/./urandom -Dorg.gradle.parallel=true -Dorg.gradle.console=plain -Dorg.gradle.logging.stacktrace=all"
+    steps:
+      - name: "Checkout repo"
+        uses: actions/checkout@v7
+      - name: "Setup Java"
+        uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: 25
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+      - name: "Run e2e tests"
+        # Envoy uses a fixed port, so versions run in parallel jobs rather than one JVM. ChangesDuringAPushAreMergedTest
+        # pins Envoy 1.40, so only that job runs it.
+        run: >-
+          ./gradlew :envoy-xds-e2e-tests:test -PenvoyVersions=${{ matrix.envoy }}
+          ${{ matrix.envoy != '1.40' && '--tests net.woaf.jono.envoy.e2e.conformance.EnvoyXdsConformanceTest' || '' }}
+      - name: "Upload test results"
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-envoy-${{ matrix.envoy }}
+          path: '**/build/test-results/**/*.xml'
+      - name: "Upload reports"
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reports-envoy-${{ matrix.envoy }}
+          path: '**/build/reports/'
+
+  # The required status check: passes only if every job above did, and reports all their tests.
+  build-and-test:
+    name: "Build & Test"
+    needs: [build, e2e]
+    if: always()
+    runs-on:
+      - ubuntu-latest
+    permissions:
+      contents: read
+      checks: write # action-junit-report
+    steps:
+      - name: "Checkout repo" # so the report can link failures to source
+        uses: actions/checkout@v7
+      - name: "Download test results"
+        uses: actions/download-artifact@v8
+        with:
+          pattern: test-results-*
+          path: test-results
+      - name: "Publish Test Report"
+        uses: mikepenz/action-junit-report@v6
+        with:
+          report_paths: 'test-results/**/*.xml'
+          require_tests: true
+      - name: "Check every job passed"
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1
 
   fray:
     name: "Fray"
