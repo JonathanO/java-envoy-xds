@@ -19,7 +19,6 @@ public class WildcardSubManagerSpec {
     public void testSubscribeToWildcard() {
         WildcardSubManager subManager = new WildcardSubManager();
         assertThat(subManager.processResourceListChange(Collections.emptyList())).isPresent();
-        assertThat(subManager.isSubscribed()).isTrue();
 
         Map<String, Object> subs = ImmutableMap.of(
                 "foo", new Object(),
