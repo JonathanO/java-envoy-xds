@@ -49,6 +49,11 @@ class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends Abstr
     private void processSubUpdate(Predicate<String> subChanged) {
         // Remove state for anything we're no longer subscribed to.
         resourceState.keySet().removeIf(n -> !subManager.isSubscribedTo(n));
+        if (subChanged.equals(SubManager.NOTHING_ADDED) && hasAnswered()) {
+            // Envoy drops what it unsubscribed from itself and doesn't wait for an answer, so don't make it ACK the rest
+            // again, e.g. on every EDS unsubscribe after a cluster removal. Any change in progress is still sent in turn.
+            return;
+        }
 
         getResources(subChanged).resources().forEach(msg -> resourceState.put(msg.name(), msg));
         applyCurrentState();

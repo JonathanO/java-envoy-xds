@@ -45,7 +45,7 @@ class WildcardSubManager implements SubManager {
         if (wasSubscribed && !subscribed) {
             log.debug("Unsubscribed from *");
             // The caller drops everything no longer subscribed to; the remaining names are already known.
-            return Optional.of(subListChange.orElse(name -> false));
+            return Optional.of(subListChange.orElse(NOTHING_ADDED));
         }
         return subListChange;
     }

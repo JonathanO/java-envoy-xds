@@ -35,6 +35,7 @@ All notable changes to this project will be documented in this file.
 * Every public class and method in core, snapshot and testing has Javadoc, and the Javadoc build fails on warnings
 * **Breaking:** removed `XdsConfig.silentNacks`. Every NACK now freezes the stream, and is logged at warn; use `onClientNack` to act on it.
 * Delta: an ACK that also changes subscriptions is no longer logged at info. Envoy does this by design, so it was noise
+* SotW: a request that only unsubscribes, such as Envoy dropping a removed cluster's endpoints, is no longer answered with the whole remaining set. Envoy doesn't wait for an answer, so each one only cost a response, and held up changes until Envoy ACKed it
 
 ### Fixed
 * SotW `nothingSentUnasked` checks secrets (SDS) and runtime layers (RTDS) too, instead of failing because it didn't know how to read their names

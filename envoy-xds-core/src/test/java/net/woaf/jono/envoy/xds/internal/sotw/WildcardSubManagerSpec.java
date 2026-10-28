@@ -60,7 +60,7 @@ public class WildcardSubManagerSpec {
     public void testLeavingWildcardKeepsExplicitNames() {
         WildcardSubManager subManager = new WildcardSubManager();
         assertThat(subManager.processResourceListChange(List.of("*", "foo"))).isPresent();
-        assertThat(subManager.processResourceListChange(List.of("foo"))).isPresent();
+        assertThat(subManager.processResourceListChange(List.of("foo"))).containsSame(SubManager.NOTHING_ADDED);
         assertThat(subManager.isSubscribedTo("foo")).isTrue();
         assertThat(subManager.isSubscribedTo("bar")).isFalse();
     }
@@ -69,7 +69,7 @@ public class WildcardSubManagerSpec {
     public void testEmptyListAfterNamesUnsubscribesFromEverything() {
         WildcardSubManager subManager = new WildcardSubManager();
         assertThat(subManager.processResourceListChange(List.of("*"))).isPresent();
-        assertThat(subManager.processResourceListChange(Collections.emptyList())).isPresent();
+        assertThat(subManager.processResourceListChange(Collections.emptyList())).containsSame(SubManager.NOTHING_ADDED);
         assertThat(subManager.isSubscribedTo("foo")).isFalse();
     }
 

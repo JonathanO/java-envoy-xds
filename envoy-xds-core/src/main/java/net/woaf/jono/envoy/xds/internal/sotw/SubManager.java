@@ -11,13 +11,16 @@ import java.util.function.Predicate;
  */
 interface SubManager {
 
+    /** Returned when a request only dropped names: there's nothing new to answer. */
+    Predicate<String> NOTHING_ADDED = name -> false;
+
     /**
      * Process a request to subscribe/unsubscribe from resources.
      * https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol#how-the-client-specifies-what-resources-to-return
      * Note: this returns a filter that matches only newly added resources. To filter for all currently subscribed resources use isSubscribedTo()
      *
      * @param resourceNames Set of all names envoy wants to be subscribed to.
-     * @return Optional function that returns true for any resource name that was newly subscribed to, or not present if no subscription changes (neither add nor remove) were made.
+     * @return Optional function that returns true for any resource name that was newly subscribed to, or not present if no subscription changes (neither add nor remove) were made. {@link #NOTHING_ADDED} if names were only removed.
      */
     Optional<Predicate<String>> processResourceListChange(List<String> resourceNames);
 
