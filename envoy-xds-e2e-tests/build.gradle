@@ -17,6 +17,7 @@ dependencies {
     testImplementation project(':envoy-xds-snapshot')
     testImplementation 'io.grpc:grpc-api:1.85.1'
     testRuntimeOnly 'io.grpc:grpc-netty-shaded:1.85.1'
+    testRuntimeOnly 'ch.qos.logback:logback-classic:1.6.6' // so our and Testcontainers' logs reach the test output
     testImplementation 'org.testcontainers:testcontainers:2.0.5'
     testImplementation 'org.awaitility:awaitility:4.3.0'
 }

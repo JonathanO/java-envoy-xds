@@ -8,7 +8,7 @@
     </encoder>
   </appender>
 
-  <logger level="DEBUG" name="net.woaf.jono"/>
+  <logger level="INFO" name="net.woaf.jono"/>
   <root level="info">
     <appender-ref ref="STDOUT"/>
   </root>
