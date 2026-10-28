@@ -4,10 +4,12 @@ import static net.woaf.jono.envoy.xds.snapshot.TestResources.cla;
 import static net.woaf.jono.envoy.xds.snapshot.TestResources.cluster;
 import static net.woaf.jono.envoy.xds.snapshot.TestResources.route;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
+import com.google.protobuf.StringValue;
 import org.junit.jupiter.api.Test;
 
 public class SnapshotTest {
@@ -43,5 +45,12 @@ public class SnapshotTest {
     @Test
     public void endpointsAreNamedByClusterName() {
         assertThat(Snapshot.empty().edit().put(cla("foo", "127.0.0.5")).build().get(ClusterLoadAssignment.class)).containsOnlyKeys("foo");
+    }
+
+    @Test
+    public void resourceWithNoNameFieldNeedsANameGiven() {
+        assertThatThrownBy(() -> Snapshot.empty().edit().put(StringValue.of("x"))).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Can't work out the name of a google.protobuf.StringValue");
+        assertThat(Snapshot.empty().edit().put("x", StringValue.of("x")).build().get(StringValue.class)).containsOnlyKeys("x");
     }
 }
