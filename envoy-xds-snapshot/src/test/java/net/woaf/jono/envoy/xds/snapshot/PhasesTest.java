@@ -72,4 +72,16 @@ public class PhasesTest {
         assertThat(new SnapshotConfigBuilder<Cluster, String>(Cluster.class).addOrder(whole, name -> true, "c").addAndUpdates())
             .as("the caller gets every phase merged").hasSize(2);
     }
+
+    @Test
+    public void phaseThatOnlyChangesViewsIsStillAPhase() {
+        SnapshotSource<String, String, String> views = new SnapshotSource<>(Function.identity(), Runnable::run);
+        views.update(c -> c.group("clusters", e -> e.put(cluster("a"))));
+        List<SnapshotUpdate<String>> toC = new ArrayList<>();
+        assertThat(views.subscribe(toC::add, "c")).isNotNull();
+
+        views.update(c -> c.view("c", "clusters").then().group("clusters", e -> e.put(cluster("b"))));
+
+        assertThat(toC).extracting(SnapshotUpdate::mergesWithLater).containsExactly(false, true);
+    }
 }
