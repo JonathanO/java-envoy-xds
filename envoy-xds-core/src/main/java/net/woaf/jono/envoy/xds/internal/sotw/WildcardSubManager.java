@@ -1,6 +1,5 @@
 package net.woaf.jono.envoy.xds.internal.sotw;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,11 +20,6 @@ class WildcardSubManager implements SubManager {
     // The spec allows wildcard types to be used with explicit names too, so they're tracked as a sublist for when the
     // client leaves wildcard mode.
     private final SubListSubManager subListSubManager = new SubListSubManager();
-
-    @VisibleForTesting
-    boolean isSubscribed() {
-        return subscribed;
-    }
 
     @Override
     public Optional<Predicate<String>> processResourceListChange(List<String> resourceNames) {
