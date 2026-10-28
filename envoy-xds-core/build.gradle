@@ -9,7 +9,7 @@ apply from: "${rootDir}/build.common.gradle"
 apply from: "${rootDir}/publishing.gradle"
 
 pitest {
-    mutationThreshold = 74 // 342 of 457 killed. Raise it as survivors are killed; the aim is 100
+    mutationThreshold = 100 // every mutant killed
 }
 
 dependencies {

@@ -171,6 +171,39 @@ public class CommonDiscoveryStreamObserverTest {
         verify(responseObserver).onCompleted();
     }
 
+    @Test
+    public void listenersAreToldOfNacks(@Mock StreamObserver<DiscoveryResponse> responseObserver,
+                                        @Mock ClusterEventSource<DummyUpdate> source,
+                                        @Mock DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory,
+                                        @Mock DiscoveryServiceManager<DiscoveryRequest, DummyUpdate> dsm,
+                                        @Mock XdsEventListener<Object> listener) {
+        when(factory.build(any(StreamObserver.class), any(XdsConfig.class), any(DiscoveryServiceManagerMetrics.class))).thenReturn(dsm);
+        CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer =
+            observer(responseObserver, source, factory, ImmutableList.of(listener));
+        Node node = Node.newBuilder().setId("envoy").build();
+        com.google.rpc.Status rejected = com.google.rpc.Status.newBuilder().setMessage("rejected").build();
+
+        observer.onNext(DiscoveryRequest.newBuilder().setNode(node).setTypeUrl(TypeUrl.CDS.getTypeUrl()).build());
+        verify(listener, never()).onClientNack(any(), any(), any(), any());
+        observer.onNext(DiscoveryRequest.newBuilder().setNode(node).setTypeUrl(TypeUrl.CDS.getTypeUrl()).setResponseNonce("1").setErrorDetail(rejected).build());
+
+        verify(listener).onClientNack(observer, node, TypeUrl.CDS, rejected);
+    }
+
+    @Test
+    public void streamErrorsAreWarnedAboutUnlessTheClientCancelled(@Mock StreamObserver<DiscoveryResponse> responseObserver,
+                                                                   @Mock ClusterEventSource<DummyUpdate> source,
+                                                                   @Mock DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory) {
+        try (LoggedWarnings warnings = new LoggedWarnings(CommonDiscoveryStreamObserver.class)) {
+            // Envoy going away cancels its stream: nothing to warn about.
+            observer(responseObserver, source, factory).onError(io.grpc.Status.CANCELLED.asRuntimeException());
+            assertThat(warnings.messages()).isEmpty();
+
+            observer(responseObserver, source, factory).onError(io.grpc.Status.UNAVAILABLE.asRuntimeException());
+            assertThat(warnings.messages()).containsExactly("Error streaming to an ADS client");
+        }
+    }
+
     private static CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer(
         StreamObserver<DiscoveryResponse> responseObserver, ClusterEventSource<DummyUpdate> source,
         DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory) {
@@ -185,7 +218,7 @@ public class CommonDiscoveryStreamObserverTest {
             responseObserver,
             source,
             factory,
-            r -> new CommonDiscoveryRequest<DiscoveryRequest>(r.getNode(), r.getTypeUrl(), r, null),
+            r -> new CommonDiscoveryRequest<DiscoveryRequest>(r.getNode(), r.getTypeUrl(), r, r.hasErrorDetail() ? r.getErrorDetail() : null),
             node -> XdsConfig.of(DETAILS),
             listeners,
             DiscoveryServiceManagerMetrics.NOOP_METRICS
