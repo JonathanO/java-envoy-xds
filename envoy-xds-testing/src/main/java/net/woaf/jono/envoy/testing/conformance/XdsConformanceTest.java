@@ -88,7 +88,8 @@ import org.testcontainers.images.builder.Transferable;
  * every scenario on each protocol in {@link #protocols()}, on each of {@link #envoyImages()}, with and without rate
  * limiting Envoy's requests. Record known deviations with {@link #knownDeviations()}.
  *
- * <p>Each test's control plane listens on a free port, so tests can run in parallel.
+ * <p>Each test's control plane listens on a free port, so tests can run in parallel with JUnit's parallel execution.
+ * {@link #newControlPlane()} is then called concurrently.
  */
 public abstract class XdsConformanceTest {
 
