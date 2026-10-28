@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -265,17 +266,20 @@ public class DiscoveryServiceManagerTest {
         dsm.init(new DummyUpdate(), null, null);
         final var update = new DummyUpdate();
         final var queued = new DummyUpdate();
+        final var queuedToo = new DummyUpdate();
         final var later = new DummyUpdate();
 
         dsm.pushUpdates(update);
         dsm.pushUpdates(queued); // waits behind update
+        dsm.pushUpdates(queuedToo); // this backlog doesn't merge them
         nack(dsm, eds);
         dsm.pushUpdates(later);
 
-        assertThat(dsm.isFrozen()).isTrue();
         assertThat(backlog.isEmpty()).as("backlog dropped").isTrue();
+        verify(eds).abandonChange(); // so answers to later subscriptions don't send what's left of it
         verify(eds, never()).sendNetworkUpdatePost();
         verify(eds, never()).onNetworkUpdate(queued);
+        verify(eds, never()).onNetworkUpdate(queuedToo);
         verify(eds, never()).onNetworkUpdate(later);
         verify(metrics).onPushComplete(); // the abandoned push ended, so the stream looks idle
     }
@@ -339,6 +343,112 @@ public class DiscoveryServiceManagerTest {
         verify(cds).onNetworkUpdate(update);
     }
 
+    @Test
+    public void staleRemovalsGoBeforeAChangeAndCountAsAwaitingAnAck(@Mock DiscoveryServiceManagerMetrics metrics) {
+        final DiscoveryService<Message, DummyUpdate> cds = spy(new StateAwareFakeDiscoveryService(TypeUrl.CDS).withStaleRemovals());
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.CDS, cds), List.of(TypeUrl.CDS), List.of(TypeUrl.CDS), new QueueBacklog(), metrics);
+        dsm.init(new DummyUpdate(), null, null);
+        final var update = new DummyUpdate();
+
+        dsm.pushUpdates(update);
+        verify(cds).sendDeferredReconnectRemovals();
+        verify(metrics).onAwaitingAck();
+        verify(cds, never()).onNetworkUpdate(update); // waits for their ACK
+
+        ack(dsm, cds);
+        verify(metrics).onMessageAcked();
+        verify(cds).onNetworkUpdate(update);
+    }
+
+    @Test
+    public void staleRemovalsWaitForEarlierTypesUntilTheyGiveUpForGood() {
+        final DiscoveryService<Message, DummyUpdate> cds = spy(new StateAwareFakeDiscoveryService(TypeUrl.CDS).withStaleRemovals());
+        final DiscoveryService<Message, DummyUpdate> eds = spy(new StateAwareFakeDiscoveryService(TypeUrl.EDS).withStaleRemovals());
+        final DiscoveryService<Message, DummyUpdate> rds = spy(new StateAwareFakeDiscoveryService(TypeUrl.RDS));
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.CDS, cds, TypeUrl.EDS, eds, TypeUrl.RDS, rds),
+            List.of(TypeUrl.CDS, TypeUrl.EDS, TypeUrl.RDS), List.of(TypeUrl.RDS, TypeUrl.CDS, TypeUrl.EDS),
+            new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS);
+        AtomicLong now = new AtomicLong();
+        dsm.setClock(now::get);
+        dsm.init(new DummyUpdate(), null, null); // and RDS never subscribes
+
+        subscribe(dsm, eds);
+        ack(dsm, eds);
+        verify(cds, never()).sendDeferredReconnectRemovals(); // routes may still use the clusters
+
+        now.addAndGet(DiscoveryServiceManager.WAIT_FOR_ACK_TIMEOUT_NANOS);
+        subscribe(dsm, eds);
+        ack(dsm, eds);
+        verify(cds).sendDeferredReconnectRemovals();
+        verify(eds, never()).sendDeferredReconnectRemovals(); // in remove order: after CDS's are ACKed
+
+        ack(dsm, cds);
+        verify(eds).sendDeferredReconnectRemovals();
+    }
+
+    @Test
+    public void metricsFollowAPushFromBeginToComplete(@Mock DiscoveryServiceManagerMetrics metrics) {
+        DiscoveryService<Message, DummyUpdate> eds = spy(new StateAwareFakeDiscoveryService(TypeUrl.EDS));
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.EDS, eds), List.of(TypeUrl.EDS), List.of(TypeUrl.EDS), new QueueBacklog(), metrics);
+        dsm.init(new DummyUpdate(), null, null);
+
+        dsm.pushUpdates(new DummyUpdate());
+        verify(metrics).onPushBegin();
+        ack(dsm, eds);
+        verify(metrics, never()).onPushComplete(); // its removals aren't sent yet
+        ack(dsm, eds);
+        verify(metrics).onPushComplete();
+    }
+
+    @Test
+    public void metricsCountAnAnswerAsAwaitingAnAckUntilItIsAcked(@Mock DiscoveryServiceManagerMetrics metrics) {
+        DiscoveryService<Message, DummyUpdate> eds = spy(new StateAwareFakeDiscoveryService(TypeUrl.EDS));
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.EDS, eds), List.of(TypeUrl.EDS), List.of(TypeUrl.EDS), new QueueBacklog(), metrics);
+        dsm.init(new DummyUpdate(), null, null);
+
+        subscribe(dsm, eds);
+        verify(metrics).onAwaitingAck();
+        verify(metrics, never()).onMessageAcked();
+        ack(dsm, eds);
+        verify(metrics).onMessageAcked();
+    }
+
+    @Test
+    public void closingTheManagerClosesItsMetrics(@Mock DiscoveryServiceManagerMetrics metrics) {
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.EDS, new StateAwareFakeDiscoveryService(TypeUrl.EDS)), List.of(TypeUrl.EDS), List.of(TypeUrl.EDS), new QueueBacklog(), metrics);
+        dsm.init(new DummyUpdate(), null, null);
+
+        dsm.close();
+        verify(metrics).close();
+    }
+
+    @Test
+    public void closedManagerRefusesChanges() {
+        DiscoveryService<Message, DummyUpdate> eds = spy(new StateAwareFakeDiscoveryService(TypeUrl.EDS));
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.EDS, eds), List.of(TypeUrl.EDS), List.of(TypeUrl.EDS), new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS);
+        dsm.init(new DummyUpdate(), null, null);
+        dsm.close();
+
+        assertThatThrownBy(() -> dsm.pushUpdates(new DummyUpdate())).isInstanceOf(IllegalStateException.class).hasMessageContaining("closed");
+        verify(eds, never()).onNetworkUpdate(any());
+    }
+
+    @Test
+    public void managerRefusesRequestsBeforeInit() {
+        DiscoveryService<Message, DummyUpdate> eds = spy(new StateAwareFakeDiscoveryService(TypeUrl.EDS));
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.EDS, eds), List.of(TypeUrl.EDS), List.of(TypeUrl.EDS), new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS);
+
+        assertThatThrownBy(() -> dsm.processUpdate(request(TypeUrl.EDS))).isInstanceOf(IllegalStateException.class).hasMessageContaining("must be initialized");
+        verify(eds, never()).processUpdate(any());
+    }
+
     /** Envoy subscribes to something of this type, which the fake answers. */
     private static void subscribe(DiscoveryServiceManager<Message, DummyUpdate> dsm, DiscoveryService<Message, DummyUpdate> service) {
         assertThat(service.awaitingAck()).as("%s awaiting an ACK", service.getTypeUrl()).isFalse();
@@ -367,9 +477,17 @@ public class DiscoveryServiceManagerTest {
         private final TypeUrl typeUrl;
         private boolean initialized = false;
         private boolean awaitingAck = false;
+        private boolean answered = false;
+        private boolean staleRemovals = false;
 
         public StateAwareFakeDiscoveryService(TypeUrl typeUrl) {
             this.typeUrl = typeUrl;
+        }
+
+        /** Envoy reconnected with resources of this type we no longer have, whose removal waits its turn. */
+        StateAwareFakeDiscoveryService withStaleRemovals() {
+            staleRemovals = true;
+            return this;
         }
 
         @Override
@@ -378,6 +496,24 @@ public class DiscoveryServiceManagerTest {
             // If we're waiting, assume this was an ack
             // If we're not waiting, assume it was a request to subscribe to new stuff, which we answer.
             awaitingAck = !awaitingAck;
+            answered = true;
+        }
+
+        @Override
+        public boolean hasAnswered() {
+            return answered;
+        }
+
+        @Override
+        public boolean hasDeferredReconnectRemovals() {
+            return staleRemovals;
+        }
+
+        @Override
+        public void sendDeferredReconnectRemovals() {
+            staleRemovals = false;
+            awaitingAck = true;
+            answered = true;
         }
 
         @Override
@@ -401,12 +537,14 @@ public class DiscoveryServiceManagerTest {
             Preconditions.checkState(initialized);
             // Assume we sent something
             awaitingAck = true;
+            answered = true;
         }
 
         @Override
         public void sendNetworkUpdatePost() {
             Preconditions.checkState(initialized);
             awaitingAck = true;
+            answered = true;
         }
 
         @Override
