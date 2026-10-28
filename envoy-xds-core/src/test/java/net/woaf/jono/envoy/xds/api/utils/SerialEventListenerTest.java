@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -14,7 +15,7 @@ import org.junit.jupiter.api.Test;
 public class SerialEventListenerTest {
 
     /** Records what it gets, and complains if two deliveries overlap. */
-    private static final class Recorder implements ClusterManagerEventListener<Integer> {
+    private static class Recorder implements ClusterManagerEventListener<Integer> {
         private final List<Object> calls = new ArrayList<>();
         private int running = 0;
         private final int failOn;
@@ -77,5 +78,22 @@ public class SerialEventListenerTest {
     @Test
     public void listenerThatThrowsGetsNoMore() throws InterruptedException {
         assertThat(deliver(10, 2)).containsExactly(0, 1, 2, "closed");
+    }
+
+    @Test
+    public void deliversOnTheSharedExecutorByDefault() throws InterruptedException {
+        CountDownLatch closed = new CountDownLatch(1);
+        Recorder recorder = new Recorder(-1) {
+            @Override
+            public void close() {
+                super.close();
+                closed.countDown();
+            }
+        };
+        SerialEventListener<Integer> listener = new SerialEventListener<>(recorder);
+        listener.onNetworkChange(1);
+        listener.close();
+        assertThat(closed.await(10, TimeUnit.SECONDS)).isTrue();
+        assertThat(recorder.calls()).containsExactly(1, "closed");
     }
 }

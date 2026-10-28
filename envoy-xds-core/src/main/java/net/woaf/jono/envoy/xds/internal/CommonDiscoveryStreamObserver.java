@@ -102,10 +102,6 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             final Node node = Preconditions.checkNotNull(this.node);
             final XdsConfig<DetailsT> xdsConfig = Preconditions.checkNotNull(this.xdsConfig);
 
-            if (value.errorDetail() != null) {
-                log.warn("Client {} rejected {}, so we'll send it no more changes on this stream: {}", nodeId, value.typeUrl(), value.errorDetail());
-            }
-
             TypeUrl typeUrl = TypeUrl.of(value.typeUrl());
             if (typeUrl == null) {
                 // Leave it unanswered, like a type nobody serves: closing the stream would take every other type down
@@ -115,6 +111,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             }
             log.debug("DiscoveryRequest T={}", value.typeUrl());
             if (value.errorDetail() != null) {
+                log.warn("Client {} rejected {}, so we'll send it no more changes on this stream: {}", nodeId, value.typeUrl(), value.errorDetail());
                 notifyClientNack(node, typeUrl, value.errorDetail());
             }
             if (discoveryServiceManager == null) {
