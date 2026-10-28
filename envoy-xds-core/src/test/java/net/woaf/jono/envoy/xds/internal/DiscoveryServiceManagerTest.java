@@ -386,6 +386,16 @@ public class DiscoveryServiceManagerTest {
         }
 
         @Override
+        public boolean isServed() {
+            return true;
+        }
+
+        @Override
+        public boolean hasAnswered() {
+            return false;
+        }
+
+        @Override
         public void init(DummyUpdate state) {
             Preconditions.checkState(!initialized);
             initialized = true;
