@@ -86,7 +86,7 @@ public class SubManagerPropertiesTest {
         return names.stream().filter(n -> !n.equals(WILDCARD)).collect(Collectors.toSet());
     }
 
-    @HegelTest
+    @HegelTest(testCases = 1000)
     void subscribedToWhatTheSpecSays(TestCase tc) {
         run(tc, step -> {
             assertThat(NAMES.stream().filter(step.manager()::isSubscribedTo)).containsExactlyInAnyOrderElementsOf(step.after());
@@ -94,14 +94,14 @@ public class SubManagerPropertiesTest {
         });
     }
 
-    @HegelTest
+    @HegelTest(testCases = 1000)
     void answersExactlyRequestsThatNameResourcesOrStartTheWildcard(TestCase tc) {
         // Unsubscribing needs no answer, and an empty one would hold up pushes until Envoy ACKs it.
         run(tc, step -> assertThat(step.answer().isPresent())
             .isEqualTo(!withoutWildcard(step.subscribe()).isEmpty() || step.startedWildcard()));
     }
 
-    @HegelTest
+    @HegelTest(testCases = 1000)
     void answerCoversNamesAskedForAndNewlySubscribed(TestCase tc) {
         // The spec requires an answer for each name subscribed to, even one we already sent: removed_resources if it
         // doesn't exist.
@@ -110,7 +110,7 @@ public class SubManagerPropertiesTest {
             .acceptsAll(Sets.difference(step.after(), step.before()))));
     }
 
-    @HegelTest
+    @HegelTest(testCases = 1000)
     void answerOnlyCoversSubscribedNames(TestCase tc) {
         run(tc, step -> step.answer().ifPresent(answer -> assertThat(answer)
             .rejectsAll(Sets.difference(Set.copyOf(NAMES), step.after()))

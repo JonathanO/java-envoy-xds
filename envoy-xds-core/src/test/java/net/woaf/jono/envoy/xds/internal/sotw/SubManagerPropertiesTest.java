@@ -79,24 +79,24 @@ public class SubManagerPropertiesTest {
         }
     }
 
-    @HegelTest
+    @HegelTest(testCases = 1000)
     void subscribedToWhatTheSpecSays(TestCase tc) {
         run(tc, step -> assertThat(NAMES.stream().filter(step.manager()::isSubscribedTo)).containsExactlyInAnyOrderElementsOf(step.after()));
     }
 
-    @HegelTest
+    @HegelTest(testCases = 1000)
     void answersEveryChangedSubscription(TestCase tc) {
         // Without an answer we neither drop the resources unsubscribed from nor fetch the new ones.
         run(tc, step -> assertThat(step.answer().isPresent() || !step.changed()).isTrue());
     }
 
-    @HegelTest
+    @HegelTest(testCases = 1000)
     void answerCoversNewlySubscribedNames(TestCase tc) {
         run(tc, step -> step.answer().ifPresent(answer -> assertThat(answer)
             .acceptsAll(Sets.difference(step.after(), step.before()))));
     }
 
-    @HegelTest
+    @HegelTest(testCases = 1000)
     void answerOnlyCoversSubscribedNames(TestCase tc) {
         run(tc, step -> step.answer().ifPresent(answer -> assertThat(answer)
             .rejectsAll(Sets.difference(new HashSet<>(NAMES), step.after()))));

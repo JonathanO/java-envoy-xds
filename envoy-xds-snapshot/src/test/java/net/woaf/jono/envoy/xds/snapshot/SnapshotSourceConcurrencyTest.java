@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 public class SnapshotSourceConcurrencyTest {
 
-    @HegelTest
+    @HegelTest(testCases = 1000)
     void clientsSeeEveryChangeInOrder(TestCase tc) {
         Stateful.run(new Machine(tc), tc, Stateful.options().maxConcurrency(4));
     }
