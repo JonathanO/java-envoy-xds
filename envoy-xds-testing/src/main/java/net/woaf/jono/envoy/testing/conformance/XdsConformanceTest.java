@@ -826,10 +826,8 @@ public abstract class XdsConformanceTest {
             await().atMost(10, TimeUnit.SECONDS).untilAsserted(
                 () -> envoyAssert(conversation).hadConversationsWith(syncTypes).answeredEveryType());
             // A warming listener isn't listening yet, so a first request would be reset. Its last subscription, e.g. SRDS,
-            // can still be queued in Envoy when everything sent so far is ACKed and the control plane looks idle. And
-            // Envoy applies LDS after it's answered: until then no listener is warming, as none has been added.
+            // can still be queued in Envoy when everything sent so far is ACKed and the control plane looks idle.
             await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> assertThat(envoy.admin().stats())
-                .as("Envoy has applied LDS").hasEntrySatisfying("listener_manager.lds.update_success", n -> assertThat(n).isPositive())
                 .as("Envoy's listeners have warmed").containsEntry("listener_manager.total_listeners_warming", 0L));
             await().atMost(30, TimeUnit.SECONDS).until(settled(conversation));
             checkpoint = Checkpoint.take(envoy, conversation);
@@ -878,6 +876,9 @@ public abstract class XdsConformanceTest {
          * retrying. Then everything Envoy was sent for it must have been make before break.
          */
         private void assertFirstRequestRoutedVia(Conversation conversation, String virtualHost, String cluster) throws IOException {
+            // Nothing listens until Envoy starts its workers, which it does after its first listeners have warmed.
+            await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> assertThat(envoy.admin().stats())
+                .as("Envoy's workers have started").containsEntry("listener_manager.workers_started", 1L));
             assertThat(envoy.httpStatus(DYNAMIC_LISTENER_PORT, virtualHost)).as("first request for " + virtualHost).isEqualTo(200);
             await().atMost(10, TimeUnit.SECONDS).until(settled(conversation));
             checkpoint().assertSane();
