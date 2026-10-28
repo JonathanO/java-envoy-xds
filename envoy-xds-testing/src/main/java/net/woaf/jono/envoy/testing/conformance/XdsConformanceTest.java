@@ -876,6 +876,9 @@ public abstract class XdsConformanceTest {
          * retrying. Then everything Envoy was sent for it must have been make before break.
          */
         private void assertFirstRequestRoutedVia(Conversation conversation, String virtualHost, String cluster) throws IOException {
+            // Nothing listens until Envoy starts its workers, which it does after its first listeners have warmed.
+            await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> assertThat(envoy.admin().stats())
+                .as("Envoy's workers have started").containsEntry("listener_manager.workers_started", 1L));
             assertThat(envoy.httpStatus(DYNAMIC_LISTENER_PORT, virtualHost)).as("first request for " + virtualHost).isEqualTo(200);
             await().atMost(10, TimeUnit.SECONDS).until(settled(conversation));
             checkpoint().assertSane();
