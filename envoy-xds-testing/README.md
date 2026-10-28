@@ -14,9 +14,9 @@ it works for any Java control plane. There are two ways to use it:
 testImplementation 'net.woaf.jono.envoy:envoy-xds-testing:<version>'
 ```
 
-You also need Docker, JUnit 5 or later, and an envoy-api with the usual `io.envoyproxy.envoy` packages. That is
-whichever one your control plane already uses, e.g. `net.woaf.jono.envoy:envoy-api` or java-control-plane's
-`io.envoyproxy.controlplane:api`.
+You also need Docker (or another [container runtime](#container-runtimes)), JUnit 5 or later, and an envoy-api with
+the usual `io.envoyproxy.envoy` packages. That is whichever one your control plane already uses, e.g.
+`net.woaf.jono.envoy:envoy-api` or java-control-plane's `io.envoyproxy.controlplane:api`.
 
 What's in it:
 
@@ -30,6 +30,23 @@ What's in it:
 - `XdsMatchers`: Hamcrest matchers for resources, messages, the order things happened in, and what Envoy holds.
 - `XdsConformanceTest`: the conformance suite.
 
+### Container runtimes
+
+Anything [Testcontainers supports](https://java.testcontainers.org/supported_docker_environment/) should do:
+
+- Docker Engine on Linux, or Docker Desktop on macOS or Windows: works as is.
+- [Rancher Desktop](https://java.testcontainers.org/supported_docker_environment/#rancher-desktop): set its engine to
+  dockerd (moby), not containerd ([as Testcontainers for Go says](https://golang.testcontainers.org/system_requirements/rancher/)),
+  and on macOS set the environment variables on that page.
+- [Podman](https://java.testcontainers.org/supported_docker_environment/#podman): set `DOCKER_HOST` to its
+  Docker-compatible socket, e.g. `unix://${XDG_RUNTIME_DIR}/podman/podman.sock` on Linux. Rootless, also set
+  `TESTCONTAINERS_RYUK_DISABLED=true`.
+
+Envoy reaches your control plane at `host.testcontainers.internal`, through
+[Testcontainers' SSH tunnel to the host](https://java.testcontainers.org/features/networking/#exposing-host-ports-to-the-container),
+not Docker's own route to the host, which differs by platform. So it needs nothing more of the runtime than the rest of
+Testcontainers does, whether the runtime runs in a VM or not.
+
 ## Testing your control plane
 
 ### Envoy's config
@@ -40,7 +57,8 @@ Write a bootstrap config for the Envoy under test, and put it on your test class
 It must:
 
 - put the admin interface on `0.0.0.0:9901`, which `EnvoyContainer` uses;
-- point ADS at `host.testcontainers.internal` on your gRPC server's port;
+- point ADS at `host.testcontainers.internal`, on port `${ADS_PORT}`, which `withBootstrap` fills in with your gRPC
+  server's;
 - bind any listener you send traffic through to `0.0.0.0`, or it can't be reached from the test;
 - use the node id and cluster that your control plane expects.
 
@@ -53,8 +71,6 @@ container reaches it, and `GET /` answers 200.
 class MyControlPlaneTest {
 
     private final EnvoyContainer envoy = new EnvoyContainer("envoyproxy/envoy:v1.40-latest")
-        .withCopyFileToContainer(MountableFile.forClasspathResource("envoy.yaml"), "/envoy.yaml")
-        .withCommand("-c", "/envoy.yaml")
         .withExposedPorts(EnvoyContainer.ADMIN_PORT, 10000)
         .withAccessToHost(true);
     private final ConversationLogger conversations = new ConversationLogger();
@@ -71,9 +87,10 @@ class MyControlPlaneTest {
         MyControlPlane controlPlane = new MyControlPlane();
 
         // Your server first, then Envoy. The other way round, Envoy backs off and can time out its first fetches.
-        server = ServerBuilder.forPort(6566).addService(controlPlane.adsService()).intercept(conversations).build().start();
-        Testcontainers.exposeHostPorts(6566);
-        envoy.start();
+        // On a free port, so tests can run in parallel.
+        server = ServerBuilder.forPort(0).addService(controlPlane.adsService()).intercept(conversations).build().start();
+        Testcontainers.exposeHostPorts(server.getPort());
+        envoy.withBootstrap("envoy.yaml", server.getPort()).start();
 
         // Wait for the initial sync. Everything Envoy asked for must be answered well inside its 15s initial fetch timeout.
         await().atMost(30, SECONDS).until(() -> !conversations.getConversations().isEmpty());
@@ -160,7 +177,7 @@ assertThat(envoy.admin().stats(), hasStat("cluster.foo-v2.upstream_rq_total", gr
 
 ### Reconnects
 
-To test a reconnect, shut down your gRPC server and start a new one on the same port with the same service and
+To test a reconnect, shut down your gRPC server and start a new one on the same port (`server.getPort()`) with the same service and
 interceptor. Envoy then opens a second conversation. On that one, skip `wasMakeBeforeBreak`, because the checks can't
 know what config Envoy kept.
 
@@ -168,7 +185,7 @@ know what config Envoy kept.
 
 - Each Envoy start costs a few seconds, and the first in a JVM much more. Add checks to the scenarios you have
   before adding new scenarios.
-- Envoy connects to a fixed port, so don't run these tests in parallel.
+- Envoy connects to whichever port you give `withBootstrap`, so tests on free ports can run in parallel.
 - Mark lines from `logSize()` and conversation sizes from `size()`. Then checks only look at what happened since.
 
 ## Waiting for things to settle
@@ -276,5 +293,5 @@ unasked, there were no empty responses, and changes were make before break. It a
 logged no warnings. To record a known deviation, override `knownDeviations()`. Keys are parts of a test's path, so
 `Map.of("sotw/changesWhileDisconnected", "why")` skips that scenario on SotW, on every version and mode.
 
-Envoy connects to port 6566 on the host, so run these one at a time. `EnvoyXdsConformanceTest` in
+Each test's control plane listens on a free port, so tests can run in parallel. `EnvoyXdsConformanceTest` in
 `envoy-xds-e2e-tests` runs the suite against envoy-xds, on every Envoy release upstream supports.

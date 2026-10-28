@@ -44,7 +44,6 @@ import net.woaf.jono.envoy.xds.snapshot.SnapshotConfigBuilder;
 import net.woaf.jono.envoy.xds.snapshot.SnapshotSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.BindMode;
 
 /**
  * Changes that arrive while a push waits for Envoy's ACKs are merged by {@link MergingStateBacklog}, so Envoy gets
@@ -52,12 +51,9 @@ import org.testcontainers.containers.BindMode;
  */
 class ChangesDuringAPushAreMergedTest {
 
-    private static final int ADS_PORT = 6566;
     private static final int LISTENER_PORT = 10000;
 
     private final EnvoyContainer envoy = new EnvoyContainer("envoyproxy/envoy:v1.40-latest")
-        .withClasspathResourceMapping("envoy-delta.yaml", "/envoy.yaml", BindMode.READ_ONLY)
-        .withCommand("-c", "/envoy.yaml")
         .withExposedPorts(EnvoyContainer.ADMIN_PORT, LISTENER_PORT)
         .withAccessToHost(true);
     private final SnapshotSource<String, String, String> source = new SnapshotSource<>(node -> "envoy");
@@ -78,7 +74,7 @@ class ChangesDuringAPushAreMergedTest {
     void changesDuringAPushAreMerged() throws IOException {
         source.update(c -> c.view("envoy", "envoy").group("envoy", foo("127.0.0.1")));
         // Our server first, then Envoy, so Envoy doesn't back off past its initial fetch timeout.
-        server = ServerBuilder.forPort(ADS_PORT).addService(new AggregatedDiscoveryService<>(
+        server = ServerBuilder.forPort(0).addService(new AggregatedDiscoveryService<>(
                 source,
                 SnapshotConfigBuilder.forTypes(Cluster.class, ClusterLoadAssignment.class, RouteConfiguration.class),
                 node -> XdsConfig.<String>of(node.getId()),
@@ -90,8 +86,8 @@ class ChangesDuringAPushAreMergedTest {
                     return listener;
                 }))
             .intercept(conversations).build().start();
-        org.testcontainers.Testcontainers.exposeHostPorts(ADS_PORT);
-        envoy.start();
+        org.testcontainers.Testcontainers.exposeHostPorts(server.getPort());
+        envoy.withBootstrap("envoy-delta.yaml", server.getPort()).start();
 
         await().atMost(60, TimeUnit.SECONDS).until(() -> !streams.isEmpty() && !conversations.getConversations().isEmpty());
         DiscoveryServiceManagerEventListener stream = streams.get(0);

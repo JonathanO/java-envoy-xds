@@ -1,19 +1,24 @@
 package net.woaf.jono.envoy.testing.utils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.net.HostAndPort;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import net.woaf.jono.envoy.testing.configdump.EnvoyAdminClient;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
 
 /**
@@ -24,6 +29,11 @@ public class EnvoyContainer extends GenericContainer<EnvoyContainer> {
 
     /** The admin interface's port inside the container. */
     public static final int ADMIN_PORT = 9901;
+
+    /**
+     * What {@link #withBootstrap} replaces with the control plane's port, e.g. {@code port_value: ${ADS_PORT}}.
+     */
+    public static final String ADS_PORT_PLACEHOLDER = "${ADS_PORT}";
 
     private final List<String> log = Collections.synchronizedList(new ArrayList<>());
 
@@ -38,6 +48,26 @@ public class EnvoyContainer extends GenericContainer<EnvoyContainer> {
         waitingFor(Wait.forHttp("/server_info").forPort(ADMIN_PORT));
         withStartupAttempts(3);
         withLogConsumer(frame -> log.add(frame.getUtf8StringWithoutLineEnding()));
+    }
+
+    /**
+     * Runs Envoy with a bootstrap config from the classpath, with {@link #ADS_PORT_PLACEHOLDER} replaced by your
+     * control plane's port. Bind your server to port 0, then pass its port here and to
+     * {@code Testcontainers.exposeHostPorts}, so tests can run in parallel.
+     * @param resource the config's classpath resource, e.g. envoy.yaml
+     * @param adsPort your control plane's port on the host
+     * @return this
+     */
+    public EnvoyContainer withBootstrap(String resource, int adsPort) {
+        String yaml;
+        try (InputStream in = Objects.requireNonNull(Thread.currentThread().getContextClassLoader().getResourceAsStream(resource), resource)) {
+            yaml = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        Preconditions.checkArgument(yaml.contains(ADS_PORT_PLACEHOLDER), "%s has no %s", resource, ADS_PORT_PLACEHOLDER);
+        return withCopyToContainer(Transferable.of(yaml.replace(ADS_PORT_PLACEHOLDER, Integer.toString(adsPort))), "/envoy.yaml")
+            .withCommand("-c", "/envoy.yaml");
     }
 
     /**
