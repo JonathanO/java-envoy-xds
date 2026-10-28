@@ -1,0 +1,4 @@
+<configuration>
+  <!-- Quiet, as before there was a backend: a test that checks a warning listens for it with LoggedWarnings. -->
+  <root level="OFF"/>
+</configuration>

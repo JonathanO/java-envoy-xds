@@ -339,6 +339,26 @@ public class DiscoveryServiceManagerTest {
         verify(cds).onNetworkUpdate(update);
     }
 
+    @Test
+    public void typesWithNoReconnectRemovalsNeverWarnTheyAreRemovingStaleOnes() {
+        // Like SotW's, the fake's services have no removals found on reconnecting.
+        final DiscoveryService<Message, DummyUpdate> cds = new StateAwareFakeDiscoveryService(TypeUrl.CDS);
+        final DiscoveryService<Message, DummyUpdate> rds = new StateAwareFakeDiscoveryService(TypeUrl.RDS);
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManager<>(
+            Map.of(TypeUrl.CDS, cds, TypeUrl.RDS, rds), List.of(TypeUrl.CDS, TypeUrl.RDS), List.of(TypeUrl.RDS, TypeUrl.CDS),
+            new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS);
+        AtomicLong now = new AtomicLong();
+        dsm.setClock(now::get);
+        dsm.init(new DummyUpdate(), null, null);
+        now.addAndGet(DiscoveryServiceManager.WAIT_FOR_ACK_TIMEOUT_NANOS); // and RDS hasn't answered
+
+        try (LoggedWarnings warnings = new LoggedWarnings(DiscoveryServiceManager.class)) {
+            dsm.pushUpdates(new DummyUpdate());
+
+            assertThat(warnings.messages()).isEmpty();
+        }
+    }
+
     /** Envoy subscribes to something of this type, which the fake answers. */
     private static void subscribe(DiscoveryServiceManager<Message, DummyUpdate> dsm, DiscoveryService<Message, DummyUpdate> service) {
         assertThat(service.awaitingAck()).as("%s awaiting an ACK", service.getTypeUrl()).isFalse();
