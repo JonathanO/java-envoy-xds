@@ -154,8 +154,9 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
                 // The first Throwable we caught will be rethrown, all others will be suppressed unless they are Error (see catch block above.)
                 if (caught == null) {
                     caught = e;
+                } else {
+                    caught.addSuppressed(e);
                 }
-                caught.addSuppressed(e);
             }
         }
 
