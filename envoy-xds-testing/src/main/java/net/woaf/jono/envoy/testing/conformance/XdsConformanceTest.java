@@ -78,8 +78,6 @@ import org.hamcrest.MatcherAssert;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
-import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.images.builder.Transferable;
 
 /**
@@ -240,6 +238,10 @@ public abstract class XdsConformanceTest {
         Harness harness = new Harness(this::newControlPlane, image, protocol, rateLimited, scenario.allClusters());
         try {
             scenario.steps().run(harness);
+        } catch (Throwable t) {
+            // To stderr, which the test report keeps: SLF4J may have nowhere to go in a test.
+            System.err.println("Envoy's log for " + String.join("/", path) + ":\n" + String.join("\n", harness.envoy.logSince(0)));
+            throw t;
         } finally {
             harness.stop();
         }
@@ -501,10 +503,9 @@ public abstract class XdsConformanceTest {
             this.rateLimitedAds = rateLimitedAds;
             this.envoy = new EnvoyContainer(envoyImage)
                 .withCopyToContainer(Transferable.of(bootstrap(protocol, rateLimitedAds, allClusters)), "/envoy.yaml")
-                .withCommand("-l", "debug", "-c", "/envoy.yaml")
+                .withCommand("-c", "/envoy.yaml")
                 .withExposedPorts(EnvoyContainer.ADMIN_PORT, LISTENER_PORT, DYNAMIC_LISTENER_PORT)
-                .withAccessToHost(true)
-                .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(XdsConformanceTest.class)));
+                .withAccessToHost(true);
         }
 
         private Checkpoint checkpoint() {

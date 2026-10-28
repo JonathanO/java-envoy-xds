@@ -44,9 +44,7 @@ import net.woaf.jono.envoy.xds.snapshot.SnapshotConfigBuilder;
 import net.woaf.jono.envoy.xds.snapshot.SnapshotSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.BindMode;
-import org.testcontainers.containers.output.Slf4jLogConsumer;
 
 /**
  * Changes that arrive while a push waits for Envoy's ACKs are merged by {@link MergingStateBacklog}, so Envoy gets
@@ -59,10 +57,9 @@ class ChangesDuringAPushAreMergedTest {
 
     private final EnvoyContainer envoy = new EnvoyContainer("envoyproxy/envoy:v1.40-latest")
         .withClasspathResourceMapping("envoy-delta.yaml", "/envoy.yaml", BindMode.READ_ONLY)
-        .withCommand("-l", "debug", "-c", "/envoy.yaml")
+        .withCommand("-c", "/envoy.yaml")
         .withExposedPorts(EnvoyContainer.ADMIN_PORT, LISTENER_PORT)
-        .withAccessToHost(true)
-        .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(ChangesDuringAPushAreMergedTest.class)));
+        .withAccessToHost(true);
     private final SnapshotSource<String, String, String> source = new SnapshotSource<>(node -> "envoy");
     private final List<DiscoveryServiceManagerEventListener> streams = Collections.synchronizedList(new ArrayList<>());
     private final ConversationLogger conversations = new ConversationLogger();

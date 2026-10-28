@@ -37,6 +37,7 @@ All notable changes to this project will be documented in this file.
 * **Breaking:** removed `XdsConfig.silentNacks`. Every NACK now freezes the stream, and is logged at warn; use `onClientNack` to act on it.
 * Delta: an ACK that also changes subscriptions is no longer logged at info. Envoy does this by design, so it was noise
 * SotW: a request that only unsubscribes, such as Envoy dropping a removed cluster's endpoints, is no longer answered with the whole remaining set. Envoy doesn't wait for an answer, so each one only cost a response, and held up changes until Envoy ACKed it
+* `XdsConformanceTest` runs Envoy at its default log level, info, instead of debug, and no longer relays every line of Envoy's log to SLF4J: debug was about nine times the log, and nothing checks it. Warnings and errors still fail a test, and a failed test prints Envoy's whole log to stderr, which the test report keeps
 
 ### Fixed
 * Conformance: a scenario waits for Envoy's listeners to warm before its first request. With Envoy's xDS requests rate limited, a listener's last subscription could still be queued in Envoy when the suite thought it had synced, so the first request was reset
