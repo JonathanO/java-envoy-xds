@@ -16,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -71,6 +72,24 @@ public class CommonDiscoveryStreamObserverTest {
         observer.onNext(DiscoveryRequest.newBuilder().setNode(Node.newBuilder().setId("envoy")).setTypeUrl(TypeUrl.CDS.getTypeUrl()).build());
 
         verify(source).subscribe(observer, DETAILS);
+    }
+
+    @Test
+    public void failedPushClosesTheStreamWithoutRethrowing(@Mock StreamObserver<DiscoveryResponse> responseObserver,
+                                                           @Mock ClusterEventSource<DummyUpdate> source,
+                                                           @Mock DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory,
+                                                           @Mock DiscoveryServiceManager<DiscoveryRequest, DummyUpdate> dsm) {
+        when(factory.build(any(StreamObserver.class), any(XdsConfig.class), any(DiscoveryServiceManagerMetrics.class))).thenReturn(dsm);
+        CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer = observer(responseObserver, source, factory);
+        observer.onNext(DiscoveryRequest.newBuilder().setNode(Node.newBuilder().setId("envoy")).setTypeUrl(TypeUrl.CDS.getTypeUrl()).build());
+        IllegalStateException failure = new IllegalStateException("config builder failed");
+        doThrow(failure).when(dsm).pushUpdates(any());
+
+        // Logged here, so a rethrow would only get it logged again by the source.
+        observer.onNetworkChange(new DummyUpdate());
+
+        verify(responseObserver).onError(failure);
+        verify(source).unsubscribe(observer);
     }
 
     private static CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer(
