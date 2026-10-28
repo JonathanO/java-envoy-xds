@@ -8,15 +8,8 @@ ext.projectArtifactName = "envoy-xds-core"
 apply from: "${rootDir}/build.common.gradle"
 apply from: "${rootDir}/publishing.gradle"
 
-apply plugin: 'info.solidsoft.pitest'
-
 pitest {
-    pitestVersion = "1.30.1"
-    targetClasses = ['net.woaf.jono.envoy.xds*']
-    outputFormats = ['XML', 'HTML']
-
-    timestampedReports = false
-    verbose = true
+    mutationThreshold = 74 // 342 of 457 killed. Raise it as survivors are killed; the aim is 100
 }
 
 dependencies {
@@ -28,7 +21,6 @@ dependencies {
     implementation 'io.grpc:grpc-api:1.85.1'
     implementation 'org.slf4j:slf4j-api:2.0.20'
     compileOnly 'net.woaf.jono.envoy:envoy-api:1.36.0' // Users are expected to provide a compatible envoy api
-    pitest 'org.pitest:pitest-junit5-plugin:1.2.3'
     testImplementation 'net.woaf.jono.envoy:envoy-api:1.36.0'
     testImplementation 'com.github.spotbugs:spotbugs-annotations:4.10.5'
     testImplementation 'dev.hegel:hegel:0.10.3'
