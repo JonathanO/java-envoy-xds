@@ -104,7 +104,10 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
 
     private long startedNanos;
 
-    private boolean warnedRemovalTimeout = false;
+    /**
+     * Stale removals waited too long for an ACK once, so they've waited too long from now on. See mayRemove().
+     */
+    private boolean gaveUpWaitingToRemove = false;
 
     /**
      * Checks that conditions hold, assuming init() was already called.
@@ -112,7 +115,6 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     private void assertPostInitState() {
         Preconditions.checkState(!closed, "DiscoveryServiceManager is closed.");
         Preconditions.checkState(initialized, "DiscoveryServiceManager must be initialized before services can be initialized");
-        Preconditions.checkState((waitingOn == null) == (currentChange == null), "Waiting on an outstanding change, and on a service to ack, can't happen without each other.");
     }
 
     /**
@@ -210,21 +212,22 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      * remove order that we serve and this client gets has been answered and ACKed, or we've waited long enough.
      */
     private boolean mayRemove(TypeUrl typeUrl) {
+        if (gaveUpWaitingToRemove) {
+            return true;
+        }
         for (DiscoveryService<RequestT, StateUpdT> earlier : postOrder) {
             if (earlier.getTypeUrl() == typeUrl) {
-                return true;
+                break;
             }
             boolean used = earlier.isServed() && (subscribesTo == null || subscribesTo.contains(earlier.getTypeUrl()));
             if (used && (!earlier.hasAnswered() || earlier.awaitingAck())) {
                 if (!waitedTooLong()) {
                     return false;
                 }
-                if (!warnedRemovalTimeout) {
-                    warnedRemovalTimeout = true;
-                    log.warn("No answer to or ACK of {} after {}s, so removing stale {} anyway: does this client subscribe to it? See"
-                        + " subscribesTo in its XdsConfig", earlier.getTypeUrl(), TimeUnit.NANOSECONDS.toSeconds(WAIT_FOR_ACK_TIMEOUT_NANOS), typeUrl);
-                }
-                return true;
+                gaveUpWaitingToRemove = true;
+                log.warn("No answer to or ACK of {} after {}s, so removing stale {} anyway: does this client subscribe to it? See"
+                    + " subscribesTo in its XdsConfig", earlier.getTypeUrl(), TimeUnit.NANOSECONDS.toSeconds(WAIT_FOR_ACK_TIMEOUT_NANOS), typeUrl);
+                break;
             }
         }
         return true;
@@ -273,10 +276,6 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
         }
     }
 
-    boolean isFrozen() {
-        return frozen;
-    }
-
     private boolean isPushAllowed() {
         if (delayUpdatesUntilAckOf != null && waitedTooLong()) {
             log.warn("No ACK of {} after {}s, so sending updates anyway: does this client subscribe to it? See delayUpdatesUntilAckOf and"
@@ -294,31 +293,19 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
         if (!outstandingAcks.isEmpty()) {
             return;
         }
-        if (pushDeferredReconnectRemovalsIfAny()) {
-            return;
-        }
+        pushDeferredReconnectRemovalsIfAny(); // the ACK one waits for holds the change too: see isPushAllowed()
         if (isPushAllowed()) {
             pushWaitingChangeIfAny();
         }
     }
 
-    private void beginPush() {
-        Preconditions.checkState(currentChange != null, "beginPush() can only be called with a change lined up to be applied.");
-        Preconditions.checkState(sendMode == DiscoveryService.SubState.COMPLETED, "beginPush() should be started from COMPLETED state");
-
+    private void beginPush(StateUpdT change) {
         metrics.onPushBegin();
 
         sendMode = DiscoveryService.SubState.PRE;
         current = preOrder.iterator();
-        discoveryServices.forEach((t, s) -> s.onNetworkUpdate(currentChange));
-        DiscoveryService<RequestT, StateUpdT> service = nextOrNull();
-        waitingOn = service;
-        if (service != null) {
-            service.sendNetworkUpdatePre();
-        }
-        // Continue pushing changes as sendNetworkUpdatePre() could be a NOOP, so there
-        // wouldn't be an ack to trigger further pushes.
-        continuePush();
+        discoveryServices.forEach((t, s) -> s.onNetworkUpdate(change));
+        continuePush(); // sends from the first service, as waitingOn is null
     }
 
     private void enqueueChange(StateUpdT diff) {
@@ -356,8 +343,6 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      * Complete the current push, can only be called if there is a current change in progress.
      */
     private void finishPush() {
-        Preconditions.checkState(currentChange != null, "Cannot finish a push when there isn't one in progress");
-        Preconditions.checkState(waitingOn == null, "Cannot finish a push when waiting on an ack for a previous pushed message");
         sendMode = DiscoveryService.SubState.COMPLETED;
         // Record time since we were first told about this change.
         metrics.onPushComplete();
@@ -373,30 +358,26 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      * Can only be called if there is no current change in progress.
      */
     private void pushWaitingChangeIfAny() {
-        Preconditions.checkState(currentChange == null, "Should not start pushing waiting change if we already have a current change to push.");
         currentChange = waitingStateBacklog.take();
         if (currentChange != null) {
-            beginPush();
+            beginPush(currentChange);
         }
     }
 
-    private boolean pushDeferredReconnectRemovalsIfAny() {
-        Preconditions.checkState(currentChange == null, "Should not send deferred reconnect removals if we already have a current change to push.");
+    private void pushDeferredReconnectRemovalsIfAny() {
         for (DiscoveryService<RequestT, StateUpdT> discoveryService: postOrder) {
             if (discoveryService.hasDeferredReconnectRemovals()) {
                 if (!mayRemove(discoveryService.getTypeUrl())) {
-                    return false; // and not a later type's: removals go in remove order
+                    return; // and not a later type's: removals go in remove order
                 }
                 discoveryService.sendDeferredReconnectRemovals();
                 if (discoveryService.awaitingAck()) {
-                    if (outstandingAcks.add(discoveryService)) {
-                        metrics.onAwaitingAck();
-                    }
-                    return true;
+                    outstandingAcks.add(discoveryService); // was empty: see pushAllowedWorkIfAny()
+                    metrics.onAwaitingAck();
+                    return;
                 }
             }
         }
-        return false;
     }
 
     /**
@@ -404,10 +385,7 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      * This can only be called if there is a change in progress.
      */
     private void continuePush() {
-        assertPostInitState();
-        Preconditions.checkState(currentChange != null, "Cannot continue pushing a change if we have not begun to push one.");
-
-        if (waitingOn == null || waitingOn.awaitingAck()) {
+        if (waitingOn != null && waitingOn.awaitingAck()) {
             return;
         }
         DiscoveryService<RequestT, StateUpdT> nextService = nextOrNull();

@@ -9,7 +9,7 @@ apply from: "${rootDir}/build.common.gradle"
 apply from: "${rootDir}/publishing.gradle"
 
 pitest {
-    mutationThreshold = 92 // 142 of 154 killed. Raise it as survivors are killed; the aim is 100
+    mutationThreshold = 100 // every mutant killed
 }
 
 apply plugin: 'org.pastalab.fray.gradle'

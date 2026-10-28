@@ -17,7 +17,7 @@ public class WildcardSubManagerSpec {
 
         Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of(), ImmutableSet.of()).orElseThrow();
 
-        assertThat(wouldSendUpdates).accepts("foo", "bar");
+        assertThat(wouldSendUpdates).accepts("foo", "bar").rejects("*"); // The wildcard itself is not a real resource name
         assertThat(subManager.isSubscribedTo("foo")).isTrue();
         assertThat(subManager.isSubscribedTo("bar")).isTrue();
     }
@@ -32,6 +32,16 @@ public class WildcardSubManagerSpec {
         assertThat(subManager.isSubscribedTo("foo")).isTrue();
         assertThat(subManager.isSubscribedTo("bar")).isTrue();
         assertThat(subManager.isSubscribedTo("*")).isFalse();
+    }
+
+    @Test
+    public void namesAlreadySubscribedToAreNotNewWhenWildcardIsAdded() {
+        WildcardSubManager subManager = new WildcardSubManager();
+        subManager.processResourceListChange(ImmutableSet.of("foo"), ImmutableSet.of());
+
+        Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of("*", "bar"), ImmutableSet.of()).orElseThrow();
+
+        assertThat(wouldSendUpdates).accepts("bar", "baz").rejects("foo", "*");
     }
 
     @Test

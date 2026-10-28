@@ -72,4 +72,19 @@ public class MergingStateBacklogTest {
         assertThat(merger.take()).isNull();
     }
 
+    private record PlainMergeable(String name) implements Mergeable<PlainMergeable> {
+        @Override
+        public PlainMergeable merge(PlainMergeable update) {
+            return new PlainMergeable(name + update.name());
+        }
+    }
+
+    @Test
+    public void updatesMergeWithLaterOnesUnlessTheySayOtherwise() {
+        MergingStateBacklog<PlainMergeable> merger = MergingStateBacklog.<PlainMergeable>factory().build();
+        merger.put(new PlainMergeable("a"));
+        merger.put(new PlainMergeable("b"));
+        assertThat(merger.take()).isEqualTo(new PlainMergeable("ab"));
+    }
+
 }

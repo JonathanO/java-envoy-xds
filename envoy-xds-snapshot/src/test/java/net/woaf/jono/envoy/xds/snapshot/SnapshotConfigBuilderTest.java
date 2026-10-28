@@ -18,6 +18,7 @@ import java.util.Objects;
 import java.util.ArrayList;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import net.woaf.jono.envoy.xds.api.ClusterManagerEventListener;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder.NamedMessage;
 import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder.Response;
 import org.junit.jupiter.api.Test;
@@ -126,6 +127,92 @@ public class SnapshotConfigBuilderTest {
         views.update(c -> c.group("shared", e -> e.put(cluster("bar"))));
 
         assertThat(woken).containsExactly("a", "b", "a");
+    }
+
+    @Test
+    public void viewLeavingASharedGroupLeavesTheOthersInIt() {
+        SnapshotSource<String, String, String> views = viewPerClient();
+        views.update(c -> c.view("a", "shared").view("b", "shared"));
+        views.update(c -> c.view("a", "own"));
+
+        assertThat(views.update(c -> c.group("shared", e -> e.put(cluster("foo"))))).containsOnlyKeys("b");
+    }
+
+    @Test
+    public void replacingAGroupWhereNeitherHasAnyNamesWakesNobody() {
+        SnapshotSource<String, String, String> views = viewPerClient();
+        views.update(c -> c.view("c", "g"));
+        // Has a type, but nothing of it.
+        Snapshot emptied = Snapshot.empty().edit().put(cluster("foo")).remove(Cluster.class, "foo").build();
+
+        assertThat(views.update(c -> c.group("g", emptied))).isEmpty();
+    }
+
+    @Test
+    public void editingAGroupTwiceInAChangeEditsOnTopOfTheFirst() {
+        SnapshotSource<String, String, String> views = viewPerClient();
+
+        views.update(c -> c.group("g", e -> e.put(cluster("a"))).group("g", e -> e.put(cluster("b"))));
+
+        assertThat(views.group("g").get(Cluster.class)).containsOnlyKeys("a", "b");
+    }
+
+    @Test
+    public void viewsAreAsLastPublished() {
+        SnapshotSource<String, String, String> views = viewPerClient();
+        views.update(c -> c.view("a", "g", "h").view("b", "g"));
+        assertThat(views.view("a")).containsExactly("g", "h");
+
+        views.update(c -> c.removeView("a").removeGroup("g").group("h", Snapshot.empty()).view("b", "h"));
+
+        assertThat(views.view("a")).isEmpty();
+        assertThat(views.view("b")).containsExactly("h");
+    }
+
+    @Test
+    public void eachUpdateFollowsOnFromWhatTheClientHas() {
+        SnapshotSource<String, String, String> views = new SnapshotSource<>(Function.identity(), Runnable::run);
+        views.update(c -> c.view("c", "g"));
+        List<SnapshotUpdate<String>> got = new ArrayList<>();
+        final SnapshotUpdate<String> connected = views.subscribe(got::add, "c");
+
+        views.update(c -> c.group("g", e -> e.put(cluster("a"))));
+        views.update(c -> c.group("g", e -> e.put(cluster("b"))));
+
+        assertThat(got).hasSize(2);
+        assertThat(got.get(0).previous()).isSameAs(connected.current());
+        assertThat(got.get(1).previous()).isSameAs(got.get(0).current());
+        assertThat(got.get(1).current().group("g")).isSameAs(views.group("g"));
+        assertThat(got.get(1).current().group("missing")).isSameAs(Snapshot.empty());
+    }
+
+    @Test
+    public void unsubscribingClosesTheListenerAndStopsItsUpdates() {
+        SnapshotSource<String, String, String> views = new SnapshotSource<>(Function.identity(), Runnable::run);
+        views.update(c -> c.view("c", "g"));
+        List<String> events = new ArrayList<>();
+        ClusterManagerEventListener<SnapshotUpdate<String>> listener = new ClusterManagerEventListener<>() {
+            @Override
+            public void onNetworkChange(SnapshotUpdate<String> update) {
+                events.add("update");
+            }
+
+            @Override
+            public void close() {
+                events.add("closed");
+            }
+        };
+        views.unsubscribe(listener); // never subscribed, so nothing to do
+        assertThat(views.subscribe(listener, "c")).isNotNull();
+        List<SnapshotUpdate<String>> other = new ArrayList<>();
+        assertThat(views.subscribe(other::add, "c")).isNotNull();
+
+        views.update(c -> c.group("g", e -> e.put(cluster("a"))));
+        views.unsubscribe(listener);
+        views.update(c -> c.group("g", e -> e.put(cluster("b"))));
+
+        assertThat(events).containsExactly("update", "closed");
+        assertThat(other).as("another client of the view still gets them").hasSize(2);
     }
 
     @Test

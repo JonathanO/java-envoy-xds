@@ -159,7 +159,10 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
             if (old.equals(next)) {
                 return;
             }
-            old.forEach(group -> viewsByGroup.computeIfPresent(group, (g, in) -> in.remove(name) && in.isEmpty() ? null : in));
+            old.forEach(group -> viewsByGroup.computeIfPresent(group, (g, in) -> {
+                in.remove(name);
+                return in.isEmpty() ? null : in;
+            }));
             next.forEach(group -> viewsByGroup.computeIfAbsent(group, g -> new HashSet<>()).add(name));
             if (list == null) {
                 views.remove(name);
