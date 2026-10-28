@@ -31,7 +31,7 @@ class SubListSubManager implements SubManager {
         log.debug("Subscribed to {}", resourceNames);
         Set<String> newSubs = Sets.difference(next, subs).immutableCopy();
         subs = next;
-        return Optional.of(newSubs::contains);
+        return Optional.of(newSubs.isEmpty() ? NOTHING_ADDED : newSubs::contains);
     }
 
     @Override
