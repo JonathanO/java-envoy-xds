@@ -136,12 +136,6 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
     }
 
     @Override
-    public void onNetworkUpdate(StateUpdT changes) {
-        super.onNetworkUpdate(changes);
-        answeredDuringChange.clear();
-    }
-
-    @Override
     public boolean hasDeferredReconnectRemovals() {
         return !deferredReconnectRemovals.isEmpty();
     }

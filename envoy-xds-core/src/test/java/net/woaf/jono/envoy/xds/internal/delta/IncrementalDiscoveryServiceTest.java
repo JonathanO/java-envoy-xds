@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.google.protobuf.UInt32Value;
 import com.google.protobuf.Message;
 import net.woaf.jono.envoy.xds.internal.CommonDiscoveryRequest;
 import net.woaf.jono.envoy.xds.internal.DiscoveryService;
@@ -133,6 +134,41 @@ public class IncrementalDiscoveryServiceTest {
         ds.sendNetworkUpdatePost();
 
         assertThat(nextResponse(inOrder).getResourcesList()).extracting(Resource::getName).as("b already went").containsExactly("a");
+        assertNoAdditionalResponsesSent(3);
+    }
+
+    @Test
+    public void whatAChangeSkippedIsSentByALaterChange(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        final DummyUpdate next = new DummyUpdate();
+        final DummyUpdate moved = new DummyUpdate();
+        final DummyUpdate back = new DummyUpdate();
+        NamedMessage<ClusterLoadAssignment> movedB = NamedMessage.of(ClusterLoadAssignment.newBuilder().setClusterName("b")
+            .setPolicy(ClusterLoadAssignment.Policy.newBuilder().setOverprovisioningFactor(UInt32Value.of(200))).build());
+        when(configBuilder.getResourcesAddOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(endpoints("b"))));
+        when(configBuilder.addOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<>(List.of(endpoints("b")), List.of()));
+        when(configBuilder.addOrder(eq(moved), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<>(List.of(movedB), List.of()));
+        when(configBuilder.addOrder(eq(back), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<>(List.of(endpoints("b")), List.of()));
+        when(configBuilder.removeOrder(any(), any(), any())).thenReturn(IncrementalConfigBuilder.Response.<ClusterLoadAssignment>empty());
+        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+        InOrder inOrder = inOrder(responseObserver);
+
+        // b is answered mid-change, so that change skips it.
+        ds.onNetworkUpdate(next);
+        ds.processUpdate(subscribeRequest(TypeUrl.EDS, "b"));
+        ds.processUpdate(ackRequest(TypeUrl.EDS, nextResponse(inOrder).getNonce()));
+        ds.sendNetworkUpdatePre();
+        ds.sendNetworkUpdatePost();
+
+        // Later changes move b, then move it back: the change back is news to Envoy.
+        for (DummyUpdate change : List.of(moved, back)) {
+            ds.onNetworkUpdate(change);
+            ds.sendNetworkUpdatePre();
+            ds.sendNetworkUpdatePost();
+            DeltaDiscoveryResponse resp = nextResponse(inOrder);
+            ds.processUpdate(ackRequest(TypeUrl.EDS, resp.getNonce()));
+            assertThat(resp.getResourcesList()).extracting(Resource::getName).containsExactly("b");
+        }
         assertNoAdditionalResponsesSent(3);
     }
 
