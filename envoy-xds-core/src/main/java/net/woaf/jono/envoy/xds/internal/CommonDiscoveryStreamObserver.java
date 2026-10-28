@@ -239,7 +239,11 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
         if (!(t instanceof StatusRuntimeException r) || !Status.Code.CANCELLED.equals(r.getStatus().getCode())) {
             log.warn("Error streaming to an ADS client", t);
         }
+        closeWithError(t);
+    }
 
+    @GuardedBy("this")
+    private void closeWithError(Throwable t) {
         try (RunWithExceptions runner = new RunWithExceptions("handling stream error")) {
             cleanupOnDisconnect(runner);
             runner.exec(() -> responseObserver.onError(t));
@@ -270,8 +274,14 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             // Set before we subscribe, and only cleared once dead.
             Preconditions.checkNotNull(discoveryServiceManager).pushUpdates(diff);
         } catch (Throwable t) {
-            this.onError(t);
-            throw t;
+            // Logged and handled here, so the source (e.g. SerialEventListener) doesn't log it again.
+            log.error("Failed to push an update to {}, so closing its stream", nodeId, t);
+            if (!isDead) {
+                closeWithError(t);
+            }
+            if (t instanceof Error e) {
+                throw e;
+            }
         }
     }
 }
