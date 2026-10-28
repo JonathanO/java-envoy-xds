@@ -38,6 +38,7 @@ All notable changes to this project will be documented in this file.
 * SotW: a request that only unsubscribes, such as Envoy dropping a removed cluster's endpoints, is no longer answered with the whole remaining set. Envoy doesn't wait for an answer, so each one only cost a response, and held up changes until Envoy ACKed it
 
 ### Fixed
+* Conformance: a scenario waits for Envoy's listeners to warm before its first request. With Envoy's xDS requests rate limited, a listener's last subscription could still be queued in Envoy when the suite thought it had synced, so the first request was reset
 * SotW `nothingSentUnasked` checks secrets (SDS) and runtime layers (RTDS) too, instead of failing because it didn't know how to read their names
 * `Settled` matches Envoy's answers to responses by type as well as nonce, so a library that numbers nonces per type doesn't look settled while one type is still unanswered
 * Delta: a resource sent to answer a subscription while a change waits its turn, such as the endpoints of a cluster the change adds, isn't sent again when the change gets to its type. That saved message is an ACK round trip less per added cluster or listener
