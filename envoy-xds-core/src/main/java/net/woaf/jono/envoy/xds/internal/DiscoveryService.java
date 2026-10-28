@@ -77,16 +77,12 @@ public interface DiscoveryService<RequestT extends Message, StateUpdT> {
     /**
      * Whether we have config for this type, rather than standing in for a type nobody configured.
      */
-    default boolean isServed() {
-        return true;
-    }
+    boolean isServed();
 
     /**
      * Whether this service has sent Envoy anything on this stream.
      */
-    default boolean hasAnswered() {
-        return false;
-    }
+    boolean hasAnswered();
 
     /**
      * Returns true if this service has removals discovered from a reconnecting delta client's

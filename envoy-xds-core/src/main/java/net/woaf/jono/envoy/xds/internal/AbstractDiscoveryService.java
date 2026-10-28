@@ -50,7 +50,6 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
 
     @Override
     public void processUpdate(CommonDiscoveryRequest<T> value) {
-        Preconditions.checkState(currentState != null, "Discovery must be initialized");
         TypeUrl typeUrl = TypeUrl.of(value.typeUrl());
         if (!myTypeUrl.equals(typeUrl)) {
             throw new IllegalArgumentException(myTypeUrl.name() + " discovery service got called for request of type " + value.typeUrl());
@@ -118,13 +117,11 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
 
     @Override
     public void init(StateUpdT state) {
-        Preconditions.checkState(currentState == null, "Discovery service already initialized");
         currentState = state;
     }
 
     @Override
     public void onNetworkUpdate(StateUpdT changes) {
-        Preconditions.checkState(currentState != null, "Discovery must be initialized");
         if (changes.equals(currentState)) {
             return;
         }
@@ -165,7 +162,6 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
 
     @Override
     public void sendNetworkUpdatePre() {
-        Preconditions.checkState(currentState != null, "Discovery must be initialized");
         applyPre().ifPresent(this::pushNewState);
     }
 
@@ -191,7 +187,6 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
 
     @Override
     public void sendNetworkUpdatePost() {
-        Preconditions.checkState(currentState != null, "Discovery must be initialized");
         applyPost().ifPresent(this::pushNewState);
     }
 

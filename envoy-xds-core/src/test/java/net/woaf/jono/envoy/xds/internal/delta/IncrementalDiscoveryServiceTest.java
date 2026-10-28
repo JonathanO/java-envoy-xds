@@ -10,11 +10,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.google.common.collect.ImmutableList;
 import com.google.protobuf.UInt32Value;
 import com.google.protobuf.Message;
+import net.woaf.jono.envoy.xds.internal.AbstractDiscoveryService;
 import net.woaf.jono.envoy.xds.internal.CommonDiscoveryRequest;
 import net.woaf.jono.envoy.xds.internal.DiscoveryService;
 import net.woaf.jono.envoy.xds.internal.DiscoveryServiceManager;
+import net.woaf.jono.envoy.xds.internal.LoggedWarnings;
 import net.woaf.jono.envoy.xds.internal.NoOpConfigBuilder;
 import net.woaf.jono.envoy.xds.TypeUrl;
 import net.woaf.jono.envoy.xds.XdsConfig;
@@ -663,6 +666,111 @@ public class IncrementalDiscoveryServiceTest {
         assertThat(resp.getResourcesList()).hasSize(1).first().extracting(Resource::getName).isEqualTo("endpoint-current");
         assertThat(resp.getRemovedResourcesList()).isEmpty();
         assertThat(ds.hasDeferredReconnectRemovals()).isFalse();
+    }
+
+    @Test
+    public void removalsInAChangeGoInTheRemoveRound(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        final DummyUpdate next = new DummyUpdate();
+        serves(configBuilder, endpoints("a"));
+        when(configBuilder.addOrder(eq(next), any(), any())).thenReturn(IncrementalConfigBuilder.Response.<ClusterLoadAssignment>empty());
+        when(configBuilder.removeOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<ClusterLoadAssignment>(List.of(), List.of("a")));
+        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+        InOrder inOrder = inOrder(responseObserver);
+        ds.processUpdate(subscribeRequest(TypeUrl.EDS, "a"));
+        ds.processUpdate(ackRequest(TypeUrl.EDS, nextResponse(inOrder).getNonce()));
+
+        ds.onNetworkUpdate(next);
+        ds.sendNetworkUpdatePre();
+        assertNoAdditionalResponsesSent(1);
+        ds.sendNetworkUpdatePost();
+
+        assertThat(nextResponse(inOrder).getRemovedResourcesList()).containsExactly("a");
+    }
+
+    @Test
+    public void eachResponseHasAHigherVersionThanTheLast(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        serves(configBuilder, endpoints("a"));
+        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+        InOrder inOrder = inOrder(responseObserver);
+
+        ds.processUpdate(subscribeRequest(TypeUrl.EDS, "a"));
+        DeltaDiscoveryResponse first = nextResponse(inOrder);
+        ds.processUpdate(ackRequest(TypeUrl.EDS, first.getNonce()));
+        ds.processUpdate(subscribeRequest(TypeUrl.EDS, "b"));
+        DeltaDiscoveryResponse second = nextResponse(inOrder);
+
+        // So the newest is the highest, e.g. in Envoy's config dump.
+        assertThat(first.getResources(0).getVersion()).isEqualTo(first.getSystemVersionInfo());
+        assertThat(Long.parseLong(second.getSystemVersionInfo())).isGreaterThan(Long.parseLong(first.getSystemVersionInfo()));
+    }
+
+    @Test
+    public void builderAnsweringWithResourcesNobodyAskedForIsWarnedAbout(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        serves(configBuilder, endpoints("a"), endpoints("b"));
+        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+
+        try (LoggedWarnings warnings = new LoggedWarnings(AbstractDiscoveryService.class)) {
+            ds.processUpdate(subscribeRequest(TypeUrl.EDS, "a"));
+
+            assertThat(warnings.messages()).containsExactly("Config builder for " + TypeUrl.EDS.getTypeUrl() + " returned unasked for resources!");
+        }
+    }
+
+    @Test
+    public void builderChangingWhatNobodyAskedForIsWarnedAboutInEachRound(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        final DummyUpdate next = new DummyUpdate();
+        serves(configBuilder, endpoints("a"));
+        when(configBuilder.addOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<>(List.of(endpoints("a"), endpoints("x")), List.of()));
+        when(configBuilder.removeOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<ClusterLoadAssignment>(List.of(), List.of("y")));
+        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+        ds.processUpdate(subscribeRequest(TypeUrl.EDS, "a"));
+        String unasked = "Config builder for " + TypeUrl.EDS.getTypeUrl() + " returned unasked for messages!";
+
+        try (LoggedWarnings warnings = new LoggedWarnings(AbstractDiscoveryService.class)) {
+            ds.onNetworkUpdate(next);
+            ds.sendNetworkUpdatePre();
+            assertThat(warnings.messages()).as("adding x").containsExactly(unasked);
+            ds.sendNetworkUpdatePost();
+            assertThat(warnings.messages()).as("and removing y").containsExactly(unasked, unasked);
+        }
+    }
+
+    @Test
+    public void builderGivingOnlyWhatWasAskedForIsNotWarnedAbout(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        final DummyUpdate next = new DummyUpdate();
+        serves(configBuilder, endpoints("a"));
+        IncrementalConfigBuilder.Response<ClusterLoadAssignment> asked = new IncrementalConfigBuilder.Response<>(List.of(endpoints("a")), List.of("b"));
+        when(configBuilder.addOrder(eq(next), any(), any())).thenReturn(asked);
+        when(configBuilder.removeOrder(eq(next), any(), any())).thenReturn(asked);
+        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+
+        try (LoggedWarnings warnings = new LoggedWarnings(AbstractDiscoveryService.class)) {
+            ds.processUpdate(subscribeRequest(TypeUrl.EDS, "a", "b"));
+            ds.onNetworkUpdate(next);
+            ds.sendNetworkUpdatePre();
+            ds.sendNetworkUpdatePost();
+
+            assertThat(warnings.messages()).isEmpty();
+        }
+    }
+
+    @Test
+    public void theFactoryGivesWildcardTypesWildcardSubscriptions(@Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
+        when(configBuilder.handlesType()).thenReturn(Cluster.class);
+        serves(configBuilder, cluster("foo"));
+        DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = new IncrementalDiscoveryServiceFactory<DummyUpdate, Object>(ImmutableList.of(configBuilder))
+            .createDiscoveryService(responseObserver, xdsConfig, TypeUrl.CDS);
+        ds.init(initState);
+
+        // Asking for nothing subscribes to everything, for a wildcard type.
+        ds.processUpdate(subscribeRequest(TypeUrl.CDS));
+
+        assertThat(onlyResponse().getResourcesList()).extracting(Resource::getName).containsExactly("foo");
     }
 
     /** A service over responseObserver, with the sub manager the factory would give this type. */
