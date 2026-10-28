@@ -90,6 +90,15 @@ public class SotwDiscoveryServiceTest {
     }
 
     @Test
+    public void reconnectingFindsNothingStaleToRemove(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        DiscoveryService<DiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+
+        // Unlike delta's initial resource versions, nothing in a SotW request says what the client already has.
+        assertThat(ds.hasDeferredReconnectRemovals()).isFalse();
+    }
+
+    @Test
     public void unsubscribingIsNotAnsweredAndDropsTheNameFromLaterAnswers(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
         serves(configBuilder, endpoints("a"), endpoints("b"), endpoints("c"));
         DiscoveryService<DiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
