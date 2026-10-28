@@ -1,6 +1,7 @@
 package net.woaf.jono.envoy.xds.api.utils;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Comparators;
 import com.google.rpc.Status;
 import io.envoyproxy.envoy.config.core.v3.Node;
 import java.time.Duration;
@@ -96,8 +97,7 @@ public class ResyncAfterNack<DetailsT> implements XdsEventListener<DetailsT> {
             if (last == null) {
                 return new Backoff(initialDelay, now);
             }
-            Duration doubled = last.delay().multipliedBy(2);
-            return new Backoff(doubled.compareTo(maxDelay) > 0 ? maxDelay : doubled, now);
+            return new Backoff(Comparators.min(last.delay().multipliedBy(2), maxDelay), now);
         }).delay();
     }
 }
