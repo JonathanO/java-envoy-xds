@@ -58,7 +58,7 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
     private static final List<String> TYPE_URLS = Stream.concat(Arrays.stream(TypeUrl.values()).map(TypeUrl::getTypeUrl),
         Stream.of("type.googleapis.com/envoy.config.core.v3.TypedExtensionConfig", "")).toList();
 
-    @HegelTest
+    @HegelTest(testCases = 1000)
     void streamsStayConsistent(TestCase tc) {
         Stateful.run(new Machine(tc.draw(booleans(), "delta")), tc);
     }

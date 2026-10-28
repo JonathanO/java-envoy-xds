@@ -72,12 +72,12 @@ public class MakeBeforeBreakPropertiesTest {
     private static final List<String> LISTENERS = List.of("l1", "l2");
     private static final List<List<String>> VIEWS = List.of(List.of("own", "shared"), List.of("shared", "own"), List.of("own"), List.of("shared"));
 
-    @HegelTest
+    @HegelTest(testCases = 1000)
     void deltaEnvoyOnlyServesFromConfigItHolds(TestCase tc) {
         Stateful.run(new Machine(true), tc);
     }
 
-    @HegelTest
+    @HegelTest(testCases = 1000)
     void sotwEnvoyOnlyServesFromConfigItHolds(TestCase tc) {
         Stateful.run(new Machine(false), tc);
     }
