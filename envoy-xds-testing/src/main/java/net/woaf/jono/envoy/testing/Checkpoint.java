@@ -94,6 +94,7 @@ public final class Checkpoint {
      * @param before the previous conversation with this Envoy
      */
     public void assertSaneAfterReconnect(Conversation before) {
+        // From 0, not the checkpoint: it's taken once the reconnect has synced, and those answers are what can break.
         EnvoyAssert.of(conversation).nothingSentUnasked().allWereAcked().sentNoEmptyResponses(message)
             .wasMakeBeforeBreak(0, before);
         assertEnvoyHealthy();
