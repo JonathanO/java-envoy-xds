@@ -826,8 +826,10 @@ public abstract class XdsConformanceTest {
             await().atMost(10, TimeUnit.SECONDS).untilAsserted(
                 () -> envoyAssert(conversation).hadConversationsWith(syncTypes).answeredEveryType());
             // A warming listener isn't listening yet, so a first request would be reset. Its last subscription, e.g. SRDS,
-            // can still be queued in Envoy when everything sent so far is ACKed and the control plane looks idle.
+            // can still be queued in Envoy when everything sent so far is ACKed and the control plane looks idle. And
+            // Envoy applies LDS after it's answered: until then no listener is warming, as none has been added.
             await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> assertThat(envoy.admin().stats())
+                .as("Envoy has applied LDS").hasEntrySatisfying("listener_manager.lds.update_success", n -> assertThat(n).isPositive())
                 .as("Envoy's listeners have warmed").containsEntry("listener_manager.total_listeners_warming", 0L));
             await().atMost(30, TimeUnit.SECONDS).until(settled(conversation));
             checkpoint = Checkpoint.take(envoy, conversation);
