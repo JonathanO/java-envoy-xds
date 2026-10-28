@@ -88,7 +88,7 @@ import org.testcontainers.images.builder.Transferable;
  * every scenario on each protocol in {@link #protocols()}, on each of {@link #envoyImages()}, with and without rate
  * limiting Envoy's requests. Record known deviations with {@link #knownDeviations()}.
  *
- * <p>Envoy connects to port 6566 on the host, so don't run these in parallel.
+ * <p>Each test's control plane listens on a free port, so tests can run in parallel.
  */
 public abstract class XdsConformanceTest {
 
@@ -253,12 +253,11 @@ public abstract class XdsConformanceTest {
 
 
 
-    private static final int ADS_PORT = 6566;
     private static final int LISTENER_PORT = 10000;
     private static final int DYNAMIC_LISTENER_PORT = 10001; // the listener addsAndRemovesListener adds
     private static final String ROUTES = "all_routes"; // Envoy's static listener asks for this
 
-    private static String bootstrap(Protocol protocol, boolean rateLimitedAds, boolean allClusters) {
+    private static String bootstrap(Protocol protocol, boolean rateLimitedAds, boolean allClusters, int adsPort) {
         String resource = "net/woaf/jono/envoy/testing/conformance/envoy-" + protocol.name().toLowerCase(Locale.ROOT) + ".yaml";
         String yaml;
         try (InputStream in = Objects.requireNonNull(XdsConformanceTest.class.getClassLoader().getResourceAsStream(resource), resource)) {
@@ -266,6 +265,8 @@ public abstract class XdsConformanceTest {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+        Preconditions.checkState(yaml.contains(EnvoyContainer.ADS_PORT_PLACEHOLDER), "%s has no ADS port placeholder", resource);
+        yaml = yaml.replace(EnvoyContainer.ADS_PORT_PLACEHOLDER, Integer.toString(adsPort));
         if (!allClusters) {
             String noCds = yaml.replace("  cds_config:\n    ads: { }\n    resource_api_version: V3\n", "");
             Preconditions.checkState(!noCds.equals(yaml), "couldn't remove cds_config from %s", resource);
@@ -487,12 +488,15 @@ public abstract class XdsConformanceTest {
         private ControlPlane controlPlane;
         private final Protocol protocol;
         private final boolean rateLimitedAds;
+        private final boolean allClusters;
         /** The types Envoy asks for as it starts. */
         private final String[] syncTypes;
         private final EnvoyContainer envoy;
         private final ConversationLogger conversations = new ConversationLogger();
         private @Nullable BindableService service;
         private @Nullable Server server;
+        /** The control plane's port, picked on the first start; 0 until then. */
+        private int adsPort;
         private @Nullable Checkpoint checkpoint;
 
         Harness(Supplier<ControlPlane> newControlPlane, String envoyImage, Protocol protocol, boolean rateLimitedAds, boolean allClusters) {
@@ -501,8 +505,8 @@ public abstract class XdsConformanceTest {
             this.controlPlane = newControlPlane.get();
             this.protocol = protocol;
             this.rateLimitedAds = rateLimitedAds;
+            this.allClusters = allClusters;
             this.envoy = new EnvoyContainer(envoyImage)
-                .withCopyToContainer(Transferable.of(bootstrap(protocol, rateLimitedAds, allClusters)), "/envoy.yaml")
                 .withCommand("-c", "/envoy.yaml")
                 .withExposedPorts(EnvoyContainer.ADMIN_PORT, LISTENER_PORT, DYNAMIC_LISTENER_PORT)
                 .withAccessToHost(true);
@@ -789,9 +793,14 @@ public abstract class XdsConformanceTest {
             if (service == null) {
                 service = controlPlane.service();
             }
-            server = ServerBuilder.forPort(ADS_PORT).addService(service).intercept(conversations).build();
+            server = ServerBuilder.forPort(adsPort).addService(service).intercept(conversations).build();
             server.start();
-            org.testcontainers.Testcontainers.exposeHostPorts(ADS_PORT);
+            if (adsPort == 0) {
+                // A free port, kept for restarts: Envoy's bootstrap names it.
+                adsPort = server.getPort();
+                org.testcontainers.Testcontainers.exposeHostPorts(adsPort);
+                envoy.withCopyToContainer(Transferable.of(bootstrap(protocol, rateLimitedAds, allClusters, adsPort)), "/envoy.yaml");
+            }
             if (!envoy.isRunning()) {
                 envoy.start();
             }
