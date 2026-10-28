@@ -44,14 +44,7 @@ public class ClusterLoadAssignmentConfigBuilder extends AbstractConfigBuilder<Cl
 
             if (!before.endpoints().containsAll(after.endpoints())) {
                 // Endpoints are being added, combine the two sets.
-                ImmutableSet<HostAndPort> combinedEndpoints = ImmutableSet.<HostAndPort>builder()
-                    .addAll(after.endpoints())
-                    .addAll(before.endpoints())
-                    .build();
-
-                Service combinedService = new Service(entry.getKey(), combinedEndpoints);
-
-                addAndUpdates.add(clusterLoadAssignmentForService(combinedService, clientDetails));
+                addAndUpdates.add(clusterLoadAssignmentForService(combined(before, after), clientDetails));
             }
         }
 
@@ -87,6 +80,26 @@ public class ClusterLoadAssignmentConfigBuilder extends AbstractConfigBuilder<Cl
         }
 
         return new Response<>(addAndUpdates, removes);
+    }
+
+    @Override
+    public Resources<ClusterLoadAssignment> getResourcesAddOrder(SimpleUpdate services, Predicate<String> resourceInSubListChange, ClientConfig clientDetails) {
+        // Mid-change, before remove order, Envoy must get what addOrder sent: a service's old endpoints alongside its new ones.
+        // Answering with only the new ones would drop the old ones early, e.g. when Envoy re-asks for a cluster's endpoints after its CDS update.
+        List<Service> preRemove = new ArrayList<>();
+        for (Service service : services.getServicesPreRemove()) {
+            Service before = services.before().get(service.name());
+            preRemove.add(before == null ? service : combined(before, service));
+        }
+        return getResources(preRemove, resourceInSubListChange, clientDetails);
+    }
+
+    /** A service with its endpoints both before and after a change. */
+    private static Service combined(Service before, Service after) {
+        return new Service(after.name(), ImmutableSet.<HostAndPort>builder()
+            .addAll(after.endpoints())
+            .addAll(before.endpoints())
+            .build());
     }
 
     private NamedMessage<ClusterLoadAssignment> clusterLoadAssignmentForService(Service service, ClientConfig unusedClientDetails) {

@@ -129,6 +129,19 @@ public class XdsExampleTest {
     }
 
     @Test
+    public void subscribingMidChangeToChangingEndpointsGetsWhatThatPhaseSends() {
+        clusterManager.addEndpoint("a", ip("10.0.0.1"));
+
+        SimpleUpdate update = change(() -> clusterManager.setEndpoints("a", ip("10.0.0.2")));
+
+        // E.g. Envoy re-asking for a's endpoints after the change's CDS: the old endpoint mustn't go before remove order.
+        assertThat(endpoints.getResourcesAddOrder(update, ALL, CLIENT).resources()).singleElement()
+            .satisfies(cla -> assertThat(addresses(cla)).containsExactlyInAnyOrder("10.0.0.1:80", "10.0.0.2:80"));
+        assertThat(endpoints.getResourcesRemoveOrder(update, ALL, CLIENT).resources()).singleElement()
+            .satisfies(cla -> assertThat(addresses(cla)).containsExactly("10.0.0.2:80"));
+    }
+
+    @Test
     public void sotwStreamGetsChangesMakeBeforeBreak() throws InterruptedException {
         clusterManager.addEndpoint("a", ip("10.0.0.1"));
         clusterManager.addEndpoint("b", ip("10.0.0.2"));
