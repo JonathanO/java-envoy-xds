@@ -27,4 +27,8 @@ test {
     if (project.hasProperty('envoyVersions')) {
         systemProperty 'envoyVersions', project.property('envoyVersions')
     }
+    // How many tests run at once, each with its own Envoy; the default is in junit-platform.properties.
+    if (project.hasProperty('testParallelism')) {
+        systemProperty 'junit.jupiter.execution.parallel.config.fixed.parallelism', project.property('testParallelism')
+    }
 }

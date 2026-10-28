@@ -69,8 +69,8 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
       - name: "Run e2e tests"
-        # Envoy uses a fixed port, so versions run in parallel jobs rather than one JVM. ChangesDuringAPushAreMergedTest
-        # pins Envoy 1.40, so only that job runs it.
+        # A job per version, each running four tests at a time (junit-platform.properties), to fit the runner's four
+        # vCPUs. ChangesDuringAPushAreMergedTest pins Envoy 1.40, so only that job runs it.
         run: >-
           ./gradlew :envoy-xds-e2e-tests:test -PenvoyVersions=${{ matrix.envoy }}
           ${{ matrix.envoy != '1.40' && '--tests net.woaf.jono.envoy.e2e.conformance.EnvoyXdsConformanceTest' || '' }}

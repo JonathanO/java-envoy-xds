@@ -293,5 +293,16 @@ unasked, there were no empty responses, and changes were make before break. It a
 logged no warnings. To record a known deviation, override `knownDeviations()`. Keys are parts of a test's path, so
 `Map.of("sotw/changesWhileDisconnected", "why")` skips that scenario on SotW, on every version and mode.
 
-Each test's control plane listens on a free port, so tests can run in parallel. `EnvoyXdsConformanceTest` in
-`envoy-xds-e2e-tests` runs the suite against envoy-xds, on every Envoy release upstream supports.
+Each test's control plane listens on a free port, so tests can run in parallel, each with its own Envoy. Turn on
+JUnit's parallel execution, e.g. in `src/test/resources/junit-platform.properties`:
+
+```properties
+junit.jupiter.execution.parallel.enabled=true
+junit.jupiter.execution.parallel.mode.default=concurrent
+junit.jupiter.execution.parallel.config.strategy=fixed
+junit.jupiter.execution.parallel.config.fixed.parallelism=4
+```
+
+`newControlPlane()` is then called concurrently, so the control planes it returns mustn't share state.
+`EnvoyXdsConformanceTest` in `envoy-xds-e2e-tests` runs the suite against envoy-xds, on every Envoy release upstream
+supports, this way.
