@@ -7,6 +7,11 @@ ext.projectArtifactName = "envoy-xds-snapshot"
 
 apply from: "${rootDir}/build.common.gradle"
 apply from: "${rootDir}/publishing.gradle"
+
+pitest {
+    mutationThreshold = 92 // 142 of 154 killed. Raise it as survivors are killed; the aim is 100
+}
+
 apply plugin: 'org.pastalab.fray.gradle'
 apply plugin: 'me.champeau.jmh'
 

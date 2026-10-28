@@ -87,10 +87,39 @@ jobs:
           name: reports-envoy-${{ matrix.envoy }}
           path: '**/build/reports/'
 
+  pitest:
+    name: "Mutation tests (${{ matrix.module }})"
+    runs-on:
+      - ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [envoy-xds-core, envoy-xds-snapshot]
+    steps:
+      - name: "Checkout repo"
+        uses: actions/checkout@v7
+      - name: "Setup Java"
+        uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: 25
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+      - name: "Run pitest"
+        run: ./gradlew :${{ matrix.module }}:pitest --console=plain
+      - name: "Upload pitest report"
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pitest-${{ matrix.module }} # open index.html for the surviving mutants
+          path: ${{ matrix.module }}/build/reports/pitest/
+
   # The required status check: passes only if every job above did, and reports all their tests.
   build-and-test:
     name: "Build & Test"
-    needs: [build, e2e]
+    needs: [build, e2e, pitest]
     if: always()
     runs-on:
       - ubuntu-latest

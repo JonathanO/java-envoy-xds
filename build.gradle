@@ -81,3 +81,23 @@ subprojects {
         }
     }
 }
+
+// ./gradlew pitest mutation tests the libraries, with each module's own tests. Every mutant must be killed; a method
+// that can't be is annotated @DoNotMutate, saying why.
+configure([project(':envoy-xds-core'), project(':envoy-xds-snapshot')]) {
+    apply plugin: 'info.solidsoft.pitest'
+
+    pluginManager.withPlugin('java') { // pitest's extension comes with the java plugin, from build.common.gradle
+        dependencies {
+            pitest 'org.pitest:pitest-junit5-plugin:1.2.3'
+        }
+
+        pitest {
+            pitestVersion = "1.30.1"
+            targetClasses = ['net.woaf.jono.envoy.xds*']
+            outputFormats = ['XML', 'HTML']
+            threads = Runtime.runtime.availableProcessors()
+            timestampedReports = false
+        }
+    }
+}
