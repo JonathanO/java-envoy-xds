@@ -11,6 +11,7 @@ import io.envoyproxy.envoy.config.route.v3.VirtualHost;
 import io.envoyproxy.envoy.config.core.v3.Node;
 import io.grpc.BindableService;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -45,11 +46,14 @@ class EnvoyXdsConformanceTest extends XdsConformanceTest {
         return new EnvoyXds();
     }
 
-    /** Every release upstream supports, not just the oldest and newest. */
+    /**
+     * Every release upstream supports, not just the oldest and newest. CI runs one per job, by building with
+     * {@code -PenvoyVersions=1.40}, a comma separated list.
+     */
     @Override
     protected List<String> envoyImages() {
-        return List.of("envoyproxy/envoy:v1.36-latest", "envoyproxy/envoy:v1.37-latest", "envoyproxy/envoy:v1.38-latest",
-            "envoyproxy/envoy:v1.39-latest", "envoyproxy/envoy:v1.40-latest");
+        String versions = System.getProperty("envoyVersions", "1.36,1.37,1.38,1.39,1.40");
+        return Arrays.stream(versions.split(",")).map(v -> "envoyproxy/envoy:v" + v.strip() + "-latest").toList();
     }
 
     @Override
