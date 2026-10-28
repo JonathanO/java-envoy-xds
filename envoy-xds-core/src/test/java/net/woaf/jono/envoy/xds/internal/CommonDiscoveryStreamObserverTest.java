@@ -134,6 +134,43 @@ public class CommonDiscoveryStreamObserverTest {
         verify(responseObserver).onError(firstFailure);
     }
 
+    @Test
+    public void listenersErrorWinsOverAnEarlierException(@Mock StreamObserver<DiscoveryResponse> responseObserver,
+                                                         @Mock ClusterEventSource<DummyUpdate> source,
+                                                         @Mock DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory,
+                                                         @Mock XdsEventListener<Object> first,
+                                                         @Mock XdsEventListener<Object> second,
+                                                         @Mock XdsEventListener<Object> third) {
+        RuntimeException firstFailure = new IllegalStateException("first listener failed");
+        Error secondFailure = new Error("second listener failed");
+        RuntimeException thirdFailure = new IllegalStateException("third listener failed");
+        doThrow(firstFailure).when(first).onNewClient(any(), any(), any());
+        doThrow(secondFailure).when(second).onNewClient(any(), any(), any());
+        doThrow(thirdFailure).when(third).onNewClient(any(), any(), any());
+        CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer =
+            observer(responseObserver, source, factory, ImmutableList.of(first, second, third));
+
+        assertThatThrownBy(() -> observer.onNext(DiscoveryRequest.newBuilder().setNode(Node.newBuilder().setId("envoy")).setTypeUrl(TypeUrl.CDS.getTypeUrl()).build()))
+            .isSameAs(secondFailure)
+            .satisfies(e -> assertThat(e.getSuppressed()).containsExactly(firstFailure, thirdFailure));
+    }
+
+    @Test
+    public void resyncFinishesClosingTheStreamWhenAStepFails(@Mock StreamObserver<DiscoveryResponse> responseObserver,
+                                                             @Mock ClusterEventSource<DummyUpdate> source,
+                                                             @Mock DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory,
+                                                             @Mock DiscoveryServiceManager<DiscoveryRequest, DummyUpdate> dsm) {
+        when(factory.build(any(StreamObserver.class), any(XdsConfig.class), any(DiscoveryServiceManagerMetrics.class))).thenReturn(dsm);
+        CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer = observer(responseObserver, source, factory);
+        observer.onNext(DiscoveryRequest.newBuilder().setNode(Node.newBuilder().setId("envoy")).setTypeUrl(TypeUrl.CDS.getTypeUrl()).build());
+        IllegalStateException failure = new IllegalStateException("unsubscribe failed");
+        doThrow(failure).when(source).unsubscribe(observer);
+
+        assertThatThrownBy(observer::resync).as("the step's own exception, as it was").isSameAs(failure);
+        verify(dsm).close();
+        verify(responseObserver).onCompleted();
+    }
+
     private static CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer(
         StreamObserver<DiscoveryResponse> responseObserver, ClusterEventSource<DummyUpdate> source,
         DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory) {
