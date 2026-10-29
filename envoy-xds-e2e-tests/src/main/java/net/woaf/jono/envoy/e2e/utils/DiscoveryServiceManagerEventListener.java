@@ -12,8 +12,10 @@ public class DiscoveryServiceManagerEventListener implements DiscoveryServiceMan
     private final AtomicLong pushed = new AtomicLong(0);
     private final AtomicLong messagesOutstanding = new AtomicLong(0);
 
-    // Between one push completing and the next beginning, both of the above read idle for an instant.
-    private static final long QUIET_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
+    // Between one push completing and the next beginning, both of the above read idle for an instant. A rate limited
+    // Envoy's next request, e.g. a subscription to what an ACKed change named, can also come a couple of hundred
+    // milliseconds after its ACK, so the quiet period is longer than that: as long as Settled's default.
+    private static final long QUIET_NANOS = TimeUnit.MILLISECONDS.toNanos(500);
     private final AtomicLong lastEventNanos = new AtomicLong(System.nanoTime());
 
     @Override
