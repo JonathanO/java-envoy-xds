@@ -6,7 +6,7 @@ pluginManagement {
 }
 
 plugins {
-    id("com.autonomousapps.build-health") version "3.19.2" // dependency analysis of every project: ./gradlew buildHealth
+    id("com.autonomousapps.build-health") version "3.20.0" // dependency analysis of every project: ./gradlew buildHealth
 }
 
 dependencyResolutionManagement {
