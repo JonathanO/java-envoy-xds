@@ -249,6 +249,25 @@ public class SotwConversationAssert extends EnvoyAssert<SotwConversationAssert> 
 
     @Override
     @CanIgnoreReturnValue
+    public SotwConversationAssert askedForEveryRouteConfigInUse() {
+        isNotNull();
+        AckedState state = new AckedState();
+        replay(state, actual.getMessages(), Integer.MAX_VALUE);
+        Set<String> asked = Set.of(); // by Envoy's last RDS request, which lists them all
+        for (Object message : actual.getMessages()) {
+            if (message instanceof DiscoveryRequest r && r.getTypeUrl().equals(XdsTypes.RDS)) {
+                asked = Set.copyOf(r.getResourceNamesList());
+            }
+        }
+        List<String> missing = state.routeConfigsNotAskedFor(asked);
+        if (!missing.isEmpty()) {
+            failWithMessage("Envoy hasn't asked for <%s>", missing);
+        }
+        return this;
+    }
+
+    @Override
+    @CanIgnoreReturnValue
     public SotwConversationAssert answeredEveryType() {
         isNotNull();
         Set<String> unanswered = new HashSet<>();

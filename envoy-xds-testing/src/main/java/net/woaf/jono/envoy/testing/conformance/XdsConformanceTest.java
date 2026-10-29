@@ -827,14 +827,15 @@ public abstract class XdsConformanceTest {
                 () -> envoyAssert(conversation).hadConversationsWith(syncTypes).answeredEveryType());
             // A warming listener isn't listening yet, so a first request would be reset. Its last subscription, e.g. SRDS,
             // can still be queued in Envoy when everything sent so far is ACKed and the control plane looks idle: rate
-            // limiting spaces Envoy's requests out, so wait for its queue to empty too. Look once settled, when Envoy has
-            // applied everything it was sent: before then, it may not have applied the listener yet, and none is warming.
+            // limiting spaces Envoy's requests out. So look once settled, when Envoy has applied everything it was sent:
+            // before then, it may not have applied the listener yet, and none is warming. Listeners Envoy started with
+            // aren't counted as warming, so wait for it to have asked for every listener's routes too.
             Callable<Boolean> settled = settled(conversation);
             await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> {
                 assertThat(settled.call()).as("settled").isTrue();
-                Map<String, Long> stats = envoy.admin().stats();
-                assertThat(stats.getOrDefault("control_plane.pending_requests", 0L)).as("requests queued in Envoy").isZero();
-                assertThat(stats).as("Envoy's listeners have warmed").containsEntry("listener_manager.total_listeners_warming", 0L);
+                envoyAssert(conversation).askedForEveryRouteConfigInUse();
+                assertThat(envoy.admin().stats())
+                    .as("Envoy's listeners have warmed").containsEntry("listener_manager.total_listeners_warming", 0L);
             });
             checkpoint = Checkpoint.take(envoy, conversation);
             return conversation;

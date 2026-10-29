@@ -48,6 +48,18 @@ final class AckedState {
     }
 
     /**
+     * The route configs ACKed listeners use that Envoy hasn't asked for.
+     * @param asked the route configs Envoy asked for
+     * @return each, with its listener
+     */
+    List<String> routeConfigsNotAskedFor(Set<String> asked) {
+        return listeners.entrySet().stream()
+            .flatMap(l -> l.getValue().stream().filter(r -> !asked.contains(r)).map(r -> "route config <" + r + "> of listener <" + l.getKey() + ">"))
+            .sorted()
+            .toList();
+    }
+
+    /**
      * Check a response before Envoy sees it.
      * @param typeUrl response type
      * @param resources resources added or updated

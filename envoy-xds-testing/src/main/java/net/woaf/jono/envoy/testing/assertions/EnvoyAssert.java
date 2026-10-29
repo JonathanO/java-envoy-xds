@@ -87,6 +87,14 @@ public abstract class EnvoyAssert<SelfT extends EnvoyAssert<SelfT>> extends Abst
     public abstract SelfT wasMakeBeforeBreak(int fromMessage, @Nullable Conversation before);
 
     /**
+     * Envoy subscribed to the route config of every listener it ACKed. Until it has, it hasn't synced, though it may
+     * look done: a rate limited Envoy can ACK a listener well before it asks for the listener's routes.
+     * @return this
+     */
+    @CanIgnoreReturnValue
+    public abstract SelfT askedForEveryRouteConfigInUse();
+
+    /**
      * Every type Envoy asked for got at least one response. Without one Envoy waits out its initial fetch timeout, or
      * forever if that is disabled.
      * @return this
