@@ -266,4 +266,16 @@ public class SotwConversationAssertTest {
         assertThatThrownBy(() -> SotwConversationAssert.assertThat(c).hadConversationsWith(XdsTypes.CDS, XdsTypes.LDS))
             .hasMessageContaining("Did not have a conversation with <[" + XdsTypes.LDS + "]>");
     }
+
+    @Test
+    public void askedForEveryRouteConfigInUseWaitsForTheRoutesOfAListenerEnvoyAcked() {
+        Conversation c = new Conversation();
+        c.onRequest(request(XdsTypes.LDS, ""));
+        exchange(c, XdsTypes.LDS, listenerUsing("routes"));
+        assertThatThrownBy(() -> SotwConversationAssert.assertThat(c).askedForEveryRouteConfigInUse())
+            .hasMessageContaining("route config <routes> of listener <listener>");
+
+        c.onRequest(request(XdsTypes.RDS, "", "routes"));
+        assertThatCode(() -> SotwConversationAssert.assertThat(c).askedForEveryRouteConfigInUse()).doesNotThrowAnyException();
+    }
 }

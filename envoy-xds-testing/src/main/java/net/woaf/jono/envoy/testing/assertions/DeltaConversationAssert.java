@@ -8,6 +8,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.HashMultimap;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.protobuf.Any;
+import net.woaf.jono.envoy.testing.XdsTypes;
 import net.woaf.jono.envoy.testing.utils.ConversationLogger.Conversation;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
@@ -209,6 +210,26 @@ public class DeltaConversationAssert extends EnvoyAssert<DeltaConversationAssert
 
     private static List<Any> resources(DeltaDiscoveryResponse response) {
         return response.getResourcesList().stream().map(Resource::getResource).toList();
+    }
+
+    @Override
+    @CanIgnoreReturnValue
+    public DeltaConversationAssert askedForEveryRouteConfigInUse() {
+        isNotNull();
+        AckedState state = new AckedState();
+        replay(state, actual.getMessages(), Integer.MAX_VALUE);
+        Set<String> asked = new HashSet<>();
+        for (Object message : actual.getMessages()) {
+            if (message instanceof DeltaDiscoveryRequest r && r.getTypeUrl().equals(XdsTypes.RDS)) {
+                asked.addAll(r.getResourceNamesSubscribeList());
+                r.getResourceNamesUnsubscribeList().forEach(asked::remove);
+            }
+        }
+        List<String> missing = state.routeConfigsNotAskedFor(asked);
+        if (!missing.isEmpty()) {
+            failWithMessage("Envoy hasn't asked for <%s>", missing);
+        }
+        return this;
     }
 
     @Override

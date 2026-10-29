@@ -320,4 +320,16 @@ public class DeltaConversationAssertTest {
         assertThatThrownBy(() -> DeltaConversationAssert.assertThat(c).hadConversationsWith(XdsTypes.CDS, XdsTypes.LDS))
             .hasMessageContaining("Did not have a conversation with <[" + XdsTypes.LDS + "]>");
     }
+
+    @Test
+    public void askedForEveryRouteConfigInUseWaitsForTheRoutesOfAListenerEnvoyAcked() {
+        Conversation c = new Conversation();
+        c.onRequest(subscribe(XdsTypes.LDS));
+        exchange(c, XdsTypes.LDS, listenerUsing("routes"));
+        assertThatThrownBy(() -> DeltaConversationAssert.assertThat(c).askedForEveryRouteConfigInUse())
+            .hasMessageContaining("route config <routes> of listener <listener>");
+
+        c.onRequest(subscribe(XdsTypes.RDS, "routes"));
+        assertThatCode(() -> DeltaConversationAssert.assertThat(c).askedForEveryRouteConfigInUse()).doesNotThrowAnyException();
+    }
 }
