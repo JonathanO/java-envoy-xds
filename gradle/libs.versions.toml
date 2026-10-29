@@ -22,7 +22,7 @@ grpc-netty-shaded = { module = "io.grpc:grpc-netty-shaded", version.ref = "grpc"
 grpc-stub = { module = "io.grpc:grpc-stub", version.ref = "grpc" }
 guava = { module = "com.google.guava:guava", version.ref = "guava" }
 hamcrest = "org.hamcrest:hamcrest:3.0"
-hegel = "dev.hegel:hegel:0.10.3"
+hegel = "dev.hegel:hegel:0.10.4"
 jspecify = "org.jspecify:jspecify:1.0.1"
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
