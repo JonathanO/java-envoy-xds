@@ -13,3 +13,4 @@ gen/
 bin/
 .hegel/
 *.hprof
+.kotlin
