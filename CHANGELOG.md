@@ -44,6 +44,7 @@ All notable changes to this project will be documented in this file.
 * `XdsConformanceTest` runs Envoy at its default log level, info, instead of debug, and no longer relays every line of Envoy's log to SLF4J: debug was about nine times the log, and nothing checks it. Warnings and errors still fail a test, and a failed test prints Envoy's whole log to stderr, which the test report keeps
 
 ### Fixed
+* A change, or a removal of what a reconnecting Envoy kept, no longer starts while listener or route requests are held for the clusters. It skipped the types that hadn't heard their first request yet, so a delta Envoy reconnecting while a change waited could lose a cluster its kept listeners still routed to. It now starts once the last held request is answered
 * Conformance: a scenario waits for Envoy's listeners to warm before its first request. With Envoy's xDS requests rate limited, a listener's last subscription could still be queued in Envoy when the suite thought it had synced, so the first request was reset
 * SotW `nothingSentUnasked` checks secrets (SDS) and runtime layers (RTDS) too, instead of failing because it didn't know how to read their names
 * `Settled` matches Envoy's answers to responses by type as well as nonce, so a library that numbers nonces per type doesn't look settled while one type is still unanswered

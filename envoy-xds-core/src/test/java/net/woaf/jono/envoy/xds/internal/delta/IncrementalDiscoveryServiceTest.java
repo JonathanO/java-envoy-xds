@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -37,6 +38,7 @@ import io.grpc.stub.StreamObserver;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Predicate;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
@@ -798,6 +800,41 @@ public class IncrementalDiscoveryServiceTest {
     }
 
     @Test
+    public void changeWaitsForHeldRequestsSoItSkipsNoTypeEnvoyHas(@Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder,
+        @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpointConfigBuilder,
+        @Mock IncrementalConfigBuilder<Listener, DummyUpdate, Object> listenerConfigBuilder) {
+        final DummyUpdate next = new DummyUpdate();
+        servesAsked(clusterConfigBuilder, cluster("a"));
+        servesAsked(endpointConfigBuilder, endpoints("a"));
+        servesAsked(listenerConfigBuilder, listener("l"));
+        Stream.of(clusterConfigBuilder, endpointConfigBuilder, listenerConfigBuilder).forEach(this::changesNothing);
+        when(clusterConfigBuilder.removeOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<Cluster>(List.of(), List.of("a")));
+        when(endpointConfigBuilder.removeOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<ClusterLoadAssignment>(List.of(), List.of("a")));
+        when(listenerConfigBuilder.removeOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<Listener>(List.of(), List.of("l")));
+        DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = manager(Map.of(
+            TypeUrl.CDS, service(TypeUrl.CDS, clusterConfigBuilder),
+            TypeUrl.EDS, service(TypeUrl.EDS, endpointConfigBuilder),
+            TypeUrl.LDS, service(TypeUrl.LDS, listenerConfigBuilder)));
+        dsm.init(initState, null, Set.of(TypeUrl.CDS, TypeUrl.EDS, TypeUrl.LDS));
+
+        // A reconnecting Envoy kept l, which routes to a, and asks for everything at once.
+        dsm.processUpdate(deltaRequest(TypeUrl.CDS, DeltaDiscoveryRequest.newBuilder().putInitialResourceVersions("a", "1")));
+        dsm.processUpdate(reconnectSubscription(TypeUrl.EDS, "a", "a"));
+        dsm.processUpdate(deltaRequest(TypeUrl.LDS, DeltaDiscoveryRequest.newBuilder().putInitialResourceVersions("l", "1")));
+        assertNoAdditionalResponsesSent(2); // held while the clusters await their ACK
+        dsm.pushUpdates(next); // removes l, a and a's endpoints
+
+        List<String> removed = new ArrayList<>();
+        for (int answered = 0; answered < sent().size(); answered++) {
+            DeltaDiscoveryResponse response = sent().get(answered);
+            TypeUrl type = Objects.requireNonNull(TypeUrl.of(response.getTypeUrl()));
+            response.getRemovedResourcesList().forEach(name -> removed.add(type + " " + name));
+            dsm.processUpdate(ackRequest(type, response.getNonce()));
+        }
+        assertThat(removed).as("each removal once nothing Envoy has refers to it").containsExactly("LDS l", "CDS a", "EDS a");
+    }
+
+    @Test
     public void eachResponseHasAHigherVersionThanTheLast(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
         serves(configBuilder, endpoints("a"));
         DiscoveryService<DeltaDiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
@@ -962,6 +999,12 @@ public class IncrementalDiscoveryServiceTest {
 
     private CommonDiscoveryRequest<DeltaDiscoveryRequest> nonAckRequest(TypeUrl typeUrl) {
         return deltaRequest(typeUrl, DeltaDiscoveryRequest.newBuilder());
+    }
+
+    /** Every response sent so far, in order. */
+    private List<DeltaDiscoveryResponse> sent() {
+        return mockingDetails(responseObserver).getInvocations().stream()
+            .filter(i -> i.getMethod().getName().equals("onNext")).map(i -> i.<DeltaDiscoveryResponse>getArgument(0)).toList();
     }
 
     private void assertNoAdditionalResponsesSent(int expectedResponsesSoFar) {
