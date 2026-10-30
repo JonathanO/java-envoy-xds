@@ -6,8 +6,8 @@ import org.jspecify.annotations.Nullable;
  * Track states waiting to be applied.
  * The simplest possible implementation would be a FIFO queue.
  * But ideally your states should be mergeable, and you should merge the pending ones together instead.
- * It is not guaranteed that all state updates will go through the backlog! We will only put to the backlog if an event arrives while we are still sending resources for a previous event. If no event is currently being applied we will skip calling
- * the backlog entirely.
+ * Every update is put in the backlog. When no update is being pushed, the next one is taken out at once, so the backlog
+ * only holds updates that arrive while one is.
  * @param <StateUpdT> state update type
  */
 public interface StateBacklog<StateUpdT> {

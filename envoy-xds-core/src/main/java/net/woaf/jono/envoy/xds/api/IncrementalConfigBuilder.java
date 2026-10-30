@@ -15,7 +15,8 @@ import java.util.function.Predicate;
 /**
  * Builds envoy Resources in response to state changes.
  * Since we are delta-first, this is expected to return only changed resources (added, updated, removed.) It does not need to return unchanged resources (but there is no harm, just overhead, from doing so.)
- * We care a lot about preserving make-before-break behaviour, which means we have to sequence updates correctly. For a given state change the ConfigBuilder is called twice, once in add ("make") order, once in remove ("break") order.
+ * We care a lot about preserving make-before-break behaviour, which means we have to sequence updates correctly. For a given state change the ConfigBuilder of each type the client has asked for is called twice,
+ * once in add ("make") order, once in remove ("break") order.
  * You should return changes that add new stuff in add order, and changes that remove things (resources, routes, etc) in remove order.  When considering what's add and what's remove, remember that some resource changes are effectively a remove.
  *
  * @param <ResourceT> Type of envoy api resource being returned
@@ -46,8 +47,10 @@ public interface IncrementalConfigBuilder<ResourceT extends Message, StateUpdT, 
     Response<ResourceT> removeOrder(StateUpdT diff, Predicate<String> resourceInSubListChange, DetailsT clientDetails);
 
     /**
-     * Retrieve the full state of the world given a state update in add order.
-     * This is used when envoy subscribes to a new resource and so we have to send it the current state.
+     * Retrieve the full state of the world given a state update in add order: anything it adds, and anything it's yet
+     * to remove. This is used when envoy subscribes to a new resource from the update's add round until its remove
+     * round, so we have to send it the state mid-change, and after envoy NACKs the update, as its removals never went
+     * out.
      * @param services The last state update.
      * @param resourceInSubListChange Will return true for resources envoy has subscribed to (note that this is the name of the envoy resource.)
      * @param clientDetails Whatever details you provided from your ClientConfigProvider
@@ -56,8 +59,8 @@ public interface IncrementalConfigBuilder<ResourceT extends Message, StateUpdT, 
     Resources<ResourceT> getResourcesAddOrder(StateUpdT services, Predicate<String> resourceInSubListChange, DetailsT clientDetails);
 
     /**
-     * Retrieve the full state of the world given a state update in remove order.
-     * This is used when envoy subscribes to a new resource and so we have to send it the current state.
+     * Retrieve the full state of the world given a state update in remove order, as it is once the update is done.
+     * This is used to answer a request for this type at any other time.
      * @param services The last state update.
      * @param resourceInSubListChange Will return true for resources envoy has subscribed to (note that this is the name of the envoy resource.)
      * @param clientDetails Whatever details you provided from your ClientConfigProvider

@@ -542,6 +542,11 @@ public class DiscoveryServiceManagerTest {
         }
 
         @Override
+        public boolean addsToCome() {
+            return false;
+        }
+
+        @Override
         public boolean isServed() {
             return true;
         }

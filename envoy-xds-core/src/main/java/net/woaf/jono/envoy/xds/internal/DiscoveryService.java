@@ -33,6 +33,13 @@ public interface DiscoveryService<RequestT extends Message, StateUpdT> {
     boolean awaitingAck();
 
     /**
+     * Tells if the add round of the change from onNetworkUpdate is still to be sent.
+     *
+     * @return true until sendNetworkUpdatePre is called for it.
+     */
+    boolean addsToCome();
+
+    /**
      * Called when the DiscoveryServiceManager is initialized.
      *
      * <p>The DSM is initialized the first time any message from envoy is received, regardless of which DiscoveryService will handle the message.</p>
@@ -62,7 +69,8 @@ public interface DiscoveryService<RequestT extends Message, StateUpdT> {
 
     /**
      * Drops whatever is left of the change from onNetworkUpdate, so nothing more of it is sent. Called when Envoy
-     * NACKs: later answers to subscription changes cover only the names they add.
+     * NACKs: later answers to subscription changes cover only the names they add. Its remove round never goes out, so
+     * those answers keep what it would remove, as Envoy may still use it.
      */
     void abandonChange();
 

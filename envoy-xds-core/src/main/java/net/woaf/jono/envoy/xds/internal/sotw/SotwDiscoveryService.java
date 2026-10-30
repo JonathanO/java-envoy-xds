@@ -38,14 +38,6 @@ class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends Abstr
         this.versionManager = versionManager;
     }
 
-    private void applyCurrentState() {
-        switch (getCurrentSubState()) {
-            case PRE -> applyPre();
-            case POST -> applyPost();
-            default -> { } // COMPLETED: nothing left to apply
-        }
-    }
-
     private void processSubUpdate(Predicate<String> subChanged) {
         // Remove state for anything we're no longer subscribed to.
         resourceState.keySet().removeIf(n -> !subManager.isSubscribedTo(n));
@@ -57,7 +49,9 @@ class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends Abstr
         }
 
         getResources(subChanged).resources().forEach(msg -> resourceState.put(msg.name(), msg));
-        applyCurrentState();
+        // If this type's add round is still to come, the answer has it, so it needn't be sent again. The remove round
+        // still goes in turn.
+        applyPre();
         // Answer even if nothing changed: Envoy waits for a response to its first request of each type, e.g. CDS when
         // there are no clusters yet, and to tell it that names it asked for don't exist.
         pushResources(resourceState.values());
