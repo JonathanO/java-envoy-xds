@@ -833,6 +833,9 @@ public class IncrementalDiscoveryServiceTest {
             dsm.processUpdate(ackRequest(type, response.getNonce()));
         }
         assertThat(removed).as("each removal once nothing Envoy has refers to it").containsExactly("LDS l", "CDS a", "EDS a");
+    }
+
+    @Test
     public void subscriptionBeforeItsTypesRemoveRoundGetsWhatTheRoundRemovesThenItsRemoval(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
         final DummyUpdate next = new DummyUpdate();
         serves(configBuilder, endpoints("a"));
