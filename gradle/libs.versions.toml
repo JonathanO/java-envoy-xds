@@ -17,7 +17,7 @@ awaitility = "org.awaitility:awaitility:4.3.0"
 envoy-api = { module = "net.woaf.jono.envoy:envoy-api", version.ref = "envoy-api" }
 errorprone-annotations = { module = "com.google.errorprone:error_prone_annotations", version.ref = "errorprone" }
 errorprone-core = { module = "com.google.errorprone:error_prone_core", version.ref = "errorprone" }
-gson = "com.google.code.gson:gson:2.14.0"
+gson = "com.google.code.gson:gson:2.15.0"
 grpc-api = { module = "io.grpc:grpc-api", version.ref = "grpc" }
 grpc-netty-shaded = { module = "io.grpc:grpc-netty-shaded", version.ref = "grpc" }
 grpc-stub = { module = "io.grpc:grpc-stub", version.ref = "grpc" }
