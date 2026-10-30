@@ -46,8 +46,10 @@ public interface IncrementalConfigBuilder<ResourceT extends Message, StateUpdT, 
     Response<ResourceT> removeOrder(StateUpdT diff, Predicate<String> resourceInSubListChange, DetailsT clientDetails);
 
     /**
-     * Retrieve the full state of the world given a state update in add order.
-     * This is used when envoy subscribes to a new resource and so we have to send it the current state.
+     * Retrieve the full state of the world given a state update in add order: anything it adds, and anything it's yet
+     * to remove. This is used when envoy subscribes to a new resource from the update's add round until its remove
+     * round, so we have to send it the state mid-change, and after envoy NACKs the update, as its removals never went
+     * out.
      * @param services The last state update.
      * @param resourceInSubListChange Will return true for resources envoy has subscribed to (note that this is the name of the envoy resource.)
      * @param clientDetails Whatever details you provided from your ClientConfigProvider

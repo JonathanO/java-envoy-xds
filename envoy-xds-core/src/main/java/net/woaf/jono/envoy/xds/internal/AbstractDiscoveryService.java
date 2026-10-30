@@ -103,7 +103,9 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
 
     protected IncrementalConfigBuilder.Resources<E> getResources(Predicate<String> resourceInSubListChange) {
         final IncrementalConfigBuilder.Resources<E> resources;
-        if (SubState.PRE.equals(currentSubState)) {
+        // Mid-change, what the change removes stays until this type's remove round is sent, so nothing goes before what
+        // may refer to it.
+        if (!SubState.COMPLETED.equals(currentSubState)) {
             resources = configBuilder.getResourcesAddOrder(state(), resourceInSubListChange, xdsConfig.clientDetails());
         } else {
             resources = configBuilder.getResourcesRemoveOrder(state(), resourceInSubListChange, xdsConfig.clientDetails());
@@ -191,8 +193,17 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
     }
 
     @Override
+    public boolean addsToCome() {
+        return SubState.PRE.equals(currentSubState);
+    }
+
+    @Override
     public void abandonChange() {
-        currentSubState = SubState.COMPLETED;
+        // A type still mid-change stays so for good: its remove round is never sent, so what it would remove stays in
+        // answers, as Envoy may still use it. After a NACK only answers are sent.
+        if (!SubState.COMPLETED.equals(currentSubState)) {
+            currentSubState = SubState.POST;
+        }
     }
 
     protected Any pack(Message o) {

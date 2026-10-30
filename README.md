@@ -103,7 +103,9 @@ threads of its own: with a same-thread one such as `MoreExecutors.directExecutor
 ### When Envoy reconnects
 
 Envoy keeps its config while it's disconnected, and re-subscribes to everything at once when it reconnects. We answer
-route and listener subscriptions only once the clusters and endpoints they may use are ACKed. With delta, we remove
+route and listener subscriptions only once the clusters and endpoints they may use are sent and ACKed. A subscription
+that arrives while a change is going out gets the change's add round: what the change removes stays until its type's
+remove round, so nothing goes before what may refer to it. With delta, we remove
 what Envoy kept that no longer exists in remove order, once the types that may still use it have been answered and
 ACKed. If a client doesn't get every type from us, say so with `XdsConfig.subscribesTo`, e.g. `Set.of(TypeUrl.CDS,
 TypeUrl.EDS)` for an Envoy with static routes, or its removals wait for types it never asks for: at least 30 seconds
@@ -116,7 +118,8 @@ SotW can't do the same for clusters: its CDS answer is the whole set, so a clust
 ### When Envoy rejects config
 
 Once an Envoy NACKs, we stop sending it changes on that stream. It keeps serving its last good config, which goes
-stale. We still answer its new subscriptions. On SotW each answer is the whole set, so for the type Envoy rejected
+stale. We still answer its new subscriptions, keeping what the rejected change would remove, as those removals never
+went out. On SotW each answer is the whole set, so for the type Envoy rejected
 it repeats what was rejected: Envoy rejects it again and keeps what it has. Rolling it back instead would undo
 whatever part of the rejected answer Envoy did take. Retrying would only be rejected again, and dropping the stream makes Envoy reconnect straight into the same
 config, in a loop. `XdsEventListener.onClientNack` tells you it happened, so alert on it. `ClientHandle.resync()` closes
