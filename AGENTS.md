@@ -12,3 +12,5 @@ differ. When you change behaviour or a test here, make the same change there, or
 - `./gradlew pitest` must kill every mutant in envoy-xds-core and envoy-xds-snapshot, each module with its own tests.
   An exception needs a strong reason, agreed with the maintainer.
 - The e2e tests run real Envoys. Never mock Envoy.
+- envoy-xds-spec-tests runs the trace vectors from the spec submodule, `spec/`: `git submodule update --init`. A
+  behaviour change starts there, with a vector.
