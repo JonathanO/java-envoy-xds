@@ -506,6 +506,29 @@ public class IncrementalDiscoveryServiceTest {
     }
 
     @Test
+    public void testNothingStaleMeansNoWarningAboutRemovingIt(@Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder,
+        @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpointConfigBuilder,
+        @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
+        serves(clusterConfigBuilder, cluster("a"));
+        serves(endpointConfigBuilder, endpoints("a"));
+        DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
+        AtomicLong now = new AtomicLong();
+        dsm.setClock(now::get);
+        dsm.init(initState, null, null);
+        InOrder inOrder = inOrder(responseObserver);
+        dsm.processUpdate(subscribeRequest(TypeUrl.CDS));
+        dsm.processUpdate(ackRequest(TypeUrl.CDS, nextResponse(inOrder).getNonce()));
+
+        now.addAndGet(DiscoveryServiceManager.WAIT_FOR_ACK_TIMEOUT_NANOS); // and RDS, before EDS in remove order, hasn't answered
+        try (LoggedWarnings warnings = new LoggedWarnings(DiscoveryServiceManager.class)) {
+            dsm.processUpdate(subscribeRequest(TypeUrl.EDS, "a"));
+
+            assertThat(warnings.messages()).isEmpty();
+        }
+        assertThat(nextResponse(inOrder).getTypeUrl()).isEqualTo(TypeUrl.EDS.getTypeUrl());
+    }
+
+    @Test
     public void testStaleRemovalsGoAfterTheTimeoutAtTheNextEvent(@Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder,
         @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpointConfigBuilder,
         @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
