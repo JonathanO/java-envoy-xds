@@ -408,7 +408,9 @@ be thread safe.
 
 ### Logging
 
-The library logs through SLF4J, so add the binding you use. Things to watch for:
+The library logs through SLF4J, so add the binding you use. Every record logged while working for a client carries
+its node id in the MDC as `node`: show it with `%X{node}` in a logback pattern, as envoy-xds-example's logback.xml
+does. Things to watch for:
 
 - warn `Client ... rejected ..., so we'll send it no more changes on this stream`: a NACK;
 - error `Failed to push an update to ..., so closing its stream`: a config builder threw;

@@ -540,7 +540,9 @@ among connected streams, and the same object in every call for that stream.
 
 The library logs through SLF4J. At warn: NACKs, requests for unknown types, config builders returning names Envoy
 didn't subscribe to, the 30 second give-ups, and stream errors other than cancellation. At error: a failed update, with
-the node id. At info: closing a stream to resync it.
+the node id. At info: closing a stream to resync it. `CommonDiscoveryStreamObserver` puts the node id in the MDC as
+`node` at each entry point (a request, an update, an error or completion, a resync) and restores what was there after,
+so every record under it names the client, and nothing leaks to the next client on a pooled thread.
 
 ## 11. How it's tested
 
