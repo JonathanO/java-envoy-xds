@@ -35,7 +35,7 @@ public interface DiscoveryServiceManagerMetrics {
     }
 
     /**
-     * This is called once client has acked all of the messages sent to it for a state update.
+     * This is called once the client has ACKed all of the messages sent to it for a state update, or when a NACK stops the push.
      * onPushBegin() and onPushComplete() must be called in pairs, and must not be called after close().
      */
     default void onPushComplete() {
@@ -43,14 +43,16 @@ public interface DiscoveryServiceManagerMetrics {
     }
 
     /**
-     * This is called when a discovery service is expecting an ack.
+     * This is called when an answer to a request, or a removal of stale resources after a reconnect, awaits Envoy's ACK.
+     * A push's own responses are covered by onPushBegin() and onPushComplete(): this is called for one only if a request
+     * of its type comes while it awaits its ACK.
      */
     default void onAwaitingAck() {
 
     }
 
     /**
-     * This is called when envoy acks an outstanding message.
+     * This is called when Envoy ACKs, or NACKs, what onAwaitingAck() was called for.
      */
     default void onMessageAcked() {
 
