@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 * Make before break across a reconnect: `wasMakeBeforeBreak(fromMessage, before)`, `Checkpoint.assertSaneAfterReconnect(before)`, and the `changesWhileDisconnected` conformance scenario
 * `Checkpoint` and `EnvoyChecks.assertRoutedVia` in `envoy-xds-testing`: one call to check everything since a mark, and which cluster served a request
 * `XdsMatchers` in `envoy-xds-testing`: Hamcrest matchers for xDS resources, recorded messages, their order, and what Envoy holds
+* Every log a stream makes carries its Envoy's node ID in the SLF4J MDC, under `node`: add `%X{node}` to your log pattern
 * `XdsEventListener.onClientNack`, `ClientHandle.resync()`, and `ResyncAfterNack` to resync an Envoy that NACKed on a backoff
 * JSpecify nullness annotations: every package is `@NullMarked`, so anything that may be null says `@Nullable`. NullAway checks this strictly at build time, and Error Prone and javac warnings now fail the build
 * Error Prone checks locking and immutability at build time: fields shared between threads are `@GuardedBy` their lock, and `Snapshot` and `NamedMessage` are `@Immutable`

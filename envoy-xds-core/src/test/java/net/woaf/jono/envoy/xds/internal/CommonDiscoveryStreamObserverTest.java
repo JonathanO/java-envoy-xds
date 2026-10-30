@@ -11,10 +11,14 @@ import net.woaf.jono.envoy.xds.internal.DiscoveryServiceManagerTest.DummyUpdate;
 import net.woaf.jono.envoy.xds.api.ClusterEventSource;
 import net.woaf.jono.envoy.xds.api.DiscoveryServiceManagerMetrics;
 import net.woaf.jono.envoy.xds.api.XdsEventListener;
+import java.util.Set;
+import net.woaf.jono.envoy.xds.api.utils.QueueingStateBacklog;
+import net.woaf.jono.envoy.xds.internal.sotw.SotwDiscoveryServiceFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.MDC;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -204,6 +208,45 @@ public class CommonDiscoveryStreamObserverTest {
         }
     }
 
+    @Test
+    public void logsSayWhichEnvoyTheyAreAbout(@Mock StreamObserver<DiscoveryResponse> responseObserver,
+                                              @Mock ClusterEventSource<DummyUpdate> source) {
+        when(source.subscribe(any(), any())).thenReturn(new DummyUpdate());
+        DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory =
+            new DiscoveryServiceManagerFactory<>(new SotwDiscoveryServiceFactory<>(ImmutableList.of()), QueueingStateBacklog.factory());
+        // The manager warns that it won't wait for LDS, which this client doesn't get.
+        XdsConfig<Object> config = XdsConfig.of(DETAILS).withDelayUpdatesUntilAckOf(TypeUrl.LDS).withSubscribesTo(Set.of(TypeUrl.CDS));
+        CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer =
+            observer(responseObserver, source, factory, ImmutableList.of(), config);
+        Node node = Node.newBuilder().setId("envoy").build();
+
+        try (LoggedWarnings managerWarnings = new LoggedWarnings(DiscoveryServiceManager.class);
+             LoggedWarnings observerWarnings = new LoggedWarnings(CommonDiscoveryStreamObserver.class)) {
+            observer.onNext(DiscoveryRequest.newBuilder().setNode(node).setTypeUrl(TypeUrl.CDS.getTypeUrl()).build());
+            assertThat(managerWarnings.nodes()).containsExactly("envoy");
+            assertThat(MDC.get("node")).as("cleared after, for the thread's next client").isNull();
+
+            // A caller's own node is put back.
+            MDC.put("node", "caller");
+            observer.onNext(DiscoveryRequest.newBuilder().setNode(node).setTypeUrl("type.googleapis.com/unknown").build());
+            assertThat(observerWarnings.nodes()).containsExactly("envoy");
+            assertThat(MDC.get("node")).isEqualTo("caller");
+            MDC.remove("node");
+
+            // Every way in clears it after.
+            observer.onNetworkChange(new DummyUpdate());
+            assertThat(MDC.get("node")).isNull();
+            observer.resync();
+            assertThat(MDC.get("node")).isNull();
+            observer.onError(new IllegalStateException("after the stream closed"));
+            assertThat(MDC.get("node")).isNull();
+            observer.onCompleted();
+            assertThat(MDC.get("node")).isNull();
+        } finally {
+            MDC.remove("node");
+        }
+    }
+
     private static CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer(
         StreamObserver<DiscoveryResponse> responseObserver, ClusterEventSource<DummyUpdate> source,
         DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory) {
@@ -214,12 +257,19 @@ public class CommonDiscoveryStreamObserverTest {
         StreamObserver<DiscoveryResponse> responseObserver, ClusterEventSource<DummyUpdate> source,
         DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory,
         ImmutableList<XdsEventListener<Object>> listeners) {
+        return observer(responseObserver, source, factory, listeners, XdsConfig.of(DETAILS));
+    }
+
+    private static CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer(
+        StreamObserver<DiscoveryResponse> responseObserver, ClusterEventSource<DummyUpdate> source,
+        DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory,
+        ImmutableList<XdsEventListener<Object>> listeners, XdsConfig<Object> config) {
         return new CommonDiscoveryStreamObserver<>(
             responseObserver,
             source,
             factory,
             r -> new CommonDiscoveryRequest<DiscoveryRequest>(r.getNode(), r.getTypeUrl(), r, r.hasErrorDetail() ? r.getErrorDetail() : null),
-            node -> XdsConfig.of(DETAILS),
+            node -> config,
             listeners,
             DiscoveryServiceManagerMetrics.NOOP_METRICS
         );
