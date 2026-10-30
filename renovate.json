@@ -3,6 +3,10 @@
   "extends": [
     "config:recommended"
   ],
+  "git-submodules": {
+    "description": "Bump the spec submodule, whose vectors envoy-xds-spec-tests runs",
+    "enabled": true
+  },
   "packageRules": [
     {
       "description": "Compile against the oldest supported Envoy API; users supply their own version",
