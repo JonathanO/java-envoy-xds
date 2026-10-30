@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -27,6 +28,7 @@ import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder.NamedMessage;
 import net.woaf.jono.envoy.xds.api.utils.QueueingStateBacklog;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
+import io.envoyproxy.envoy.config.listener.v3.Listener;
 import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
@@ -38,6 +40,7 @@ import java.util.Map;
 import java.util.function.Predicate;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -551,6 +554,89 @@ public class IncrementalDiscoveryServiceTest {
     }
 
     @Test
+    public void testARequestNeverOvertakesAHeldOneOfItsType(@Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder,
+        @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpointConfigBuilder,
+        @Mock IncrementalConfigBuilder<Listener, DummyUpdate, Object> listenerConfigBuilder,
+        @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
+        final DummyUpdate next = new DummyUpdate();
+        final DummyUpdate later = new DummyUpdate();
+        serves(clusterConfigBuilder, cluster("a"));
+        servesAsked(endpointConfigBuilder, endpoints("a"), endpoints("b"));
+        serves(listenerConfigBuilder, listener("l"));
+        servesAsked(routeConfigBuilder, routes("r"), routes("s"));
+        Stream.of(clusterConfigBuilder, endpointConfigBuilder, listenerConfigBuilder, routeConfigBuilder).forEach(this::changesNothing);
+        when(listenerConfigBuilder.addOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<>(List.of(listener("m")), List.of()));
+        when(routeConfigBuilder.addOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<>(List.of(routes("r")), List.of()));
+        when(routeConfigBuilder.addOrder(eq(later), any(), any())).thenAnswer(inv -> inv.<Predicate<String>>getArgument(1).test("s")
+            ? new IncrementalConfigBuilder.Response<>(List.of(routes("s")), List.of()) : IncrementalConfigBuilder.Response.<RouteConfiguration>empty());
+        DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = manager(Map.of(
+            TypeUrl.CDS, service(TypeUrl.CDS, clusterConfigBuilder),
+            TypeUrl.EDS, service(TypeUrl.EDS, endpointConfigBuilder),
+            TypeUrl.LDS, service(TypeUrl.LDS, listenerConfigBuilder),
+            TypeUrl.RDS, service(TypeUrl.RDS, routeConfigBuilder)));
+        dsm.init(initState, null, null);
+        InOrder inOrder = inOrder(responseObserver);
+        dsm.processUpdate(subscribeRequest(TypeUrl.CDS));
+        dsm.processUpdate(ackRequest(TypeUrl.CDS, nextResponse(inOrder).getNonce()));
+        dsm.processUpdate(subscribeRequest(TypeUrl.EDS, "a"));
+        dsm.processUpdate(ackRequest(TypeUrl.EDS, nextResponse(inOrder).getNonce()));
+        dsm.processUpdate(subscribeRequest(TypeUrl.LDS));
+        dsm.processUpdate(ackRequest(TypeUrl.LDS, nextResponse(inOrder).getNonce()));
+        dsm.processUpdate(subscribeRequest(TypeUrl.RDS, "r"));
+        dsm.processUpdate(ackRequest(TypeUrl.RDS, nextResponse(inOrder).getNonce()));
+
+        dsm.pushUpdates(next);
+        final DeltaDiscoveryResponse lds = nextResponse(inOrder);
+        dsm.processUpdate(subscribeRequest(TypeUrl.EDS, "b")); // so the clusters await an ACK
+        final DeltaDiscoveryResponse eds = nextResponse(inOrder);
+        dsm.processUpdate(subscribeRequest(TypeUrl.RDS, "s"));
+        assertNoAdditionalResponsesSent(6); // held while EDS isn't ACKed
+        dsm.processUpdate(ackRequest(TypeUrl.LDS, lds.getNonce()));
+        DeltaDiscoveryResponse rds = nextResponse(inOrder);
+        // Envoy changes its mind in the ACK of the change's routes, which mustn't be applied before the subscription.
+        dsm.processUpdate(deltaRequest(TypeUrl.RDS, DeltaDiscoveryRequest.newBuilder().setResponseNonce(rds.getNonce()).addResourceNamesUnsubscribe("s")));
+        dsm.processUpdate(ackRequest(TypeUrl.EDS, eds.getNonce()));
+        DeltaDiscoveryResponse answer = nextResponse(inOrder);
+        assertThat(answer.getResourcesList()).extracting(Resource::getName).containsExactly("s");
+        dsm.processUpdate(ackRequest(TypeUrl.RDS, answer.getNonce()));
+
+        dsm.pushUpdates(later);
+        assertNoAdditionalResponsesSent(8); // Envoy unsubscribed from s
+    }
+
+    @Test
+    public void testAHeldNackStillStopsTheChange(@Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder,
+        @Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> endpointConfigBuilder,
+        @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
+        final DummyUpdate next = new DummyUpdate();
+        serves(clusterConfigBuilder, cluster("a"));
+        serves(routeConfigBuilder, routes("r"));
+        Stream.of(clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder).forEach(this::changesNothing);
+        when(clusterConfigBuilder.addOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<>(List.of(cluster("b")), List.of()));
+        lenient().when(routeConfigBuilder.addOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<>(List.of(routes("r")), List.of()));
+        DiscoveryServiceManager<DeltaDiscoveryRequest, DummyUpdate> dsm = cdsEdsRds(clusterConfigBuilder, endpointConfigBuilder, routeConfigBuilder);
+        dsm.init(initState, null, null);
+        InOrder inOrder = inOrder(responseObserver);
+        dsm.processUpdate(subscribeRequest(TypeUrl.CDS));
+        dsm.processUpdate(ackRequest(TypeUrl.CDS, nextResponse(inOrder).getNonce()));
+        dsm.processUpdate(subscribeRequest(TypeUrl.RDS, "r"));
+        final DeltaDiscoveryResponse rds = nextResponse(inOrder);
+        dsm.processUpdate(ackRequest(TypeUrl.RDS, rds.getNonce()));
+
+        dsm.pushUpdates(next);
+        DeltaDiscoveryResponse cds = nextResponse(inOrder);
+        DeltaDiscoveryRequest nack = DeltaDiscoveryRequest.newBuilder()
+            .setTypeUrl(TypeUrl.RDS.getTypeUrl())
+            .setResponseNonce(rds.getNonce())
+            .setErrorDetail(com.google.rpc.Status.newBuilder().setMessage("rejected"))
+            .build();
+        // Held while the clusters await their ACK.
+        dsm.processUpdate(new CommonDiscoveryRequest<DeltaDiscoveryRequest>(null, TypeUrl.RDS.getTypeUrl(), nack, nack.getErrorDetail()));
+        dsm.processUpdate(ackRequest(TypeUrl.CDS, cds.getNonce()));
+        assertNoAdditionalResponsesSent(3); // and no more of the change
+    }
+
+    @Test
     public void testReconnectNetworkUpdatesWaitForDeferredInitialRemovals(@Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusterConfigBuilder,
         @Mock IncrementalConfigBuilder<RouteConfiguration, DummyUpdate, Object> routeConfigBuilder) {
         final DummyUpdate nextState = new DummyUpdate();
@@ -802,12 +888,29 @@ public class IncrementalDiscoveryServiceTest {
         when(configBuilder.getResourcesRemoveOrder(eq(initState), any(), any())).thenReturn(new IncrementalConfigBuilder.Resources<>(List.of(resources)));
     }
 
+    /** Stubs the builder to have these resources in every state, giving only those asked for. */
+    @SafeVarargs
+    private <E extends Message> void servesAsked(IncrementalConfigBuilder<E, DummyUpdate, Object> configBuilder, NamedMessage<E>... resources) {
+        when(configBuilder.getResourcesRemoveOrder(any(), any(), any())).thenAnswer(inv -> new IncrementalConfigBuilder.Resources<>(
+            Stream.of(resources).filter(r -> inv.<Predicate<String>>getArgument(1).test(r.name())).toList()));
+    }
+
+    /** Stubs the builder to change nothing, but where stubbed after. */
+    private void changesNothing(IncrementalConfigBuilder<? extends Message, DummyUpdate, Object> configBuilder) {
+        lenient().when(configBuilder.addOrder(any(), any(), any())).thenReturn(IncrementalConfigBuilder.Response.empty());
+        lenient().when(configBuilder.removeOrder(any(), any(), any())).thenReturn(IncrementalConfigBuilder.Response.empty());
+    }
+
     private static NamedMessage<Cluster> cluster(String name) {
         return NamedMessage.of(Cluster.newBuilder().setName(name).build());
     }
 
     private static NamedMessage<ClusterLoadAssignment> endpoints(String clusterName) {
         return NamedMessage.of(ClusterLoadAssignment.newBuilder().setClusterName(clusterName).build());
+    }
+
+    private static NamedMessage<Listener> listener(String name) {
+        return NamedMessage.of(Listener.newBuilder().setName(name).build());
     }
 
     private static NamedMessage<RouteConfiguration> routes(String name) {

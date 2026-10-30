@@ -176,19 +176,44 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     public void processUpdate(CommonDiscoveryRequest<RequestT> value) {
         assertPostInitState();
 
-        // The stream observer drops unknown types, and the factory builds a service for every type.
-        TypeUrl typeUrl = Preconditions.checkNotNull(TypeUrl.of(value.typeUrl()), "Unknown type URL %s", value.typeUrl());
-        DiscoveryService<RequestT, StateUpdT> discoveryService = Preconditions.checkNotNull(discoveryServices.get(typeUrl), "No discovery service for %s", typeUrl);
-        if (USE_CLUSTERS.contains(typeUrl) && value.errorDetail() == null && !discoveryService.awaitingAck() && clustersAwaitingAck()) {
-            // Answer later, in add order: see USE_CLUSTERS. Never hold an ACK this service is waiting for.
+        DiscoveryService<RequestT, StateUpdT> discoveryService = serviceFor(value);
+        if (mustWait(value, discoveryService)) {
+            if (value.errorDetail() != null) {
+                freeze(); // at once, though what it asks for waits its turn
+            }
             heldRequests.add(value);
             return;
         }
+        handle(value, discoveryService);
+        while (!heldRequests.isEmpty() && !clustersAwaitingAck()) {
+            CommonDiscoveryRequest<RequestT> held = heldRequests.poll();
+            handle(held, serviceFor(held));
+        }
+    }
+
+    private DiscoveryService<RequestT, StateUpdT> serviceFor(CommonDiscoveryRequest<RequestT> value) {
+        // The stream observer drops unknown types, and the factory builds a service for every type.
+        TypeUrl typeUrl = Preconditions.checkNotNull(TypeUrl.of(value.typeUrl()), "Unknown type URL %s", value.typeUrl());
+        return Preconditions.checkNotNull(discoveryServices.get(typeUrl), "No discovery service for %s", typeUrl);
+    }
+
+    /**
+     * Whether to answer a request later, in add order: see USE_CLUSTERS. It never overtakes a held request of its type,
+     * as each follows on from the last. Otherwise an ACK its service is waiting for never waits.
+     */
+    private boolean mustWait(CommonDiscoveryRequest<RequestT> value, DiscoveryService<RequestT, StateUpdT> discoveryService) {
+        if (heldRequests.stream().anyMatch(held -> held.typeUrl().equals(value.typeUrl()))) {
+            return true;
+        }
+        return USE_CLUSTERS.contains(discoveryService.getTypeUrl()) && !discoveryService.awaitingAck() && clustersAwaitingAck();
+    }
+
+    private void handle(CommonDiscoveryRequest<RequestT> value, DiscoveryService<RequestT, StateUpdT> discoveryService) {
         discoveryService.processUpdate(value);
         if (value.errorDetail() != null) {
             freeze();
         }
-        updateOutstandingAckState(typeUrl, discoveryService);
+        updateOutstandingAckState(discoveryService.getTypeUrl(), discoveryService);
 
         if (!frozen) {
             if (currentChange != null) {
@@ -197,9 +222,6 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
             } else {
                 pushAllowedWorkIfAny();
             }
-        }
-        while (!heldRequests.isEmpty() && !clustersAwaitingAck()) {
-            processUpdate(heldRequests.poll());
         }
     }
 
