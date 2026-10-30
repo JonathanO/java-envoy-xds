@@ -2,6 +2,7 @@ package net.woaf.jono.envoy.xds;
 
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.Any;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
 import com.google.rpc.Status;
 import dev.hegel.HegelTest;
@@ -26,8 +27,11 @@ import io.envoyproxy.envoy.service.runtime.v3.Runtime;
 import io.grpc.stub.StreamObserver;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -57,6 +61,8 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
     private static final List<String> NAMES = List.of("a", "b");
     private static final List<String> TYPE_URLS = Stream.concat(Arrays.stream(TypeUrl.values()).map(TypeUrl::getTypeUrl),
         Stream.of("type.googleapis.com/envoy.config.core.v3.TypedExtensionConfig", "")).toList();
+    /** The types whose requests may wait for clusters, and be answered after later ones. */
+    private static final Set<TypeUrl> MAY_WAIT = Set.of(TypeUrl.LDS, TypeUrl.RDS, TypeUrl.SRDS, TypeUrl.VHDS);
 
     @HegelTest(testCases = 1000)
     void streamsStayConsistent(TestCase tc) {
@@ -120,16 +126,58 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
         }
     }
 
+    /** What the server has heard the client subscribe to, of one type. */
+    private static final class Subscription {
+        private boolean all = false; // to everything
+        private boolean before = false; // for SotW, named something before; for delta, asked before
+        private final Set<String> names = new HashSet<>();
+        private String nonce = ""; // of the last response: SotW ignores a request answering any other
+
+        void hear(Message request, boolean wildcardType) {
+            if (request instanceof DiscoveryRequest r) {
+                if (!nonce.isEmpty() && !r.getResponseNonce().equals(nonce)) {
+                    return;
+                }
+                List<String> ns = r.getResourceNamesList();
+                all = wildcardType && (ns.contains("*") || (ns.isEmpty() && !before)); // an empty first list is the legacy wildcard
+                before |= !ns.isEmpty();
+                names.clear();
+                names.addAll(ns);
+            } else {
+                DeltaDiscoveryRequest r = (DeltaDiscoveryRequest) request;
+                List<String> sub = r.getResourceNamesSubscribeList();
+                List<String> unsub = r.getResourceNamesUnsubscribeList();
+                boolean legacy = !before && sub.isEmpty() && unsub.isEmpty();
+                before = true;
+                all = wildcardType && (all || legacy || sub.contains("*")) && !unsub.contains("*"); // unsubscribing wins
+                names.addAll(sub);
+                names.removeAll(unsub);
+            }
+        }
+    }
+
     /** Records what the server says to the client: a response observer for either protocol. */
     private static final class Client implements StreamObserver<Message> {
         private final List<Message> responses = new ArrayList<>();
-        private final Set<String> asked = new HashSet<>();
+        private final Map<String, Subscription> heard = new HashMap<>(); // by type asked for
         private boolean ended = false;
 
         @Override
         public void onNext(Message value) {
             assertThat(ended).as("a response after the stream ended").isFalse();
             responses.add(value);
+            String typeUrl = value instanceof DeltaDiscoveryResponse d ? d.getTypeUrl() : ((DiscoveryResponse) value).getTypeUrl();
+            Subscription s = heard.get(typeUrl);
+            if (s == null) {
+                return; // see answersOnlyWhatWasAsked
+            }
+            List<String> sent = value instanceof DeltaDiscoveryResponse d
+                ? d.getResourcesList().stream().map(Resource::getName).toList()
+                : ((DiscoveryResponse) value).getResourcesList().stream().map(CommonDiscoveryStreamObserverPropertiesTest::name).toList();
+            if (!MAY_WAIT.contains(TypeUrl.of(typeUrl))) {
+                assertThat(sent).as("sent %s the client isn't subscribed to", typeUrl).allMatch(n -> s.all || s.names.contains(n));
+            }
+            s.nonce = value instanceof DeltaDiscoveryResponse d ? d.getNonce() : ((DiscoveryResponse) value).getNonce();
         }
 
         @Override
@@ -163,6 +211,16 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
         @Override
         public void onClientNack(ClientHandle clientHandle, Node node, TypeUrl typeUrl, Status errorDetail) {
             nacks++;
+        }
+    }
+
+    /** The name of a resource in a SotW response. */
+    private static String name(Any resource) {
+        try {
+            Message m = resource.unpack(Objects.requireNonNull(TypeUrl.of(resource.getTypeUrl())).getMessageClazz());
+            return m instanceof ClusterLoadAssignment c ? c.getClusterName() : (String) m.getField(m.getDescriptorForType().findFieldByName("name"));
+        } catch (InvalidProtocolBufferException e) {
+            throw new AssertionError(e);
         }
     }
 
@@ -213,10 +271,11 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
         void request(TestCase tc) {
             tc.assume(live());
             String typeUrl = tc.draw(sampledFrom(TYPE_URLS), "type");
-            client.asked.add(typeUrl);
             Message request = delta ? deltaRequest(tc, typeUrl) : sotwRequest(tc, typeUrl);
+            TypeUrl type = TypeUrl.of(typeUrl);
+            client.heard.computeIfAbsent(typeUrl, t -> new Subscription()).hear(request, type != null && type.isWildcard());
             boolean nack = request instanceof DeltaDiscoveryRequest d ? d.hasErrorDetail() : ((DiscoveryRequest) request).hasErrorDetail();
-            if (nack && TypeUrl.of(typeUrl) != null) {
+            if (nack && type != null) {
                 nacksSent++;
             }
             call(() -> requests.onNext(request));
@@ -311,7 +370,7 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
                 List<Any> resources = response instanceof DeltaDiscoveryResponse d
                     ? d.getResourcesList().stream().map(Resource::getResource).toList()
                     : ((DiscoveryResponse) response).getResourcesList();
-                assertThat(client.asked).as("answered a type never asked for").contains(typeUrl);
+                assertThat(client.heard).as("answered a type never asked for").containsKey(typeUrl);
                 assertThat(TypeUrl.of(typeUrl)).as("answered an unknown type").isNotNull();
                 assertThat(resources).allSatisfy(a -> assertThat(a.getTypeUrl()).isEqualTo(typeUrl));
             }

@@ -71,8 +71,9 @@ public class SubManagerPropertiesTest {
         int requests = tc.draw(integers().min(1).max(8), "requests");
         for (int i = 0; i < requests; i++) {
             Set<String> subscribe = tc.draw(sets(sampledFrom(names)), "subscribe");
-            // Subscribing to and unsubscribing from one name in one request is rejected; see SubListSubManagerSpec.
-            Set<String> unsubscribe = Sets.difference(tc.draw(sets(sampledFrom(names)), "unsubscribe"), subscribe);
+            // Subscribing to and unsubscribing from one name in one request is rejected; see SubListSubManagerSpec. The
+            // wildcard isn't a name: it may be in both.
+            Set<String> unsubscribe = Sets.difference(tc.draw(sets(sampledFrom(names)), "unsubscribe"), withoutWildcard(subscribe));
 
             Set<String> before = model.subscribed();
             boolean wasWildcard = model.wildcard;
