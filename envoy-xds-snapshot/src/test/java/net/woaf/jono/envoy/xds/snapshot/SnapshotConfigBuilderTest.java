@@ -112,6 +112,20 @@ public class SnapshotConfigBuilderTest {
     }
 
     @Test
+    public void groupCreatedOrRemovedWithItsViewChangeReachesTheViewsClients() {
+        SnapshotSource<String, String, String> views = viewPerClient();
+        views.update(c -> c.view("c", "a").group("a", e -> e.put(cluster("foo"))));
+
+        SnapshotUpdate<String> created = sent(views.update(c -> c.group("new", e -> e.put(cluster("bar"))).view("c", "a", "new")), "c");
+        assertThat(added(Cluster.class, created)).containsExactly(cluster("bar"));
+        assertThat(removed(Cluster.class, created)).isEmpty();
+
+        SnapshotUpdate<String> removedWithIt = sent(views.update(c -> c.removeGroup("new").view("c", "a")), "c");
+        assertThat(added(Cluster.class, removedWithIt)).isEmpty();
+        assertThat(removed(Cluster.class, removedWithIt)).containsExactly("bar");
+    }
+
+    @Test
     public void onlyClientsWhoseViewHasTheGroupAreWoken() {
         SnapshotSource<String, String, String> views = new SnapshotSource<>(Function.identity(), Runnable::run);
         views.update(c -> c.view("a", "own-a", "shared").view("b", "own-b"));
