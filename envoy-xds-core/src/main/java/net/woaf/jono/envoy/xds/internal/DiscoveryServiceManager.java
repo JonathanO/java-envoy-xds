@@ -320,7 +320,9 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     }
 
     private void pushAllowedWorkIfAny() {
-        if (!outstandingAcks.isEmpty()) {
+        // Nor while requests are held: a type that hasn't heard its first one would be skipped, though Envoy has some
+        // of it. The last held request to be answered starts what waits.
+        if (!outstandingAcks.isEmpty() || !heldRequests.isEmpty()) {
             return;
         }
         pushDeferredReconnectRemovalsIfAny(); // the ACK one waits for holds the change too: see isPushAllowed()
