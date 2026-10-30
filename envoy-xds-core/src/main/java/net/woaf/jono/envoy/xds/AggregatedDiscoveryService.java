@@ -25,6 +25,9 @@ import java.util.function.Supplier;
  * The ADS gRPC service: add it to your gRPC server, and Envoys can connect over SotW or delta xDS. Each connection
  * subscribes to the {@link ClusterEventSource}, and pushes each change to that Envoy in make-before-break order.
  *
+ * <p>It logs through SLF4J. Everything a connection logs, once its first request names the Envoy, has that Envoy's
+ * node ID in the MDC under {@code node}: add {@code %X{node}} to your logback pattern to see it.
+ *
  * @param <StateUpdT> the state updates your ClusterEventSource publishes
  * @param <DetailsT> client details, from your ClientConfigProvider
  */

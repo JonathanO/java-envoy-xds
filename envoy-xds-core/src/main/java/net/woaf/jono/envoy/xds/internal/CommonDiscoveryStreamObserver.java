@@ -19,6 +19,7 @@ import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.io.Closeable;
 import java.util.function.Function;
@@ -27,6 +28,12 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
         implements StreamObserver<T>, ClusterManagerEventListener<StateUpdT>, ClientHandle {
 
     private static final Logger log = LoggerFactory.getLogger(CommonDiscoveryStreamObserver.class);
+
+    /**
+     * The MDC key that says which Envoy a log is about. Each entry point puts the node ID there, so everything logged
+     * under it, by the manager and services too, carries it, then puts back what the thread had.
+     */
+    private static final String NODE_MDC_KEY = "node";
 
     @GuardedBy("this")
     private boolean isDead = false;
@@ -75,24 +82,48 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
 
     @GuardedBy("this")
     private void extractNodeData(Node node) {
+        nodeId = node.getId();
+        clusterId = node.getCluster();
+        MDC.put(NODE_MDC_KEY, nodeId); // first, so the lookup's and listeners' logs carry it too
+
         XdsConfig<DetailsT> config = configProvider.lookup(node);
 
         this.node = node;
         xdsConfig = config;
         notifyClientConnected(node, config);
+    }
 
-        nodeId = node.getId();
-        clusterId = node.getCluster();
+    /**
+     * {@return what the MDC had for the node, to give restoreMdc when done}
+     * Puts this stream's node in it, once we know it.
+     */
+    @GuardedBy("this")
+    private @Nullable String putNodeInMdc() {
+        String outer = MDC.get(NODE_MDC_KEY);
+        if (nodeId != null) {
+            MDC.put(NODE_MDC_KEY, nodeId);
+        }
+        return outer;
+    }
+
+    /** Puts back what the thread had, so a pooled thread doesn't log as this Envoy for the next one. */
+    private static void restoreMdc(@Nullable String outer) {
+        if (outer == null) {
+            MDC.remove(NODE_MDC_KEY);
+        } else {
+            MDC.put(NODE_MDC_KEY, outer);
+        }
     }
 
     @Override
     public synchronized void onNext(T concreteValue) {
-        if (isDead) {
-            // e.g. sent before Envoy saw us close the stream to resync it
-            log.debug("Ignoring a request from {} on a closed stream", nodeId);
-            return;
-        }
+        String outerNode = putNodeInMdc();
         try {
+            if (isDead) {
+                // e.g. sent before Envoy saw us close the stream to resync it
+                log.debug("Ignoring a request from {} on a closed stream", nodeId);
+                return;
+            }
             CommonDiscoveryRequest<T> value = commonDiscoveryRequestConverter.apply(concreteValue);
 
             if (node == null) {
@@ -123,6 +154,8 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
         } catch (Throwable t) {
             this.onError(t); // Despite docs on interface, upstream is not calling onError :-(
             throw t;
+        } finally {
+            restoreMdc(outerNode);
         }
     }
 
@@ -206,13 +239,18 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
 
     @Override
     public synchronized void resync() {
-        if (isDead) {
-            return;
-        }
-        log.info("Closing stream to {} so it resyncs", nodeId);
-        try (RunWithExceptions runner = new RunWithExceptions("closing stream to resync")) {
-            cleanupOnDisconnect(runner);
-            runner.exec(responseObserver::onCompleted);
+        String outerNode = putNodeInMdc();
+        try {
+            if (isDead) {
+                return;
+            }
+            log.info("Closing stream to {} so it resyncs", nodeId);
+            try (RunWithExceptions runner = new RunWithExceptions("closing stream to resync")) {
+                cleanupOnDisconnect(runner);
+                runner.exec(responseObserver::onCompleted);
+            }
+        } finally {
+            restoreMdc(outerNode);
         }
     }
 
@@ -230,14 +268,19 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
 
     @Override
     public synchronized void onError(Throwable t) {
-        if (isDead) {
-            log.warn("onError called on already dead CDSO. Maybe upstream fixed the bug where onError wasn't getting called?");
-            return;
+        String outerNode = putNodeInMdc();
+        try {
+            if (isDead) {
+                log.warn("onError called on already dead CDSO. Maybe upstream fixed the bug where onError wasn't getting called?");
+                return;
+            }
+            if (!(t instanceof StatusRuntimeException r) || !Status.Code.CANCELLED.equals(r.getStatus().getCode())) {
+                log.warn("Error streaming to an ADS client", t);
+            }
+            closeWithError(t);
+        } finally {
+            restoreMdc(outerNode);
         }
-        if (!(t instanceof StatusRuntimeException r) || !Status.Code.CANCELLED.equals(r.getStatus().getCode())) {
-            log.warn("Error streaming to an ADS client", t);
-        }
-        closeWithError(t);
     }
 
     @GuardedBy("this")
@@ -250,25 +293,30 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
 
     @Override
     public synchronized void onCompleted() {
-        if (isDead) {
-            log.warn("onCompleted called on already dead CDSO.");
-            return;
-        }
-        log.debug("Completed: " + this.node);
+        String outerNode = putNodeInMdc();
+        try {
+            if (isDead) {
+                log.warn("onCompleted called on already dead CDSO.");
+                return;
+            }
+            log.debug("Completed: " + this.node);
 
-        try (RunWithExceptions runner = new RunWithExceptions("handling stream completed")) {
-            cleanupOnDisconnect(runner);
-            runner.exec(responseObserver::onCompleted);
+            try (RunWithExceptions runner = new RunWithExceptions("handling stream completed")) {
+                cleanupOnDisconnect(runner);
+                runner.exec(responseObserver::onCompleted);
+            }
+        } finally {
+            restoreMdc(outerNode);
         }
     }
 
     @Override
     public synchronized void onNetworkChange(StateUpdT diff) {
-        if (isDead) {
-            return;
-        }
-
+        String outerNode = putNodeInMdc();
         try {
+            if (isDead) {
+                return;
+            }
             // Set before we subscribe, and only cleared once dead.
             Preconditions.checkNotNull(discoveryServiceManager).pushUpdates(diff);
         } catch (Throwable t) {
@@ -280,6 +328,8 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             if (t instanceof Error e) {
                 throw e;
             }
+        } finally {
+            restoreMdc(outerNode);
         }
     }
 }

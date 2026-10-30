@@ -123,7 +123,7 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      * @param discoveryServices The discovery service implementations
      * @param preOrder Specifies the order in which discovery services should be processed for "add" order
      * @param postOrder Specifies the order in which discovery services should be processed for "remove" order
-     * @param waitingStateBacklog Manager for the backlog of state updates, updates will be passed to the backlog if we are not able to immediately start sending them to this client because we are already part way through a previous update.
+     * @param waitingStateBacklog holds the state updates waiting to be pushed: each one is put in, and taken out when its push can begin
      */
     public DiscoveryServiceManager(Map<TypeUrl, DiscoveryService<RequestT, StateUpdT>> discoveryServices, List<TypeUrl> preOrder, List<TypeUrl> postOrder, StateBacklog<StateUpdT> waitingStateBacklog,
                                    DiscoveryServiceManagerMetrics metrics) {
@@ -345,7 +345,7 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     /**
      * Receive a ServiceChanges that may need to be communicated to envoy.
      * If pushing of a previous ServiceChanges is still in progress, or any unacked messages are outstanding, communicating this change will be deferred until those in-progress changes are finished and all messages have been acked.
-     * If there's already a deferred change waiting, this change will be merged with the deferred one, and applied together eventually.
+     * Waiting changes are kept in the StateBacklog, which may merge them (MergingStateBacklog) or not (QueueingStateBacklog).
      *
      * @param diff the change to be applied.
      */

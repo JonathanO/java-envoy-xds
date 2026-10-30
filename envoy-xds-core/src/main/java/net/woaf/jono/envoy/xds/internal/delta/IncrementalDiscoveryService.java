@@ -105,7 +105,7 @@ class IncrementalDiscoveryService<E extends Message, StateUpdT, DetailsT> extend
             // Answered from the change we haven't pushed yet.
             resources.resources().forEach(msg -> answeredDuringChange.put(msg.name(), msg.message()));
         }
-        if (deferReconnectRemovals.getAsBoolean()) {
+        if (!reconnectRemovals.isEmpty() && deferReconnectRemovals.getAsBoolean()) { // asking may give up waiting, and warn
             deferredReconnectRemovals.addAll(reconnectRemovals);
         } else {
             removed.addAll(reconnectRemovals);
