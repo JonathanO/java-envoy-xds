@@ -210,7 +210,8 @@ names Envoy subscribed to: return only those, or the library logs a warning.
 
 `getResourcesAddOrder` and `getResourcesRemoveOrder` return the whole state, to answer Envoy when it subscribes to
 something. The add-order one is the state part way through a change: everything new added, nothing old removed yet.
-The remove-order one is the state once the change is done.
+The remove-order one is the state once the change is done. Mid-change, Envoy is answered from the add-order one until
+the type's remove round has gone, and after a NACK stops the change.
 
 ```java
 final class ClusterBuilder implements IncrementalConfigBuilder<Cluster, Mesh, Caller> {
@@ -267,7 +268,9 @@ doesn't depend on how quickly Envoy ACKs.
 
 Both options are about what a client waits for, mostly after it reconnects. Envoy keeps its config while it's
 disconnected, and re-subscribes to everything at once when it reconnects. We answer route and listener subscriptions
-only once the clusters and endpoints they may use are ACKed. With delta, we remove what Envoy kept that no longer
+only once the clusters and endpoints they may use are sent and ACKed. A subscription that arrives while a change is
+going out gets the change's add round: what the change removes stays until its type's remove round, so nothing goes
+before what may refer to it. With delta, we remove what Envoy kept that no longer
 exists in remove order, once the types that may still use it have been answered and ACKed. SotW can't do the same for
 clusters: its CDS answer is the whole set, so a cluster Envoy kept goes at once. Prefer delta.
 
@@ -316,7 +319,8 @@ for every phase but the last.
 ## 7. NACKs and resync
 
 Once an Envoy NACKs, we stop sending it changes on that stream. It keeps serving its last good config, which goes
-stale. We still answer its new subscriptions. On SotW each answer is the whole set, so for the type Envoy rejected
+stale. We still answer its new subscriptions, keeping what the rejected change would remove, as those removals never
+went out. On SotW each answer is the whole set, so for the type Envoy rejected
 it repeats what was rejected: Envoy rejects it again and keeps what it has. Rolling it back instead would undo
 whatever part of the rejected answer Envoy did take. Retrying would only be rejected again, and dropping the stream
 makes Envoy reconnect straight into the same config, in a loop.

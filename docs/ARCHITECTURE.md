@@ -158,7 +158,8 @@ whether Envoy subscribed to a name, and the client details from your `ClientConf
   `Response` of resources to add or replace and names to remove. New things go in the add round, removed things in the
   remove round. The builder decides which is which; some updates are in effect removals.
 - `getResourcesAddOrder(state, ...)`: every resource, as it should be part way through a change: the new ones added,
-  the old ones not yet removed. Used to answer requests while this type's add round is still to come.
+  the old ones not yet removed. Used to answer requests mid-change, until this type's remove round has gone, and
+  after a NACK stops the change.
 - `getResourcesRemoveOrder(state, ...)`: every resource, as it should be once the change is done. Used to answer
   requests the rest of the time.
 - `handlesType()`: the resource class.
@@ -306,20 +307,22 @@ When Envoy subscribes to names, the type's service answers with them from the la
 - SotW sends its whole set, with the new names added. It answers every request that adds names, even if it has nothing
   for them: Envoy waits for an answer to its first request of each type.
 
-If a change is under way and this type's add round hasn't gone yet, the answer comes from `getResourcesAddOrder`: the
-change's new resources, and the old ones it will remove later. Otherwise it comes from `getResourcesRemoveOrder`. Delta
-remembers what it answered with, and the add round leaves those resources out if they haven't changed. SotW, whose
-answer is the whole set, first applies the next round of the change this type has still to send, so the answer is
-consistent; that round then sends nothing more.
+If a change is under way and this type's remove round hasn't gone yet, the answer comes from `getResourcesAddOrder`:
+the change's new resources, and the old ones it will remove later, so nothing goes before what may still refer to it.
+Otherwise it comes from `getResourcesRemoveOrder`. Delta remembers what it answered with during the add round, and the
+add round leaves those resources out if they haven't changed. SotW, whose answer is the whole set, first applies the
+type's add round if it's still to send, so the answer is consistent; that round then sends nothing more. The remove
+round always goes in its turn.
 
 These answers aren't part of a push. The manager counts each as awaiting an ACK, and doesn't start a new push until
 they're all ACKed. A push already under way carries on.
 
-### Route-type requests are held while clusters await an ACK
+### Route-type requests are held while clusters are pending
 
 Requests for LDS, RDS, SRDS and VHDS, the types that may refer to clusters, wait while a CDS or EDS response awaits its
-ACK. When Envoy reconnects it subscribes to everything at once, and without this its routes could arrive before the
-clusters they use. Held requests are handled in the order they came, as soon as neither CDS nor EDS awaits an ACK.
+ACK, or a change's endpoints are still to be sent (`clustersPending`). When Envoy reconnects it subscribes to
+everything at once, and without this its routes could arrive before the clusters they use. Held requests are handled
+in the order they came, as soon as the clusters are no longer pending.
 
 A request isn't held if its own type awaits an ACK, so an ACK the manager waits for is never held. CDS and EDS requests
 are never held: Envoy holds its CDS ACK until new clusters have warmed, which needs the EDS answer.
@@ -355,7 +358,8 @@ manager freezes the stream, for good:
 - it drops every later update.
 
 It still answers new subscriptions, from the state the services last had. For a change cut short that is the change's
-state, but each answer covers only the names it adds, so the rest of the change isn't sent. On SotW each answer is the
+add round, for types it left mid-way, as their removals never went out; each answer covers only the names it adds, so
+the rest of the change isn't sent. On SotW each answer is the
 whole set, so for the type Envoy rejected it repeats what was rejected. Envoy rejects it again and keeps what it has.
 
 Why freeze? A rejected change won't fix itself: resending it, or a later change that includes it, gets rejected again.

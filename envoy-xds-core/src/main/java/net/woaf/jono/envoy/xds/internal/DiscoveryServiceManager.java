@@ -81,9 +81,10 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
     private @Nullable TypeUrl delayUpdatesUntilAckOf = null;
 
     /**
-     * Types that refer to clusters. Envoy re-subscribes to everything at once when it reconnects, so their answers wait
-     * until the clusters and endpoints they may use are ACKed. CDS and EDS answers never wait: Envoy holds its CDS ACK
-     * until new clusters have warmed, which takes the EDS answer.
+     * Types that refer to clusters. Envoy re-subscribes to everything at once when it reconnects, and may subscribe at
+     * any point in a change, so their answers wait until the clusters and endpoints they may use have been sent and
+     * ACKed. CDS and EDS answers never wait: Envoy holds its CDS ACK until new clusters have warmed, which takes the EDS
+     * answer.
      */
     private static final Set<TypeUrl> USE_CLUSTERS = Set.of(TypeUrl.LDS, TypeUrl.RDS, TypeUrl.SRDS, TypeUrl.VHDS);
 
@@ -185,7 +186,7 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
             return;
         }
         handle(value, discoveryService);
-        while (!heldRequests.isEmpty() && !clustersAwaitingAck()) {
+        while (!heldRequests.isEmpty() && !clustersPending()) {
             CommonDiscoveryRequest<RequestT> held = heldRequests.poll();
             handle(held, serviceFor(held));
         }
@@ -205,7 +206,7 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
         if (heldRequests.stream().anyMatch(held -> held.typeUrl().equals(value.typeUrl()))) {
             return true;
         }
-        return USE_CLUSTERS.contains(discoveryService.getTypeUrl()) && !discoveryService.awaitingAck() && clustersAwaitingAck();
+        return USE_CLUSTERS.contains(discoveryService.getTypeUrl()) && !discoveryService.awaitingAck() && clustersPending();
     }
 
     private void handle(CommonDiscoveryRequest<RequestT> value, DiscoveryService<RequestT, StateUpdT> discoveryService) {
@@ -225,8 +226,14 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
         }
     }
 
-    private boolean clustersAwaitingAck() {
-        return Stream.of(TypeUrl.CDS, TypeUrl.EDS).map(discoveryServices::get).anyMatch(s -> s != null && s.awaitingAck());
+    /**
+     * Whether clusters or endpoints are still to be sent or ACKed: a change's, or an answer's. The endpoints' add round
+     * comes after the clusters', so while either is to come, the endpoints' is.
+     */
+    private boolean clustersPending() {
+        DiscoveryService<RequestT, StateUpdT> endpoints = discoveryServices.get(TypeUrl.EDS);
+        return Stream.of(TypeUrl.CDS, TypeUrl.EDS).map(discoveryServices::get).anyMatch(s -> s != null && s.awaitingAck())
+            || (endpoints != null && endpoints.addsToCome());
     }
 
     /**
@@ -276,9 +283,10 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
      * <p>A rejected change won't fix itself: resending it, or any later change that includes it, gets rejected again.
      * Envoy may also have applied part of it, so we no longer know what it has, and diffing from what we think it has
      * would make things worse. Dropping the stream instead would have Envoy reconnect straight away, be sent the same
-     * config, and loop. Subscription requests are still answered, from our own state. For SotW that includes what
-     * Envoy rejected, as each answer is the whole set: resending it changes nothing Envoy has, where rolling it back
-     * would undo any part of it Envoy took.
+     * config, and loop. Subscription requests are still answered, from our own state: the rejected change's add round,
+     * as its removals were never sent and Envoy may still use what they'd remove. For SotW that includes what Envoy
+     * rejected, as each answer is the whole set: resending it changes nothing Envoy has, where rolling it back would
+     * undo any part of it Envoy took.
      */
     private void freeze() {
         if (frozen) {

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -144,6 +145,79 @@ public class SotwDiscoveryServiceTest {
         ds.sendNetworkUpdatePre();
         ds.sendNetworkUpdatePost();
         assertNoAdditionalResponsesSent(2);
+    }
+
+    @Test
+    public void requestBeforeItsTypesRemoveRoundKeepsWhatTheRoundRemoves(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        final DummyUpdate next = new DummyUpdate();
+        serves(configBuilder, endpoints("a"), endpoints("c"));
+        when(configBuilder.getResourcesAddOrder(eq(next), any(), any())).thenAnswer(inv -> named(inv.getArgument(1), endpoints("a"), endpoints("c")));
+        lenient().when(configBuilder.getResourcesRemoveOrder(eq(next), any(), any())).thenAnswer(inv -> named(inv.getArgument(1), endpoints("c")));
+        when(configBuilder.addOrder(eq(next), any(), any())).thenReturn(IncrementalConfigBuilder.Response.<ClusterLoadAssignment>empty());
+        when(configBuilder.removeOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<>(List.of(), List.of("a")));
+        DiscoveryService<DiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+        InOrder inOrder = inOrder(responseObserver);
+        ds.processUpdate(request(TypeUrl.EDS, "a"));
+        DiscoveryResponse first = nextResponse(inOrder);
+        ds.processUpdate(ack(TypeUrl.EDS, first, "a"));
+
+        // A change removes a's endpoints, and the route using them. Envoy asks for c while the route's removal waits.
+        ds.onNetworkUpdate(next);
+        ds.sendNetworkUpdatePre();
+        ds.processUpdate(ack(TypeUrl.EDS, first, "a", "c"));
+        DiscoveryResponse answer = nextResponse(inOrder);
+        assertThat(answer.getResourcesList()).as("a's endpoints kept while the route using them is still there")
+            .containsExactlyElementsOf(packed(endpoints("a"), endpoints("c")));
+        ds.processUpdate(ack(TypeUrl.EDS, answer, "a", "c"));
+
+        ds.sendNetworkUpdatePost();
+        assertThat(nextResponse(inOrder).getResourcesList()).as("a's endpoints removed in turn").containsExactlyElementsOf(packed(endpoints("c")));
+    }
+
+    @Test
+    public void firstRequestForAWildcardTypeKeepsWhatItsRemoveRoundRemoves(@Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
+        final DummyUpdate next = new DummyUpdate();
+        when(configBuilder.getResourcesAddOrder(eq(next), any(), any())).thenAnswer(inv -> named(inv.getArgument(1), cluster("a")));
+        lenient().when(configBuilder.getResourcesRemoveOrder(eq(next), any(), any())).thenReturn(IncrementalConfigBuilder.Resources.<Cluster>empty());
+        when(configBuilder.removeOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<>(List.of(), List.of("a")));
+        DiscoveryService<DiscoveryRequest, DummyUpdate> ds = service(TypeUrl.CDS, configBuilder);
+        ds.init(initState);
+        InOrder inOrder = inOrder(responseObserver);
+
+        // A change removes cluster a, and the listener that routes to it, whose removal isn't sent yet. A reconnected
+        // Envoy, which kept a, only now asks for clusters.
+        ds.onNetworkUpdate(next);
+        ds.sendNetworkUpdatePre();
+        ds.processUpdate(request(TypeUrl.CDS));
+        DiscoveryResponse answer = nextResponse(inOrder);
+        assertThat(answer.getResourcesList()).as("a: an answer without it removes it").containsExactlyElementsOf(packed(cluster("a")));
+        ds.processUpdate(ack(TypeUrl.CDS, answer));
+
+        ds.sendNetworkUpdatePost();
+        assertThat(nextResponse(inOrder).getResourcesList()).as("a removed in turn").isEmpty();
+    }
+
+    @Test
+    public void requestAfterANackKeepsWhatTheRejectedChangeRemoves(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        final DummyUpdate next = new DummyUpdate();
+        serves(configBuilder, endpoints("a"));
+        when(configBuilder.getResourcesAddOrder(eq(next), any(), any())).thenAnswer(inv -> named(inv.getArgument(1), endpoints("a"), endpoints("b")));
+        lenient().when(configBuilder.getResourcesRemoveOrder(eq(next), any(), any())).thenAnswer(inv -> named(inv.getArgument(1), endpoints("a")));
+        DiscoveryService<DiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+        InOrder inOrder = inOrder(responseObserver);
+        ds.processUpdate(request(TypeUrl.EDS, "a"));
+        DiscoveryResponse first = nextResponse(inOrder);
+        ds.processUpdate(ack(TypeUrl.EDS, first, "a"));
+
+        // A change adds a cluster and removes b's endpoints. Envoy NACKs the cluster, so the change stops.
+        ds.onNetworkUpdate(next);
+        ds.abandonChange();
+        assertThat(ds.addsToCome()).as("none of the change goes now").isFalse();
+        ds.processUpdate(ack(TypeUrl.EDS, first, "a", "b"));
+        assertThat(nextResponse(inOrder).getResourcesList()).as("b's endpoints: their removal never went out")
+            .containsExactlyElementsOf(packed(endpoints("a"), endpoints("b")));
     }
 
     @Test
