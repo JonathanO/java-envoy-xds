@@ -82,6 +82,11 @@ final class SotwStream {
         }
     }
 
+    /** How many of the source's updates wait to be delivered. */
+    int waitingTasks() {
+        return tasks.size();
+    }
+
     DiscoveryResponse last() {
         return responses.get(responses.size() - 1);
     }
