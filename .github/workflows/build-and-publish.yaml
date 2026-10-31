@@ -19,7 +19,7 @@ jobs:
       - name: "Checkout repo"
         uses: actions/checkout@v7
         with:
-          submodules: true # spec/, the vectors envoy-xds-spec-tests runs
+          submodules: true # spec/: the vectors, and the conformance harness every build includes
       - name: "Setup Java"
         uses: actions/setup-java@v6
         with:
@@ -63,6 +63,8 @@ jobs:
     steps:
       - name: "Checkout repo"
         uses: actions/checkout@v7
+        with:
+          submodules: true # spec/: the conformance harness every build includes
       - name: "Setup Java"
         uses: actions/setup-java@v6
         with:
@@ -102,6 +104,8 @@ jobs:
     steps:
       - name: "Checkout repo"
         uses: actions/checkout@v7
+        with:
+          submodules: true # spec/: the conformance harness every build includes
       - name: "Setup Java"
         uses: actions/setup-java@v6
         with:
@@ -154,6 +158,8 @@ jobs:
     steps:
       - name: "Checkout repo"
         uses: actions/checkout@v7
+        with:
+          submodules: true # spec/: the conformance harness every build includes
       - name: "Setup Java"
         id: java
         uses: actions/setup-java@v6

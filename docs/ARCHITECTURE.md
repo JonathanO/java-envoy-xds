@@ -61,9 +61,8 @@ The modules:
 |---|---|
 | `envoy-xds-core` | The ADS service. `net.woaf.jono.envoy.xds` has the entry point, `XdsConfig` and `TypeUrl`; `.api` the interfaces you implement; `.api.utils` the backlogs, `SerialEventListener` and `ResyncAfterNack`. `.internal` (with `.internal.sotw` and `.internal.delta`) is the protocol machinery, and isn't API. |
 | `envoy-xds-snapshot` | Snapshot-style config: publish groups of resources and views of them, and it works out what changed for each Envoy. |
-| `envoy-xds-testing` | Helpers to test any Java control plane against a real Envoy, and an xDS conformance suite. It doesn't depend on core. |
 | `envoy-xds-example` | A toy control plane driven from the command line, both with hand-written config builders and with snapshots. |
-| `envoy-xds-e2e-tests` | Runs the conformance suite against this library on real Envoys. |
+| `envoy-xds-e2e-tests` | Runs the conformance suite against this library on real Envoys. The harness and suite are envoy-xds-spec's `conformance/` build, which `settings.gradle.kts` includes from the `spec/` submodule. |
 | `envoy-xds-spec-tests` | Runs the trace vectors from [envoy-xds-spec](https://github.com/JonathanO/envoy-xds-spec), a submodule at `spec/`, against this library. Tests only. |
 
 ## 2. Components
@@ -571,8 +570,8 @@ so every record under it names the client, and nothing leaks to the next client 
   protocol, through the real `AggregatedDiscoveryService` and the snapshot module, with a fake Envoy per Envoy in the
   vector. Every port runs the same vectors, so they hold the ports to the same behaviour. The format is in the spec
   repo's docs/VECTORS.md. Clone with `--recurse-submodules`, or run `git submodule update --init`.
-- **End to end, against real Envoys**: `envoy-xds-e2e-tests` runs the conformance suite from `envoy-xds-testing`
-  (`EnvoyXdsConformanceTest`, through the snapshot module) on every Envoy release upstream supports, 1.36 to 1.40, over
+- **End to end, against real Envoys**: `envoy-xds-e2e-tests` runs the conformance suite from the spec's `conformance/`
+  build (`EnvoyXdsConformanceTest`, through the snapshot module) on every Envoy release upstream supports, 1.36 to 1.40, over
   SotW and delta, with and without rate limiting. `ChangesDuringAPushAreMergedTest` checks that changes arriving during
   a push are merged. They need Docker; CI runs a job per Envoy version. Envoy is never mocked.
 

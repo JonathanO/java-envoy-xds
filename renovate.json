@@ -4,7 +4,7 @@
     "config:recommended"
   ],
   "git-submodules": {
-    "description": "Bump the spec submodule, whose vectors envoy-xds-spec-tests runs",
+    "description": "Bump the spec submodule: its vectors, which envoy-xds-spec-tests runs, and its conformance harness, which the e2e tests run",
     "enabled": true
   },
   "packageRules": [
