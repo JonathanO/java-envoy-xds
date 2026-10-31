@@ -46,6 +46,18 @@ public class SotwNackTest {
     }
 
     @Test
+    public void nackUnsubscribesFromTheSource() {
+        source.update(all(e -> e.put(cluster("a"))));
+        DiscoveryResponse cds = stream.request(TypeUrl.CDS, null);
+        stream.send(DiscoveryRequest.newBuilder().setTypeUrl(TypeUrl.CDS.getTypeUrl())
+            .setResponseNonce(cds.getNonce()).setErrorDetail(Status.newBuilder().setMessage("bad cluster")));
+
+        source.update(all(e -> e.put(cluster("b"))));
+
+        assertThat(stream.waitingTasks()).as("no work for a stream that will send no more changes").isZero();
+    }
+
+    @Test
     public void subscribingAfterANackOfTheSameTypeRepeatsWhatWasRejected() {
         source.update(all(e -> e.put(cluster("a")).put(cla("a", "10.0.0.1"))));
         stream.ack(stream.request(TypeUrl.CDS, null));
