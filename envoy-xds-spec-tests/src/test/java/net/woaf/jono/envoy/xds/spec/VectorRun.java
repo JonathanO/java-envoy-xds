@@ -4,6 +4,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.protobuf.Any;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Internal;
@@ -17,6 +18,7 @@ import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.Resource;
+import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -46,7 +48,8 @@ import org.jspecify.annotations.Nullable;
 /**
  * One vector, on one protocol: a SnapshotSource served by the real AggregatedDiscoveryService, and a fake Envoy per
  * envoy in the vector. Source updates are delivered on the test's thread after each step, so every response to a step
- * has been sent when the step's expectations are checked. See docs/VECTORS.md in the spec repo for the format.
+ * has been sent when the step's expectations are checked. See docs/VECTORS.md in the spec repo for the format, and
+ * docs/REPLAY.md for {@link #replay()}.
  */
 final class VectorRun {
 
@@ -57,6 +60,9 @@ final class VectorRun {
     private final boolean delta;
 
     private final String title;
+
+    /** Replaying, as docs/REPLAY.md says: an ack or nack of "last" with no such response is left out. */
+    private final boolean replaying;
 
     private final Queue<Runnable> tasks = new ArrayDeque<>();
 
@@ -69,7 +75,12 @@ final class VectorRun {
     private final AggregatedDiscoveryService<SnapshotUpdate<String>, String> ads;
 
     VectorRun(JsonObject vector, String protocol) {
+        this(vector, protocol, false);
+    }
+
+    VectorRun(JsonObject vector, String protocol, boolean replaying) {
         this.vector = vector;
+        this.replaying = replaying;
         this.delta = switch (protocol) {
             case "delta" -> true;
             case "sotw" -> false;
@@ -113,6 +124,60 @@ final class VectorRun {
                 throw new AssertionError(where + "\nfailed: " + e, e);
             }
         }
+    }
+
+    /**
+     * Runs every step, recording what each Envoy got instead of checking it.
+     * @return the run, as docs/REPLAY.md says: {@code {"steps": [...]}}, with {@code "error"} if the vector is wrong
+     */
+    JsonObject replay() {
+        JsonObject run = new JsonObject();
+        JsonArray steps = new JsonArray();
+        run.add("steps", steps);
+        for (JsonElement step : vector.getAsJsonArray("steps")) {
+            try {
+                perform(step.getAsJsonObject());
+            } catch (RuntimeException e) {
+                run.addProperty("error", e.toString());
+                return run;
+            }
+            JsonArray responses = new JsonArray();
+            boolean ended = false;
+            for (FakeEnvoy envoy : envoys.values()) {
+                for (Received response : envoy.received) {
+                    responses.add(replayed(envoy.name, response));
+                }
+                envoy.received.clear();
+                if (envoy.ended != null) {
+                    JsonObject end = new JsonObject();
+                    end.addProperty("envoy", envoy.name);
+                    end.addProperty("ended", envoy.ended);
+                    responses.add(end);
+                    ended = true;
+                }
+            }
+            steps.add(responses);
+            if (ended) {
+                return run;
+            }
+        }
+        return run;
+    }
+
+    private JsonObject replayed(String envoy, Received received) {
+        Contents contents = received.contents();
+        JsonObject response = new JsonObject();
+        response.addProperty("envoy", envoy);
+        response.addProperty("type", received.type().name());
+        JsonArray resources = new JsonArray();
+        contents.resources().values().forEach(m -> resources.add(JsonParser.parseString(print(m))));
+        response.add("resources", resources);
+        if (delta) {
+            JsonArray removed = new JsonArray();
+            contents.removed().forEach(removed::add);
+            response.add("removed", removed);
+        }
+        return response;
     }
 
     private void perform(JsonObject step) {
@@ -351,6 +416,9 @@ final class VectorRun {
 
         @Nullable Throwable failed;
 
+        /** The gRPC status code the server ended this Envoy's stream with, if it did. */
+        @Nullable String ended;
+
         private @Nullable StreamObserver<DiscoveryRequest> sotw;
 
         private @Nullable StreamObserver<DeltaDiscoveryRequest> deltaStream;
@@ -378,6 +446,7 @@ final class VectorRun {
             boolean nack = step.has("nack");
             Received answering = step.has("ack") ? ref(type, step.get("ack").getAsString())
                 : nack ? ref(type, step.get("nack").getAsString()) : null;
+            nack = nack && answering != null; // replaying, a nack of no response is left out
             Status rejection = Status.newBuilder().setMessage("rejected, as the vector says").build();
             Node node = Node.newBuilder().setId(name).build();
             if (delta) {
@@ -393,7 +462,7 @@ final class VectorRun {
                 if (first) {
                     request.setNode(node);
                 }
-                deltaStream().onNext(request.build());
+                deliver(() -> deltaStream().onNext(request.build()));
             } else {
                 if (!kept.isEmpty()) {
                     throw new IllegalArgumentException("kept is for delta only");
@@ -417,9 +486,19 @@ final class VectorRun {
                 if (first) {
                     request.setNode(node);
                 }
-                sotwStream().onNext(request.build());
+                deliver(() -> sotwStream().onNext(request.build()));
             }
             first = false;
+        }
+
+        /** Sends a request. A status the server throws ends the stream with it, as gRPC would. */
+        private void deliver(Runnable send) {
+            try {
+                send.run();
+            } catch (StatusRuntimeException e) {
+                failed = e;
+                ended = e.getStatus().getCode().name();
+            }
         }
 
         void disconnect() {
@@ -441,8 +520,11 @@ final class VectorRun {
             names.clear();
         }
 
-        private Received ref(TypeUrl type, String ref) {
+        private @Nullable Received ref(TypeUrl type, String ref) {
             Received response = ref.equals("last") ? last.get(type) : labels.get(ref);
+            if (response == null && replaying && ref.equals("last")) {
+                return null;
+            }
             if (response == null) {
                 throw new IllegalArgumentException("no response " + ref + " of " + type + " to answer");
             }
@@ -485,12 +567,14 @@ final class VectorRun {
                 @Override
                 public void onError(Throwable t) {
                     failed = t;
+                    ended = io.grpc.Status.fromThrowable(t).getCode().name();
                 }
 
                 @Override
                 public void onCompleted() {
                     if (!closing) {
                         failed = new IllegalStateException("the server ended the stream");
+                        ended = "OK";
                     }
                 }
             };

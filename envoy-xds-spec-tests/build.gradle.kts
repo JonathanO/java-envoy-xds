@@ -24,3 +24,18 @@ tasks.test {
     inputs.dir(vectors).withPropertyName("vectors")
     systemProperty("vectors", vectors.asFile.absolutePath)
 }
+
+// Replay mode, for the spec's differential fuzzer (docs/REPLAY.md there): writes build/replay, a script that runs it.
+val replayScript by tasks.registering {
+    description = "Writes build/replay, which replays trace vectors from stdin, for the spec's differential fuzzer."
+    val classpath = sourceSets.test.get().runtimeClasspath
+    val script = layout.buildDirectory.file("replay")
+    dependsOn(tasks.testClasses)
+    inputs.files(classpath)
+    outputs.file(script)
+    doLast {
+        val java = File(System.getProperty("java.home"), "bin/java")
+        script.get().asFile.writeText("#!/bin/sh\nexec '$java' -cp '${classpath.asPath}' net.woaf.jono.envoy.xds.spec.Replay\n")
+        script.get().asFile.setExecutable(true)
+    }
+}
