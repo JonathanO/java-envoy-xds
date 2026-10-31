@@ -137,6 +137,22 @@ public class CommonDiscoveryStreamObserverTest {
         verify(responseObserver).onError(argThat(e -> isInternalError(e)));
     }
 
+    @Test
+    public void configBuilderThrowingAStatusStillEndsTheStreamWithAnInternalError(@Mock StreamObserver<DiscoveryResponse> responseObserver,
+                                                                                    @Mock ClusterEventSource<DummyUpdate> source,
+                                                                                    @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusters) {
+        when(source.subscribe(any(), any())).thenReturn(new DummyUpdate());
+        when(clusters.handlesType()).thenReturn(Cluster.class);
+        when(clusters.getResourcesRemoveOrder(any(), any(), any())).thenThrow(io.grpc.Status.INVALID_ARGUMENT.asRuntimeException());
+        StreamObserver<DiscoveryRequest> requests = ads(source, ImmutableList.of(clusters)).streamAggregatedResources(responseObserver);
+
+        try (LoggedWarnings warnings = new LoggedWarnings(CommonDiscoveryStreamObserver.class)) {
+            assertThatThrownBy(() -> requests.onNext(DiscoveryRequest.newBuilder().setNode(Node.newBuilder().setId("envoy"))
+                .setTypeUrl(TypeUrl.CDS.getTypeUrl()).build())).isInstanceOf(IllegalStateException.class);
+        }
+        verify(responseObserver).onError(argThat(e -> isInternalError(e)));
+    }
+
     /** Envoy hears only that it was our fault: what went wrong is logged, not sent. */
     private static boolean isInternalError(Throwable e) {
         io.grpc.Status status = io.grpc.Status.fromThrowable(e);
