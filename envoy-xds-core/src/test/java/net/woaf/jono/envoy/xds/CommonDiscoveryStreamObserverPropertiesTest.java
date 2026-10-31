@@ -359,6 +359,14 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
         }
 
         @Invariant(alwaysRun = true)
+        void nacksUnsubscribe(TestCase tc) {
+            if (nacksSent > 0) {
+                // so a later update does no work for this client
+                assertThat(source.subscribers).as("still subscribed after a NACK").isEmpty();
+            }
+        }
+
+        @Invariant(alwaysRun = true)
         void listenersHearOfEveryNack(TestCase tc) {
             assertThat(listeners.nacks).as("NACKs passed to onClientNack").isEqualTo(nacksSent);
         }

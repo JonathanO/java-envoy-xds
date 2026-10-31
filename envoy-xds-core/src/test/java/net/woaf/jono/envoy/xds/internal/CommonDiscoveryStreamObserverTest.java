@@ -195,6 +195,30 @@ public class CommonDiscoveryStreamObserverTest {
     }
 
     @Test
+    public void nackUnsubscribesFromTheSourceOnce(@Mock StreamObserver<DiscoveryResponse> responseObserver,
+                                                  @Mock ClusterEventSource<DummyUpdate> source,
+                                                  @Mock DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory,
+                                                  @Mock DiscoveryServiceManager<DiscoveryRequest, DummyUpdate> dsm) {
+        when(factory.build(any(StreamObserver.class), any(XdsConfig.class), any(DiscoveryServiceManagerMetrics.class))).thenReturn(dsm);
+        CommonDiscoveryStreamObserver<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> observer = observer(responseObserver, source, factory);
+        Node node = Node.newBuilder().setId("envoy").build();
+
+        observer.onNext(DiscoveryRequest.newBuilder().setNode(node).setTypeUrl(TypeUrl.CDS.getTypeUrl()).build());
+        verify(source, never()).unsubscribe(any());
+
+        // A frozen stream sends no more changes, so it stops taking updates at once, not when the stream ends.
+        when(dsm.isFrozen()).thenReturn(true);
+        observer.onNext(DiscoveryRequest.newBuilder().setNode(node).setTypeUrl(TypeUrl.CDS.getTypeUrl()).setResponseNonce("1")
+            .setErrorDetail(com.google.rpc.Status.newBuilder().setMessage("rejected")).build());
+        verify(source).unsubscribe(observer);
+
+        observer.onNext(DiscoveryRequest.newBuilder().setNode(node).setTypeUrl(TypeUrl.EDS.getTypeUrl()).build());
+        observer.onCompleted();
+        verify(source).unsubscribe(observer); // still once
+        verify(dsm).close();
+    }
+
+    @Test
     public void streamErrorsAreWarnedAboutUnlessTheClientCancelled(@Mock StreamObserver<DiscoveryResponse> responseObserver,
                                                                    @Mock ClusterEventSource<DummyUpdate> source,
                                                                    @Mock DiscoveryServiceManagerFactory<DiscoveryRequest, DiscoveryResponse, DummyUpdate, Object> factory) {

@@ -225,7 +225,7 @@ source. A client that cancels the stream (`CANCELLED`) isn't logged as a warning
 ### The backlog and merging
 
 The source calls `onNetworkChange(update)`, and the observer calls the manager's `pushUpdates`. If the stream is frozen
-the update is dropped. Otherwise it goes into the backlog, and if no change is being pushed the manager looks for work
+(an update already on its way when a NACK unsubscribed it) the update is dropped. Otherwise it goes into the backlog, and if no change is being pushed the manager looks for work
 it may start. It may start only when no answer to a request awaits an ACK. Then:
 
 1. stale removals from a reconnect go first, if any may (see [section 7](#7-reconnects));
@@ -356,7 +356,8 @@ manager freezes the stream, for good:
 
 - it abandons the change being pushed: every service drops what is left of it, and the push counts as complete;
 - it empties the backlog;
-- it drops every later update.
+- the observer unsubscribes from the source at once, as a frozen stream will never send another change, and the
+  manager drops any update that was already on its way.
 
 It still answers new subscriptions, from the state the services last had. For a change cut short that is the change's
 add round, for types it left mid-way, as their removals never went out; each answer covers only the names it adds, so
