@@ -17,3 +17,10 @@ differ. When you change behaviour or a test here, make the same change there, or
 - envoy-xds-spec-tests runs the trace vectors from the spec submodule, `spec/`: `git submodule update --init`. Every
   build needs it, as `settings.gradle.kts` includes `spec/conformance`. A
   behaviour change starts there, with a vector.
+
+## Releasing
+
+The maintainer releases by pushing a `v<version>` tag matching `version` in gradle.properties, e.g. `v2.0.0`. The
+Release workflow checks the tag matches, runs `check`, and publishes envoy-xds-core and envoy-xds-snapshot to Maven
+Central. Never push tags or create releases yourself. Before a release: set the version, and move the CHANGELOG's
+unreleased entries under it.

@@ -1,0 +1,44 @@
+name: "Release"
+
+# Publishes envoy-xds-core and envoy-xds-snapshot to Maven Central when a maintainer pushes a v<version> tag, e.g.
+# v2.0.0. The tag must match the version in gradle.properties. Nothing here creates tags.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency: release
+
+jobs:
+  release:
+    name: "Release"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      SONATYPE_USER: ${{ secrets.SONATYPE_USER }}
+      SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+      OSS_SIGNING_KEY: ${{ secrets.OSS_SIGNING_KEY }}
+      OSS_SIGNING_PASSWORD: ${{ secrets.OSS_SIGNING_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true # spec/: the conformance harness every build includes
+      - uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@v6
+      - name: "Check the tag matches the version"
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version=//p' gradle.properties)
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} doesn't match version ${version} in gradle.properties"
+            exit 1
+          fi
+      - name: "Check"
+        run: ./gradlew check -x :envoy-xds-e2e-tests:test --console=plain # main's CI ran the e2e tests
+      - name: "Publish"
+        run: ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository --console=plain
