@@ -14,9 +14,8 @@ The modules are published to Maven Central under `net.woaf.jono.envoy`:
 
 - `envoy-xds-core`: the ADS service. You need this.
 - `envoy-xds-snapshot`: snapshot-style config, so you describe the config you want instead of writing config builders.
-- `envoy-xds-testing`: for testing your control plane against a real Envoy.
 
-`envoy-xds-snapshot` and `envoy-xds-testing` are new since 2.0.0: see the [CHANGELOG](../CHANGELOG.md).
+`envoy-xds-snapshot` is new since 2.0.0: see the [CHANGELOG](../CHANGELOG.md).
 
 You also need the Envoy API, the generated protobuf classes, which the library only has as a compile-only dependency.
 Use the one matching the Envoy you run, e.g. [net.woaf.jono.envoy:envoy-api](https://github.com/JonathanO/envoy-api-java),
@@ -30,7 +29,6 @@ dependencies {
     implementation 'net.woaf.jono.envoy:envoy-xds-snapshot:<version>'
     implementation 'net.woaf.jono.envoy:envoy-api:<your Envoy version>'
     runtimeOnly 'io.grpc:grpc-netty-shaded:<gRPC version>'
-    testImplementation 'net.woaf.jono.envoy:envoy-xds-testing:<version>'
 }
 ```
 
@@ -448,9 +446,11 @@ does. `SerialEventListener` takes care of both.
 
 ## 10. Testing against a real Envoy
 
-`envoy-xds-testing` runs your control plane against a real Envoy in Docker. It records the xDS conversation and
-checks it, including make before break, and checks Envoy's stats and log. It works for any Java control plane, not
-just this library's, and includes a conformance suite for xDS libraries. See [its README](../envoy-xds-testing/README.md).
+The conformance harness, `envoy-xds-testing`, runs your control plane against a real Envoy in Docker. It records the
+xDS conversation and checks it, including make before break, and checks Envoy's stats and log. It works for any Java
+control plane, not just this library's, and includes a conformance suite for xDS libraries. It lives in
+[envoy-xds-spec](https://github.com/JonathanO/envoy-xds-spec)'s `conformance/`, and isn't published yet: include that
+build, as its [README](https://github.com/JonathanO/envoy-xds-spec/blob/main/conformance/README.md) says.
 
 In short: start your gRPC server on a free port with a `ConversationLogger` interceptor, start an `EnvoyContainer` with
 a bootstrap config pointing at it, wait for the initial sync with `Settled`, take a `Checkpoint`, make a change the way
