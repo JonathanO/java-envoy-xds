@@ -377,7 +377,8 @@ does nothing by default; `DiscoveryServiceManagerMetrics.METRICS_DISABLED` recor
 - `onPushBegin()` and `onPushComplete()`: a change started going to this Envoy, and the Envoy has ACKed all of it (or
   NACKed, and we stopped). The time between them is how long a change takes to reach it.
 - `onAwaitingAck()` and `onMessageAcked()`: an answer to one of Envoy's requests, or a removal after a reconnect, was
-  sent, and was ACKed. A change's own responses aren't counted here.
+  sent, and was ACKed. A change's own responses aren't counted here, unless a request of their type arrives while
+  they await their ACK: then that type is counted until the ACK comes.
 - `close()`: the stream ended.
 
 ```java
