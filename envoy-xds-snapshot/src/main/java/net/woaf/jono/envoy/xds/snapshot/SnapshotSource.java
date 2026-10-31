@@ -175,7 +175,8 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
         Map<V, List<ImmutableMap<Class<? extends Message>, ImmutableSet<String>>>> touchedByView = new HashMap<>();
         edits.touched.forEach((name, byType) -> {
             Snapshot group = edits.groups.get(name);
-            boolean touchedAny = byType.values().stream().anyMatch(names -> !names.isEmpty());
+            // Each type here has names: an editor records only names it changed, and a snapshot has no empty types.
+            boolean touchedAny = !byType.isEmpty();
             if (group == null) {
                 groups.remove(name);
             } else if (touchedAny) {
