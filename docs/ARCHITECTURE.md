@@ -579,6 +579,8 @@ so every record under it names the client, and nothing leaks to the next client 
   protocol, through the real `AggregatedDiscoveryService` and the snapshot module, with a fake Envoy per Envoy in the
   vector. Every port runs the same vectors, so they hold the ports to the same behaviour. The format is in the spec
   repo's docs/VECTORS.md. Clone with `--recurse-submodules`, or run `git submodule update --init`.
+  `./gradlew :envoy-xds-spec-tests:replayScript` writes a script that runs it in replay mode, for the spec's
+  differential fuzzer: it prints what each Envoy got, as the spec repo's docs/REPLAY.md says.
 - **End to end, against real Envoys**: `envoy-xds-e2e-tests` runs the conformance suite from the spec's `conformance/`
   build (`EnvoyXdsConformanceTest`, through the snapshot module) on every Envoy release upstream supports, 1.36 to 1.40, over
   SotW and delta, with and without rate limiting. `ChangesDuringAPushAreMergedTest` checks that changes arriving during
