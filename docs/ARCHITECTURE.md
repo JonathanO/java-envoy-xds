@@ -226,13 +226,15 @@ source. A client that cancels the stream (`CANCELLED`) isn't logged as a warning
 
 The source calls `onNetworkChange(update)`, and the observer calls the manager's `pushUpdates`. If the stream is frozen
 the update is dropped. Otherwise it goes into the backlog, and if no change is being pushed the manager looks for work
-it may start. It may start only when no answer to a request awaits an ACK. Then:
+it may start. It may start only when no answer to a request awaits an ACK, and no request is held for the clusters
+(see [section 5](#5-requests)): a type that hasn't had its first request answered would be skipped, though Envoy may
+have some of it. The last held request to be answered starts what waits. Then:
 
 1. stale removals from a reconnect go first, if any may (see [section 7](#7-reconnects));
 2. if `delayUpdatesUntilAckOf` no longer holds pushes back, it takes the next update from the backlog and pushes it.
 
-When a push finishes, it looks again. So updates that arrive during a push, or while Envoy owes an ACK, wait in the
-backlog, and `MergingStateBacklog` merges them into one.
+When a push finishes, it looks again. So updates that arrive during a push, while Envoy owes an ACK, or while a
+request is held, wait in the backlog, and `MergingStateBacklog` merges them into one.
 
 ### The push rounds
 
@@ -529,7 +531,8 @@ default that does nothing, and `DiscoveryServiceManagerMetrics.METRICS_DISABLED`
 - `onPushBegin()` and `onPushComplete()` bracket a change's push, from taking it from the backlog to the ACK of its last
   response. A push cut short by a NACK completes too. The time between them is the push latency.
 - `onAwaitingAck()` and `onMessageAcked()` count answers that await an ACK: answers to requests, and stale removals
-  after a reconnect. A push's own responses aren't counted here.
+  after a reconnect. A push's own responses aren't counted here, unless a request of their type arrives while they
+  await their ACK: then that type is counted until the ACK comes.
 - `close()` is called when the stream ends.
 
 The e2e tests use these to tell when a stream is idle (`DiscoveryServiceManagerEventListener` in
