@@ -306,6 +306,14 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
         }
     }
 
+    /**
+     * {@return whether Envoy rejected something on this stream, so it gets no more changes}
+     * The stream observer then unsubscribes from the source, as updates would only be dropped.
+     */
+    public boolean isFrozen() {
+        return frozen;
+    }
+
     private boolean isPushAllowed() {
         if (delayUpdatesUntilAckOf != null && waitedTooLong()) {
             log.warn("No ACK of {} after {}s, so sending updates anyway: does this client subscribe to it? See delayUpdatesUntilAckOf and"
