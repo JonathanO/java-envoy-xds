@@ -33,6 +33,8 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import net.woaf.jono.envoy.xds.AggregatedDiscoveryService;
 import net.woaf.jono.envoy.xds.TypeUrl;
@@ -54,6 +56,9 @@ import org.jspecify.annotations.Nullable;
 final class VectorRun {
 
     private static final JsonFormat.Printer PRINTER = JsonFormat.printer().omittingInsignificantWhitespace();
+
+    /** A reference to a response relative to the last of its type: "last", or "last-1" for the one before it. */
+    private static final Pattern LAST = Pattern.compile("last(?:-([0-9]+))?");
 
     private final JsonObject vector;
 
@@ -256,6 +261,9 @@ final class VectorRun {
                     describe(want.stream().map(this::contents).toList()), describe(got.stream().map(Received::contents).toList())));
             }
             for (int i = 0; i < want.size(); i++) {
+                if (want.get(i).has("as") && LAST.matcher(want.get(i).get("as").getAsString()).matches()) {
+                    throw new IllegalArgumentException("label " + want.get(i).get("as") + " means a response relative to the last");
+                }
                 if (want.get(i).has("as") && labels.put(want.get(i).get("as").getAsString(), got.get(i)) != null) {
                     throw new IllegalArgumentException("label " + want.get(i).get("as") + " is used twice");
                 }
@@ -427,8 +435,8 @@ final class VectorRun {
 
         private boolean closing;
 
-        // On this stream: the last response of each type, and for SotW, the version last ACKed and the names wanted.
-        private final Map<TypeUrl, Received> last = new EnumMap<>(TypeUrl.class);
+        // On this stream: the responses of each type, in order, and for SotW, the version last ACKed and the names wanted.
+        private final Map<TypeUrl, List<Received>> history = new EnumMap<>(TypeUrl.class);
 
         private final Map<TypeUrl, String> accepted = new EnumMap<>(TypeUrl.class);
 
@@ -472,7 +480,7 @@ final class VectorRun {
                 unsubscribe.forEach(wanted::remove);
                 DiscoveryRequest.Builder request = DiscoveryRequest.newBuilder().setTypeUrl(type.getTypeUrl()).addAllResourceNames(wanted);
                 // Each request answers the last response of its type, unless the step says which.
-                Received answers = answering != null ? answering : last.get(type);
+                Received answers = answering != null ? answering : back(type, 0);
                 if (answers != null) {
                     request.setResponseNonce(answers.nonce());
                 }
@@ -515,14 +523,16 @@ final class VectorRun {
             sotw = null;
             deltaStream = null;
             first = true;
-            last.clear();
+            history.clear();
             accepted.clear();
             names.clear();
         }
 
         private @Nullable Received ref(TypeUrl type, String ref) {
-            Received response = ref.equals("last") ? last.get(type) : labels.get(ref);
-            if (response == null && replaying && ref.equals("last")) {
+            Matcher relative = LAST.matcher(ref);
+            boolean isRelative = relative.matches();
+            Received response = !isRelative ? labels.get(ref) : back(type, relative.group(1) == null ? 0 : Integer.parseInt(relative.group(1)));
+            if (response == null && replaying && isRelative) {
                 return null;
             }
             if (response == null) {
@@ -534,9 +544,15 @@ final class VectorRun {
             return response;
         }
 
+        /** The response of a type this many before the last on this stream, if there is one. */
+        private @Nullable Received back(TypeUrl type, int n) {
+            List<Received> ofType = history.getOrDefault(type, List.of());
+            return n < ofType.size() ? ofType.get(ofType.size() - 1 - n) : null;
+        }
+
         private void got(Received response) {
             received.add(response);
-            last.put(response.type(), response);
+            history.computeIfAbsent(response.type(), t -> new ArrayList<>()).add(response);
         }
 
         private StreamObserver<DiscoveryRequest> sotwStream() {
