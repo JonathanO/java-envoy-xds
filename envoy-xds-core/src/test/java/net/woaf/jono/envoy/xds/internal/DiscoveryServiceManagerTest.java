@@ -1,6 +1,7 @@
 package net.woaf.jono.envoy.xds.internal;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Ticker;
 import com.google.protobuf.Message;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import net.woaf.jono.envoy.xds.internal.CommonDiscoveryRequest;
@@ -330,6 +331,31 @@ public class DiscoveryServiceManagerTest {
 
         now.addAndGet(DiscoveryServiceManager.WAIT_FOR_ACK_TIMEOUT_NANOS);
         dsm.pushUpdates(new DummyUpdate()); // the next change
+        verify(cds).onNetworkUpdate(update);
+    }
+
+    @Test
+    public void theFactorysTickerTimesTheGiveUps() {
+        final DiscoveryService<Message, DummyUpdate> cds = spy(new StateAwareFakeDiscoveryService(TypeUrl.CDS));
+        AtomicLong now = new AtomicLong();
+        Ticker ticker = new Ticker() {
+            @Override
+            public long read() {
+                return now.get();
+            }
+        };
+        DiscoveryServiceManager<Message, DummyUpdate> dsm = new DiscoveryServiceManagerFactory<Message, Message, DummyUpdate, String>(null, null, ticker)
+            .build(Map.of(TypeUrl.CDS, cds), new QueueBacklog(), DiscoveryServiceManagerMetrics.NOOP_METRICS);
+        dsm.init(new DummyUpdate(), TypeUrl.RDS, null); // but this client never subscribes to RDS
+        final var update = new DummyUpdate();
+
+        dsm.pushUpdates(update);
+        now.addAndGet(DiscoveryServiceManager.WAIT_FOR_ACK_TIMEOUT_NANOS - 1);
+        dsm.pushUpdates(new DummyUpdate());
+        verify(cds, never()).onNetworkUpdate(update);
+
+        now.incrementAndGet();
+        dsm.pushUpdates(new DummyUpdate());
         verify(cds).onNetworkUpdate(update);
     }
 

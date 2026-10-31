@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.spec;
 
+import com.google.common.base.Ticker;
 import com.google.common.collect.ImmutableList;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -32,6 +33,7 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -60,6 +62,8 @@ final class VectorRun {
     /** A reference to a response relative to the last of its type: "last", or "last-1" for the one before it. */
     private static final Pattern LAST = Pattern.compile("last(?:-([0-9]+))?");
 
+    private static final Pattern SECONDS = Pattern.compile("([0-9]+)s");
+
     private final JsonObject vector;
 
     private final boolean delta;
@@ -76,6 +80,9 @@ final class VectorRun {
     private final Map<String, Received> labels = new HashMap<>();
 
     private final SnapshotSource<String, String, String> source;
+
+    /** The server's clock, in nanoseconds: it moves only when a step says. */
+    private long now;
 
     private final AggregatedDiscoveryService<SnapshotUpdate<String>, String> ads;
 
@@ -112,7 +119,12 @@ final class VectorRun {
         @SuppressWarnings("unchecked")
         Class<? extends Message>[] served = types(vector.getAsJsonArray("serves")).stream().map(TypeUrl::getMessageClazz).toArray(Class[]::new);
         ads = new AggregatedDiscoveryService<>(source, SnapshotConfigBuilder.<String>forTypes(served), node -> configs.get(node.getId()),
-            ImmutableList.of(), MergingStateBacklog.factory(), DiscoveryServiceManagerMetrics.METRICS_DISABLED);
+            ImmutableList.of(), MergingStateBacklog.factory(), DiscoveryServiceManagerMetrics.METRICS_DISABLED, new Ticker() {
+                @Override
+                public long read() {
+                    return now;
+                }
+            });
     }
 
     void run() {
@@ -192,6 +204,12 @@ final class VectorRun {
             envoy(step).send(step);
         } else if (step.has("disconnect")) {
             envoyNamed(step.get("disconnect").getAsString()).disconnect();
+        } else if (step.has("advance")) {
+            Matcher seconds = SECONDS.matcher(step.get("advance").getAsString());
+            if (!seconds.matches()) {
+                throw new IllegalArgumentException("advance takes seconds, such as \"30s\": " + step.get("advance"));
+            }
+            now += TimeUnit.SECONDS.toNanos(Long.parseLong(seconds.group(1)));
         } else {
             throw new IllegalArgumentException("unknown step " + step);
         }
