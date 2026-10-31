@@ -146,7 +146,13 @@ public final class Snapshot {
          */
         public Snapshot build() {
             Map<Class<? extends Message>, ImmutableMap<String, Message>> merged = new HashMap<>(resources);
-            edited.forEach((type, values) -> merged.put(type, ImmutableMap.copyOf(values)));
+            edited.forEach((type, values) -> {
+                if (values.isEmpty()) {
+                    merged.remove(type); // a type with no resources is no type
+                } else {
+                    merged.put(type, ImmutableMap.copyOf(values));
+                }
+            });
             ImmutableMap.Builder<Class<? extends Message>, ImmutableSet<String>> touchedBuilder = ImmutableMap.builder();
             touchedNames.forEach((type, names) -> touchedBuilder.put(type, ImmutableSet.copyOf(names)));
             return new Snapshot(ImmutableMap.copyOf(merged), touchedBuilder.build());

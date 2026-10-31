@@ -43,6 +43,15 @@ public class SnapshotTest {
     }
 
     @Test
+    public void snapshotsHaveNoTypesTheyHaveNoneOf() {
+        Snapshot next = Snapshot.empty().edit().put(cluster("a")).put(cla("a", "127.0.0.5")).build()
+            .edit().remove(ClusterLoadAssignment.class, "a").build();
+
+        assertThat(next.types()).containsExactly(Cluster.class);
+        assertThat(next.touched().get(ClusterLoadAssignment.class)).as("still says what changed").containsExactly("a");
+    }
+
+    @Test
     public void endpointsAreNamedByClusterName() {
         assertThat(Snapshot.empty().edit().put(cla("foo", "127.0.0.5")).build().get(ClusterLoadAssignment.class)).containsOnlyKeys("foo");
     }

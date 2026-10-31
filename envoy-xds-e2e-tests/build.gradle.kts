@@ -7,7 +7,7 @@ envoyXds.displayName = "Envoy xDS Example E2E Tests"
 
 dependencies {
     api(project(":envoy-xds-core"))
-    api(project(":envoy-xds-testing"))
+    api("net.woaf.jono.envoy:envoy-xds-testing") // the spec's conformance/, an included build
     testImplementation(libs.guava)
     testImplementation(libs.protobuf.java)
     testImplementation(libs.envoy.api)

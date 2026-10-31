@@ -61,9 +61,8 @@ The modules:
 |---|---|
 | `envoy-xds-core` | The ADS service. `net.woaf.jono.envoy.xds` has the entry point, `XdsConfig` and `TypeUrl`; `.api` the interfaces you implement; `.api.utils` the backlogs, `SerialEventListener` and `ResyncAfterNack`. `.internal` (with `.internal.sotw` and `.internal.delta`) is the protocol machinery, and isn't API. |
 | `envoy-xds-snapshot` | Snapshot-style config: publish groups of resources and views of them, and it works out what changed for each Envoy. |
-| `envoy-xds-testing` | Helpers to test any Java control plane against a real Envoy, and an xDS conformance suite. It doesn't depend on core. |
 | `envoy-xds-example` | A toy control plane driven from the command line, both with hand-written config builders and with snapshots. |
-| `envoy-xds-e2e-tests` | Runs the conformance suite against this library on real Envoys. |
+| `envoy-xds-e2e-tests` | Runs the conformance suite against this library on real Envoys. The harness and suite are envoy-xds-spec's `conformance/` build, which `settings.gradle.kts` includes from the `spec/` submodule. |
 | `envoy-xds-spec-tests` | Runs the trace vectors from [envoy-xds-spec](https://github.com/JonathanO/envoy-xds-spec), a submodule at `spec/`, against this library. Tests only. |
 
 ## 2. Components
@@ -229,14 +228,17 @@ warning.
 ### The backlog and merging
 
 The source calls `onNetworkChange(update)`, and the observer calls the manager's `pushUpdates`. If the stream is frozen
-the update is dropped. Otherwise it goes into the backlog, and if no change is being pushed the manager looks for work
-it may start. It may start only when no answer to a request awaits an ACK. Then:
+(an update already on its way when a NACK unsubscribed it) the update is dropped. Otherwise it goes into the backlog,
+and if no change is being pushed the manager looks for work it may start. It may start only when no answer to a request
+awaits an ACK, and no request is held for the clusters (see [section 5](#5-requests)): a type that hasn't had its first
+request answered would be skipped, though Envoy may have some of it. The last held request to be answered starts what
+waits. Then:
 
 1. stale removals from a reconnect go first, if any may (see [section 7](#7-reconnects));
 2. if `delayUpdatesUntilAckOf` no longer holds pushes back, it takes the next update from the backlog and pushes it.
 
-When a push finishes, it looks again. So updates that arrive during a push, or while Envoy owes an ACK, wait in the
-backlog, and `MergingStateBacklog` merges them into one.
+When a push finishes, it looks again. So updates that arrive during a push, while Envoy owes an ACK, or while a
+request is held, wait in the backlog, and `MergingStateBacklog` merges them into one.
 
 ### The push rounds
 
@@ -360,7 +362,8 @@ manager freezes the stream, for good:
 
 - it abandons the change being pushed: every service drops what is left of it, and the push counts as complete;
 - it empties the backlog;
-- it drops every later update.
+- the observer unsubscribes from the source at once, as a frozen stream will never send another change, and the
+  manager drops any update that was already on its way.
 
 It still answers new subscriptions, from the state the services last had. For a change cut short that is the change's
 add round, for types it left mid-way, as their removals never went out; each answer covers only the names it adds, so
@@ -533,7 +536,8 @@ default that does nothing, and `DiscoveryServiceManagerMetrics.METRICS_DISABLED`
 - `onPushBegin()` and `onPushComplete()` bracket a change's push, from taking it from the backlog to the ACK of its last
   response. A push cut short by a NACK completes too. The time between them is the push latency.
 - `onAwaitingAck()` and `onMessageAcked()` count answers that await an ACK: answers to requests, and stale removals
-  after a reconnect. A push's own responses aren't counted here.
+  after a reconnect. A push's own responses aren't counted here, unless a request of their type arrives while they
+  await their ACK: then that type is counted until the ACK comes.
 - `close()` is called when the stream ends.
 
 The e2e tests use these to tell when a stream is idle (`DiscoveryServiceManagerEventListener` in
@@ -575,8 +579,8 @@ so every record under it names the client, and nothing leaks to the next client 
   protocol, through the real `AggregatedDiscoveryService` and the snapshot module, with a fake Envoy per Envoy in the
   vector. Every port runs the same vectors, so they hold the ports to the same behaviour. The format is in the spec
   repo's docs/VECTORS.md. Clone with `--recurse-submodules`, or run `git submodule update --init`.
-- **End to end, against real Envoys**: `envoy-xds-e2e-tests` runs the conformance suite from `envoy-xds-testing`
-  (`EnvoyXdsConformanceTest`, through the snapshot module) on every Envoy release upstream supports, 1.36 to 1.40, over
+- **End to end, against real Envoys**: `envoy-xds-e2e-tests` runs the conformance suite from the spec's `conformance/`
+  build (`EnvoyXdsConformanceTest`, through the snapshot module) on every Envoy release upstream supports, 1.36 to 1.40, over
   SotW and delta, with and without rate limiting. `ChangesDuringAPushAreMergedTest` checks that changes arriving during
   a push are merged. They need Docker; CI runs a job per Envoy version. Envoy is never mocked.
 

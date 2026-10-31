@@ -1,6 +1,7 @@
 package net.woaf.jono.envoy.xds.internal.sotw;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -255,6 +256,65 @@ public class SotwDiscoveryServiceTest {
     }
 
     @Test
+    public void responsesListResourcesByName(@Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
+        final DummyUpdate next = new DummyUpdate();
+        serves(configBuilder, cluster("c"), cluster("a"));
+        when(configBuilder.addOrder(eq(next), any(), any())).thenReturn(new IncrementalConfigBuilder.Response<>(List.of(cluster("d"), cluster("b")), List.of()));
+        when(configBuilder.removeOrder(eq(next), any(), any())).thenReturn(IncrementalConfigBuilder.Response.<Cluster>empty());
+        DiscoveryService<DiscoveryRequest, DummyUpdate> ds = service(TypeUrl.CDS, configBuilder);
+        ds.init(initState);
+        InOrder inOrder = inOrder(responseObserver);
+
+        ds.processUpdate(request(TypeUrl.CDS));
+        DiscoveryResponse answer = nextResponse(inOrder);
+        assertThat(answer.getResourcesList()).as("not in the order the builder gave").containsExactlyElementsOf(packed(cluster("a"), cluster("c")));
+
+        ds.processUpdate(ack(TypeUrl.CDS, answer));
+        ds.onNetworkUpdate(next);
+        ds.sendNetworkUpdatePre();
+        DiscoveryResponse pushed = nextResponse(inOrder);
+        assertThat(pushed.getResourcesList()).as("nor in the order they were added")
+            .containsExactlyElementsOf(packed(cluster("a"), cluster("b"), cluster("c"), cluster("d")));
+        ds.processUpdate(ack(TypeUrl.CDS, pushed));
+        ds.sendNetworkUpdatePost();
+        assertNoAdditionalResponsesSent(2);
+    }
+
+    @Test
+    public void anUpdateEqualToTheCurrentStateStillGoesThroughTheBuilders(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        serves(configBuilder, endpoints("a"));
+        // Removing duplicates is the source's job: this builder resends a for any update.
+        when(configBuilder.addOrder(eq(initState), any(), any())).thenAnswer(inv ->
+            new IncrementalConfigBuilder.Response<>(named(inv.getArgument(1), endpoints("a")).resources(), List.of()));
+        when(configBuilder.removeOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Response.<ClusterLoadAssignment>empty());
+        DiscoveryService<DiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+        InOrder inOrder = inOrder(responseObserver);
+        ds.processUpdate(request(TypeUrl.EDS, "a"));
+        ds.processUpdate(ack(TypeUrl.EDS, nextResponse(inOrder), "a"));
+
+        ds.onNetworkUpdate(initState);
+        ds.sendNetworkUpdatePre();
+
+        DiscoveryResponse again = nextResponse(inOrder);
+        assertThat(again.getResourcesList()).containsExactlyElementsOf(packed(endpoints("a")));
+        ds.processUpdate(ack(TypeUrl.EDS, again, "a"));
+        ds.sendNetworkUpdatePost();
+        assertNoAdditionalResponsesSent(2); // the remove round had nothing
+    }
+
+    @Test
+    public void anUpdateBeforeTheLastIsSentIsRefused(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        DiscoveryService<DiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+        DummyUpdate next = new DummyUpdate();
+        ds.onNetworkUpdate(next);
+
+        assertThatThrownBy(() -> ds.onNetworkUpdate(next)).as("even one equal to it")
+            .isInstanceOf(IllegalStateException.class).hasMessageContaining("dirty state");
+    }
+
+    @Test
     public void legacyWildcardRequestIsAnsweredWithEverything(@Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> configBuilder) {
         serves(configBuilder, cluster("foo"), cluster("bar"));
         DiscoveryService<DiscoveryRequest, DummyUpdate> ds = service(TypeUrl.CDS, configBuilder);
@@ -264,7 +324,7 @@ public class SotwDiscoveryServiceTest {
 
         DiscoveryResponse resp = onlyResponse();
         assertThat(resp.getTypeUrl()).isEqualTo(TypeUrl.CDS.getTypeUrl());
-        assertThat(resp.getResourcesList()).containsExactlyElementsOf(packed(cluster("foo"), cluster("bar")));
+        assertThat(resp.getResourcesList()).containsExactlyElementsOf(packed(cluster("bar"), cluster("foo")));
     }
 
     @Test

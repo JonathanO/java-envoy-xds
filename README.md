@@ -58,6 +58,9 @@ should also work, as the generated packages are the same.
 The e2e tests run the conformance suite against every Envoy release upstream supports, 1.36 to 1.40, over both SotW
 and delta ADS. They need Docker, and run four tests at a time, each with its own Envoy. To pick the versions and how
 many at once: `./gradlew :envoy-xds-e2e-tests:test -PenvoyVersions=1.36,1.40 -PtestParallelism=8`.
+The suite and its harness live in [envoy-xds-spec](https://github.com/JonathanO/envoy-xds-spec)'s `conformance/`,
+which every port runs, so this repo has the spec as a submodule at `spec/`: clone with `--recurse-submodules`, or run
+`git submodule update --init`.
 See Envoy's deprecation rules for specifics of what version you should choose.
 
 In the future it's possible this library will support new API versions, or that the v3 API will change in some way that breaks
