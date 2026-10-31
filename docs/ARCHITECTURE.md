@@ -130,7 +130,8 @@ them to apply.
 
 - Delta: the first request for a wildcard type with no names is a wildcard subscription. After that, `*` in the
   subscribe list starts one and `*` in the unsubscribe list ends it. A request that only unsubscribes needs no answer.
-  A request that subscribes to and unsubscribes from the same name (other than `*`) is an error, and fails the stream.
+  A request that subscribes to and unsubscribes from the same name (other than `*`) is an error, and fails the stream
+  with `INVALID_ARGUMENT`.
 - SotW: each request lists every name wanted. For a wildcard type, an empty list means wildcard until the client has
   sent a name, and after that it means nothing. A request that only drops names isn't answered.
 
@@ -216,9 +217,12 @@ A stream ends when Envoy closes it, when it fails, or when `ClientHandle.resync(
 unsubscribes from the source, closes the manager (which closes the metrics), calls each listener's
 `onClientDisconnected`, then completes or fails the response stream. Requests that arrive after that are ignored.
 
-An exception while handling a request fails the stream with that error. An exception while pushing an update, such as
+An exception while handling a request is logged, and fails the stream. An exception while pushing an update, such as
 a config builder throwing, is logged once at error with the node id, and fails the stream; it isn't passed back to the
-source. A client that cancels the stream (`CANCELLED`) isn't logged as a warning.
+source. Envoy gets a gRPC status: `INVALID_ARGUMENT` for a bad request, which is Envoy's fault, and `INTERNAL` with
+just "xds: internal error" for anything else, which is ours. The exception itself is only logged: it may say things
+about the control plane that Envoy has no need of. A client that cancels the stream (`CANCELLED`) isn't logged as a
+warning.
 
 ## 4. A change
 
