@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+### Added
+* `DiscoveryServiceManagerMetrics.onFrozen()`: called once when a NACK freezes a stream, so you can count frozen streams against `close()` and alert on them
 
 ## [2.0.0] - 2026-10-31
 ### Added
