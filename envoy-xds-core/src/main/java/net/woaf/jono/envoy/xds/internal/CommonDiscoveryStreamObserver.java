@@ -301,8 +301,17 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
     private void closeWithError(Throwable t) {
         try (RunWithExceptions runner = new RunWithExceptions("handling stream error")) {
             cleanupOnDisconnect(runner);
-            runner.exec(() -> responseObserver.onError(t));
+            runner.exec(() -> responseObserver.onError(forEnvoy(t)));
         }
+    }
+
+    /**
+     * {@return what to end Envoy's stream with}
+     * A gRPC status as it is, such as INVALID_ARGUMENT for a bad request. Anything else is our own failure, e.g. a config
+     * builder's, so Envoy hears only that it was internal: the exception, logged here, is no business of Envoy's.
+     */
+    private static StatusRuntimeException forEnvoy(Throwable t) {
+        return t instanceof StatusRuntimeException s ? s : Status.INTERNAL.withDescription("xds: internal error").asRuntimeException();
     }
 
     @Override

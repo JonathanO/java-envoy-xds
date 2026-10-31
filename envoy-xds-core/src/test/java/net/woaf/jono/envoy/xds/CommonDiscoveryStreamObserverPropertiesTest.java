@@ -389,7 +389,8 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
 
         @Invariant(alwaysRun = true)
         void failsOnlyForProtocolViolations(TestCase tc) {
-            assertThat(escaped).allSatisfy(e -> assertThat(e).isInstanceOf(IllegalArgumentException.class)
+            assertThat(escaped).allSatisfy(e -> assertThat(e).isInstanceOfSatisfying(io.grpc.StatusRuntimeException.class,
+                    s -> assertThat(s.getStatus().getCode()).isEqualTo(io.grpc.Status.Code.INVALID_ARGUMENT))
                 .hasMessageContaining("subscribe and unsubscribe from the same resource"));
             if (!escaped.isEmpty()) {
                 assertThat(client.ended).as("an exception escaped but the stream is still open").isTrue();

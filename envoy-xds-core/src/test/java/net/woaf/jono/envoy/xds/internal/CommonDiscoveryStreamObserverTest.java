@@ -1,15 +1,20 @@
 package net.woaf.jono.envoy.xds.internal;
 
+import net.woaf.jono.envoy.xds.AggregatedDiscoveryService;
 import net.woaf.jono.envoy.xds.TypeUrl;
 import net.woaf.jono.envoy.xds.XdsConfig;
 import com.google.common.collect.ImmutableList;
+import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.core.v3.Node;
+import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
+import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import io.grpc.stub.StreamObserver;
 import net.woaf.jono.envoy.xds.internal.DiscoveryServiceManagerTest.DummyUpdate;
 import net.woaf.jono.envoy.xds.api.ClusterEventSource;
 import net.woaf.jono.envoy.xds.api.DiscoveryServiceManagerMetrics;
+import net.woaf.jono.envoy.xds.api.IncrementalConfigBuilder;
 import net.woaf.jono.envoy.xds.api.XdsEventListener;
 import java.util.Set;
 import net.woaf.jono.envoy.xds.api.utils.QueueingStateBacklog;
@@ -23,6 +28,7 @@ import org.slf4j.MDC;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -95,8 +101,68 @@ public class CommonDiscoveryStreamObserverTest {
         // Logged here, so a rethrow would only get it logged again by the source.
         observer.onNetworkChange(new DummyUpdate());
 
-        verify(responseObserver).onError(failure);
+        verify(responseObserver).onError(argThat(e -> isInternalError(e)));
         verify(source).unsubscribe(observer);
+    }
+
+    @Test
+    public void badRequestEndsTheStreamWithInvalidArgument(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
+                                                           @Mock ClusterEventSource<DummyUpdate> source) {
+        when(source.subscribe(any(), any())).thenReturn(new DummyUpdate());
+        StreamObserver<DeltaDiscoveryRequest> requests = ads(source, ImmutableList.of()).deltaAggregatedResources(responseObserver);
+
+        // The xDS spec doesn't say which should win, so it's Envoy's mistake.
+        assertThatThrownBy(() -> requests.onNext(DeltaDiscoveryRequest.newBuilder().setNode(Node.newBuilder().setId("envoy"))
+            .setTypeUrl(TypeUrl.CDS.getTypeUrl()).addResourceNamesSubscribe("a").addResourceNamesUnsubscribe("a").build()));
+
+        verify(responseObserver).onError(argThat(e -> io.grpc.Status.fromThrowable(e).getCode() == io.grpc.Status.Code.INVALID_ARGUMENT
+            && io.grpc.Status.fromThrowable(e).getDescription().contains("subscribe and unsubscribe from the same resource")));
+    }
+
+    @Test
+    public void failedConfigBuilderEndsTheStreamWithAnInternalError(@Mock StreamObserver<DiscoveryResponse> responseObserver,
+                                                                     @Mock ClusterEventSource<DummyUpdate> source,
+                                                                     @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusters) {
+        when(source.subscribe(any(), any())).thenReturn(new DummyUpdate());
+        when(clusters.handlesType()).thenReturn(Cluster.class);
+        IllegalStateException failure = new IllegalStateException("what went wrong inside");
+        when(clusters.getResourcesRemoveOrder(any(), any(), any())).thenThrow(failure);
+        StreamObserver<DiscoveryRequest> requests = ads(source, ImmutableList.of(clusters)).streamAggregatedResources(responseObserver);
+
+        try (LoggedWarnings warnings = new LoggedWarnings(CommonDiscoveryStreamObserver.class)) {
+            assertThatThrownBy(() -> requests.onNext(DiscoveryRequest.newBuilder().setNode(Node.newBuilder().setId("envoy"))
+                .setTypeUrl(TypeUrl.CDS.getTypeUrl()).build())).isSameAs(failure);
+            assertThat(warnings.messages()).as("logged here, as Envoy isn't told").containsExactly("Error streaming to an ADS client");
+        }
+        verify(responseObserver).onError(argThat(e -> isInternalError(e)));
+    }
+
+    @Test
+    public void configBuilderThrowingAStatusStillEndsTheStreamWithAnInternalError(@Mock StreamObserver<DiscoveryResponse> responseObserver,
+                                                                                    @Mock ClusterEventSource<DummyUpdate> source,
+                                                                                    @Mock IncrementalConfigBuilder<Cluster, DummyUpdate, Object> clusters) {
+        when(source.subscribe(any(), any())).thenReturn(new DummyUpdate());
+        when(clusters.handlesType()).thenReturn(Cluster.class);
+        when(clusters.getResourcesRemoveOrder(any(), any(), any())).thenThrow(io.grpc.Status.INVALID_ARGUMENT.asRuntimeException());
+        StreamObserver<DiscoveryRequest> requests = ads(source, ImmutableList.of(clusters)).streamAggregatedResources(responseObserver);
+
+        try (LoggedWarnings warnings = new LoggedWarnings(CommonDiscoveryStreamObserver.class)) {
+            assertThatThrownBy(() -> requests.onNext(DiscoveryRequest.newBuilder().setNode(Node.newBuilder().setId("envoy"))
+                .setTypeUrl(TypeUrl.CDS.getTypeUrl()).build())).isInstanceOf(IllegalStateException.class);
+        }
+        verify(responseObserver).onError(argThat(e -> isInternalError(e)));
+    }
+
+    /** Envoy hears only that it was our fault: what went wrong is logged, not sent. */
+    private static boolean isInternalError(Throwable e) {
+        io.grpc.Status status = io.grpc.Status.fromThrowable(e);
+        return status.getCode() == io.grpc.Status.Code.INTERNAL && "xds: internal error".equals(status.getDescription());
+    }
+
+    private static AggregatedDiscoveryService<DummyUpdate, Object> ads(ClusterEventSource<DummyUpdate> source,
+                                                                      ImmutableList<IncrementalConfigBuilder<?, DummyUpdate, Object>> builders) {
+        return new AggregatedDiscoveryService<>(source, builders, node -> XdsConfig.of(DETAILS), ImmutableList.of(),
+            QueueingStateBacklog.factory(), DiscoveryServiceManagerMetrics.METRICS_DISABLED);
     }
 
     @Test
@@ -135,7 +201,7 @@ public class CommonDiscoveryStreamObserverTest {
         assertThatThrownBy(() -> observer.onNext(DiscoveryRequest.newBuilder().setNode(Node.newBuilder().setId("envoy")).setTypeUrl(TypeUrl.CDS.getTypeUrl()).build()))
             .isSameAs(firstFailure)
             .satisfies(e -> assertThat(e.getSuppressed()).containsExactly(secondFailure, thirdFailure));
-        verify(responseObserver).onError(firstFailure);
+        verify(responseObserver).onError(argThat(e -> isInternalError(e)));
     }
 
     @Test

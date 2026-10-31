@@ -1,6 +1,8 @@
 package net.woaf.jono.envoy.xds.internal.delta;
 
 import com.google.common.collect.ImmutableSet;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import net.woaf.jono.envoy.xds.internal.delta.SubListSubManager;
 import org.junit.jupiter.api.Test;
 
@@ -67,7 +69,8 @@ public class SubListSubManagerSpec {
     public void testSubscribeUnsubscribeSameResourceThrows() {
         SubListSubManager subManager = new SubListSubManager();
 
-        assertThatThrownBy(() -> subManager.processResourceListChange(ImmutableSet.of("foo"), ImmutableSet.of("foo"))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> subManager.processResourceListChange(ImmutableSet.of("foo"), ImmutableSet.of("foo")))
+            .isInstanceOfSatisfying(StatusRuntimeException.class, e -> assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.INVALID_ARGUMENT));
     }
 
 }

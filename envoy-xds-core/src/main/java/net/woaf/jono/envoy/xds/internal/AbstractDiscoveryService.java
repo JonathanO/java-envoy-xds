@@ -1,5 +1,6 @@
 package net.woaf.jono.envoy.xds.internal;
 
+import io.grpc.StatusRuntimeException;
 import net.woaf.jono.envoy.xds.XdsConfig;
 import net.woaf.jono.envoy.xds.TypeUrl;
 import org.jspecify.annotations.Nullable;
@@ -16,6 +17,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 public abstract class AbstractDiscoveryService<T extends Message, E extends Message, StateUpdT, DetailsT> implements DiscoveryService<T, StateUpdT> {
 
@@ -97,6 +99,18 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
         }
     }
 
+    /**
+     * A config builder failing is our failure, whatever it threw, so Envoy hears INTERNAL even if it threw a gRPC status:
+     * see CommonDiscoveryStreamObserver. Statuses passed to Envoy are its own fault, or the ClientConfigProvider's verdict.
+     */
+    private static <R> R fromBuilder(Supplier<R> call) {
+        try {
+            return call.get();
+        } catch (StatusRuntimeException e) {
+            throw new IllegalStateException("Config builder failed", e);
+        }
+    }
+
     private StateUpdT state() {
         return Preconditions.checkNotNull(currentState, "Discovery must be initialized");
     }
@@ -106,9 +120,9 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
         // Mid-change, what the change removes stays until this type's remove round is sent, so nothing goes before what
         // may refer to it.
         if (!SubState.COMPLETED.equals(currentSubState)) {
-            resources = configBuilder.getResourcesAddOrder(state(), resourceInSubListChange, xdsConfig.clientDetails());
+            resources = fromBuilder(() -> configBuilder.getResourcesAddOrder(state(), resourceInSubListChange, xdsConfig.clientDetails()));
         } else {
-            resources = configBuilder.getResourcesRemoveOrder(state(), resourceInSubListChange, xdsConfig.clientDetails());
+            resources = fromBuilder(() -> configBuilder.getResourcesRemoveOrder(state(), resourceInSubListChange, xdsConfig.clientDetails()));
         }
         checkSubNames(resources, resourceInSubListChange);
         return resources;
@@ -149,7 +163,7 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
             // b) It might return stuff. Envoy gets really angry if ADS returns a message type that it never requested.
             return Optional.empty();
         }
-        IncrementalConfigBuilder.Response<E> resources = configBuilder.addOrder(state(), subFilter(), xdsConfig.clientDetails());
+        IncrementalConfigBuilder.Response<E> resources = fromBuilder(() -> configBuilder.addOrder(state(), subFilter(), xdsConfig.clientDetails()));
         checkSubNames(resources, subFilter());
         if (updateState(resources)) {
             return Optional.of(resources);
@@ -176,7 +190,7 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
             // b) It might return stuff. Envoy gets really angry if ADS returns a message type that it never requested.
             return Optional.empty();
         }
-        IncrementalConfigBuilder.Response<E> resources = configBuilder.removeOrder(state(), subFilter(), xdsConfig.clientDetails());
+        IncrementalConfigBuilder.Response<E> resources = fromBuilder(() -> configBuilder.removeOrder(state(), subFilter(), xdsConfig.clientDetails()));
         checkSubNames(resources, subFilter());
         if (updateState(resources)) {
             return Optional.of(resources);
