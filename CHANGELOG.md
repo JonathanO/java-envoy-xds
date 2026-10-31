@@ -2,8 +2,10 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+
+## [2.0.0] - 2026-10-31
 ### Added
-* Experimental `envoy-xds-snapshot` module: snapshot-style config with automatic make-before-break ordering. A `SnapshotSource` holds named groups of resources and named views, each an ordered list of groups, and picks each client's view from its details; changing a group only wakes the clients whose view has it
+* `envoy-xds-snapshot` module: snapshot-style config with automatic make-before-break ordering. A `SnapshotSource` holds named groups of resources and named views, each an ordered list of groups, and picks each client's view from its details; changing a group only wakes the clients whose view has it
 * `envoy-xds-testing`: helpers for testing a control plane against a real Envoy, and an xDS library conformance suite. It now lives in [envoy-xds-spec](https://github.com/JonathanO/envoy-xds-spec)'s `conformance/`, so every port runs the one harness, and isn't published from here: include that build, as `envoy-xds-e2e-tests` does
 * Make before break across a reconnect: `wasMakeBeforeBreak(fromMessage, before)`, `Checkpoint.assertSaneAfterReconnect(before)`, and the `changesWhileDisconnected` conformance scenario
 * `Checkpoint` and `EnvoyChecks.assertRoutedVia` in `envoy-xds-testing`: one call to check everything since a mark, and which cluster served a request
@@ -21,6 +23,18 @@ All notable changes to this project will be documented in this file.
 * Phases in the snapshot module: `SnapshotSource.Change.then()` splits a change, so each client gets each phase, and ACKs it, before the next. It's for changes whose order make before break can't see, such as a route that must stop using a cluster's subset before the cluster drops it. `Mergeable.mergesWithLater()` lets any update type keep `MergingStateBacklog` from merging later updates into it
 
 ### Changed
+* Forked from [transferwise/wise-envoy-xds](https://github.com/transferwise/wise-envoy-xds)
+* **Breaking:** Java packages renamed from `com.transferwise.envoy` to `net.woaf.jono.envoy`
+* **Breaking:** Maven coordinates changed from `com.transferwise.envoy:wise-envoy-xds-core` to `net.woaf.jono.envoy:envoy-xds-core`
+* Replaced dependabot with Renovate
+* Build now requires JDK 21+ (Error Prone); published bytecode still targets Java 17
+* Bump Gradle 7.5.1 -> 9.8.1 and all build plugins
+* Bump guava 31.1 -> 33.7.2, grpc-stub 1.52.1 -> 1.85.0, slf4j 2.0.6 -> 2.0.20, spotbugs-annotations 4.7.3 -> 4.10.5
+* Bump test dependencies: JUnit 6, Mockito 5, Testcontainers 2
+* Removed unmaintained yamlvalidator plugin
+* Removed unused jqwik test dependency
+* Core depends on protobuf-java instead of the unused protobuf-java-util
+* Removed grgit plugin and unused tagRelease task
 * Build scripts are Kotlin DSL, with the shared setup in convention plugins under `build-logic` (`envoy-xds.java-conventions`, `envoy-xds.published`, `envoy-xds.mutation-tested`) and every dependency version in `gradle/libs.versions.toml`. Only `envoy-xds-core` and `envoy-xds-snapshot` are published; the example and e2e tests no longer are. Publishing goes to Maven Central through the Central Portal's staging API, as OSSRH was retired. Builds resolve from Maven Central only, no longer from Maven Local
 * Built and tested against `net.woaf.jono.envoy:envoy-api` 1.36.0 (from [envoy-api-java](https://github.com/JonathanO/envoy-api-java), published for each Envoy release) instead of `com.transferwise.envoy:envoy-api` 1.17.0. It's still `compileOnly`, so bring the envoy-api you already use
 * `delayUpdatesUntilAckOf` no longer blocks updates forever when the client never ACKs that type: it's ignored if `subscribesTo` leaves the type out, and otherwise gives up after 30 seconds with a warning
@@ -37,7 +51,6 @@ All notable changes to this project will be documented in this file.
 * **Breaking:** clients no longer get a thread each. `SnapshotSource` delivers updates on a shared pool with one thread per core, or on your own `Executor` (`new SnapshotSource<>(viewOf, executor)`). `QueueingMergingEventListener`, `QueueingEventListener` and `ThreadedQueuingEventListener` are replaced by `SerialEventListener`, which delivers each client's updates in order on an executor and doesn't merge: updates that arrive while a client is busy are merged by its `StateBacklog`, so use `MergingStateBacklog` to keep merging
 * A client whose update fails, e.g. because a config builder threw, is logged once, at error with its node id, and its stream is closed. The exception no longer propagates to your `ClusterEventSource`, so `SerialEventListener` doesn't log it a second time
 * **Breaking:** the protocol machinery moved to `net.woaf.jono.envoy.xds.internal` (and `.internal.delta`, `.internal.sotw`), which is not API and may change in any release: `DiscoveryServiceManager`, `CommonDiscoveryStreamObserver`, `CommonDiscoveryRequest`, the discovery services and their factories. Use `AggregatedDiscoveryService`; its constructor taking the per-protocol services is gone
-* Every public class and method in core, snapshot and testing has Javadoc, and the Javadoc build fails on warnings
 * A stream that fails ends with a gRPC status that says whose fault it was, instead of `UNKNOWN` with our exception: `INVALID_ARGUMENT` for a bad request, such as a delta request that subscribes to and unsubscribes from the same name, and `INTERNAL` with the message "xds: internal error" for our own failures, such as a config builder throwing, even if it throws a gRPC status. A status thrown by your `ClientConfigProvider` still reaches Envoy as it is. The exception is logged, but no longer sent to Envoy
 * SotW: each response lists its resources sorted by name, instead of in the order they were added, so the same set always makes the same response
 * An update equal to the stream's current state is no longer skipped: it goes through your config builders like any other, and whatever they return is sent. Leaving out updates that change nothing is the source's job, which `SnapshotSource` already does, so the core doesn't compare every update with the last
@@ -70,21 +83,6 @@ All notable changes to this project will be documented in this file.
 * SotW: a request that lists a name twice no longer leaves names it dropped subscribed
 * `Snapshot.Editor.put` and `remove` can be called for their effect alone: with Error Prone, filling an editor in a loop no longer fails `CheckReturnValue`
 * `Snapshot.types()` no longer lists a type whose last resource was removed: `Snapshot.Editor.build()` drops a type left empty, as `types()` documents
-
-## [2.0.0] - 2026-10-16
-### Changed
-* Forked from [transferwise/wise-envoy-xds](https://github.com/transferwise/wise-envoy-xds)
-* **Breaking:** Java packages renamed from `com.transferwise.envoy` to `net.woaf.jono.envoy`
-* **Breaking:** Maven coordinates changed from `com.transferwise.envoy:wise-envoy-xds-core` to `net.woaf.jono.envoy:envoy-xds-core`
-* Replaced dependabot with Renovate
-* Build now requires JDK 21+ (Error Prone); published bytecode still targets Java 17
-* Bump Gradle 7.5.1 -> 9.8.1 and all build plugins
-* Bump guava 31.1 -> 33.7.2, grpc-stub 1.52.1 -> 1.85.0, slf4j 2.0.6 -> 2.0.20, spotbugs-annotations 4.7.3 -> 4.10.5
-* Bump test dependencies: JUnit 6, Mockito 5, Testcontainers 2
-* Removed unmaintained yamlvalidator plugin
-* Removed unused jqwik test dependency
-* Core depends on protobuf-java instead of the unused protobuf-java-util
-* Removed grgit plugin and unused tagRelease task
 
 ## [1.0.1] - 2026-08-19
 ### Changed
