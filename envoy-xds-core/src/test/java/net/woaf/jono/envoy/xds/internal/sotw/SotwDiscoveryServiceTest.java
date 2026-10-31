@@ -1,6 +1,7 @@
 package net.woaf.jono.envoy.xds.internal.sotw;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -277,6 +278,40 @@ public class SotwDiscoveryServiceTest {
         ds.processUpdate(ack(TypeUrl.CDS, pushed));
         ds.sendNetworkUpdatePost();
         assertNoAdditionalResponsesSent(2);
+    }
+
+    @Test
+    public void anUpdateEqualToTheCurrentStateStillGoesThroughTheBuilders(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        serves(configBuilder, endpoints("a"));
+        // Removing duplicates is the source's job: this builder resends a for any update.
+        when(configBuilder.addOrder(eq(initState), any(), any())).thenAnswer(inv ->
+            new IncrementalConfigBuilder.Response<>(named(inv.getArgument(1), endpoints("a")).resources(), List.of()));
+        when(configBuilder.removeOrder(eq(initState), any(), any())).thenReturn(IncrementalConfigBuilder.Response.<ClusterLoadAssignment>empty());
+        DiscoveryService<DiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+        InOrder inOrder = inOrder(responseObserver);
+        ds.processUpdate(request(TypeUrl.EDS, "a"));
+        ds.processUpdate(ack(TypeUrl.EDS, nextResponse(inOrder), "a"));
+
+        ds.onNetworkUpdate(initState);
+        ds.sendNetworkUpdatePre();
+
+        DiscoveryResponse again = nextResponse(inOrder);
+        assertThat(again.getResourcesList()).containsExactlyElementsOf(packed(endpoints("a")));
+        ds.processUpdate(ack(TypeUrl.EDS, again, "a"));
+        ds.sendNetworkUpdatePost();
+        assertNoAdditionalResponsesSent(2); // the remove round had nothing
+    }
+
+    @Test
+    public void anUpdateBeforeTheLastIsSentIsRefused(@Mock IncrementalConfigBuilder<ClusterLoadAssignment, DummyUpdate, Object> configBuilder) {
+        DiscoveryService<DiscoveryRequest, DummyUpdate> ds = service(TypeUrl.EDS, configBuilder);
+        ds.init(initState);
+        DummyUpdate next = new DummyUpdate();
+        ds.onNetworkUpdate(next);
+
+        assertThatThrownBy(() -> ds.onNetworkUpdate(next)).as("even one equal to it")
+            .isInstanceOf(IllegalStateException.class).hasMessageContaining("dirty state");
     }
 
     @Test

@@ -11,6 +11,9 @@ differ. When you change behaviour or a test here, make the same change there, or
 - Run `./gradlew check javadoc` before pushing: `check` doesn't run javadoc, and CI fails on its warnings.
 - `./gradlew pitest` must kill every mutant in envoy-xds-core and envoy-xds-snapshot, each module with its own tests.
   An exception needs a strong reason, agreed with the maintainer.
-- The e2e tests run real Envoys. Never mock Envoy.
-- envoy-xds-spec-tests runs the trace vectors from the spec submodule, `spec/`: `git submodule update --init`. A
+- The e2e tests run real Envoys. Never mock Envoy. Their harness and conformance suite are the spec's `conformance/`
+  build, which `settings.gradle.kts` includes from `spec/`. A change to the harness or a scenario is a PR there first,
+  then a submodule bump here; the Go port runs the same suite against its conformance server.
+- envoy-xds-spec-tests runs the trace vectors from the spec submodule, `spec/`: `git submodule update --init`. Every
+  build needs it, as `settings.gradle.kts` includes `spec/conformance`. A
   behaviour change starts there, with a vector.

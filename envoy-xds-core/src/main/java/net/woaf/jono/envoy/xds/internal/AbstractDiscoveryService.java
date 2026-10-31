@@ -124,9 +124,6 @@ public abstract class AbstractDiscoveryService<T extends Message, E extends Mess
 
     @Override
     public void onNetworkUpdate(StateUpdT changes) {
-        if (changes.equals(currentState)) {
-            return;
-        }
         if (!SubState.COMPLETED.equals(currentSubState)) {
             throw new IllegalStateException("Network map update committed while still in dirty state!");
         }

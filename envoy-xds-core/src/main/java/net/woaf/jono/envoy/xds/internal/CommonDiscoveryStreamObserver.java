@@ -47,6 +47,10 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
     @GuardedBy("this")
     private @Nullable DiscoveryServiceManager<T, StateUpdT> discoveryServiceManager = null;
 
+    /** Whether we're subscribed to the source: from the first request until a NACK freezes the stream, or it ends. */
+    @GuardedBy("this")
+    private boolean subscribed = false;
+
     private final Function<T, CommonDiscoveryRequest<T>> commonDiscoveryRequestConverter;
 
     private final DiscoveryServiceManagerMetrics metrics;
@@ -147,10 +151,17 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
             }
             if (discoveryServiceManager == null) {
                 discoveryServiceManager = discoveryServiceManagerFactory.build(responseObserver, xdsConfig, metrics);
-                discoveryServiceManager.init(clusterManager.subscribe(this, xdsConfig.clientDetails()), xdsConfig.delayUpdatesUntilAckOf(), xdsConfig.subscribesTo());
+                StateUpdT initialState = clusterManager.subscribe(this, xdsConfig.clientDetails());
+                subscribed = true;
+                discoveryServiceManager.init(initialState, xdsConfig.delayUpdatesUntilAckOf(), xdsConfig.subscribesTo());
             }
 
             discoveryServiceManager.processUpdate(value);
+            if (subscribed && discoveryServiceManager.isFrozen()) {
+                // A frozen stream sends no more changes, so it needs no more updates.
+                subscribed = false;
+                clusterManager.unsubscribe(this);
+            }
         } catch (Throwable t) {
             this.onError(t); // Despite docs on interface, upstream is not calling onError :-(
             throw t;
@@ -259,7 +270,10 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
         isDead = true;
         DiscoveryServiceManager<T, StateUpdT> dsm = discoveryServiceManager;
         if (dsm != null) {
-            runner.exec(() -> clusterManager.unsubscribe(this));
+            if (subscribed) { // unless a NACK already unsubscribed
+                subscribed = false;
+                runner.exec(() -> clusterManager.unsubscribe(this));
+            }
             runner.exec(dsm::close);
             discoveryServiceManager = null;
         }

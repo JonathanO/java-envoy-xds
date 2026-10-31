@@ -272,7 +272,9 @@ public class DiscoveryServiceManagerTest {
         dsm.pushUpdates(update);
         dsm.pushUpdates(queued); // waits behind update
         dsm.pushUpdates(queuedToo); // this backlog doesn't merge them
+        assertThat(dsm.isFrozen()).isFalse();
         nack(dsm, eds);
+        assertThat(dsm.isFrozen()).as("so the stream unsubscribes from the source").isTrue();
         dsm.pushUpdates(later);
 
         assertThat(backlog.isEmpty()).as("backlog dropped").isTrue();
