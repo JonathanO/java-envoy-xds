@@ -14,8 +14,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.function.Predicate;
 
 class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends AbstractDiscoveryService<DiscoveryRequest, E, StateUpdT, DetailsT> {
@@ -29,7 +29,8 @@ class SotwDiscoveryService<E extends Message, StateUpdT, DetailsT> extends Abstr
 
     private @Nullable String awaitingVersion = null;
 
-    private final Map<String, NamedMessage<E>> resourceState = new LinkedHashMap<>();
+    // By name, so each response lists its resources in the same order whatever order they came in.
+    private final Map<String, NamedMessage<E>> resourceState = new TreeMap<>();
 
     SotwDiscoveryService(TypeUrl myTypeUrl, StreamObserver<DiscoveryResponse> responseObserver, SubManager subManager, VersionManager versionManager, IncrementalConfigBuilder<E, StateUpdT, DetailsT> configBuilder, XdsConfig<DetailsT> xdsConfig) {
         super(myTypeUrl, configBuilder, xdsConfig);

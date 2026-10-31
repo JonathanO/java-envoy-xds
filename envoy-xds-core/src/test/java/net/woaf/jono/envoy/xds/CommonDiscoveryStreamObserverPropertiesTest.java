@@ -174,6 +174,9 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
             List<String> sent = value instanceof DeltaDiscoveryResponse d
                 ? d.getResourcesList().stream().map(Resource::getName).toList()
                 : ((DiscoveryResponse) value).getResourcesList().stream().map(CommonDiscoveryStreamObserverPropertiesTest::name).toList();
+            if (value instanceof DiscoveryResponse) {
+                assertThat(sent).as("SotW resources by name").isSorted();
+            }
             if (!MAY_WAIT.contains(TypeUrl.of(typeUrl))) {
                 assertThat(sent).as("sent %s the client isn't subscribed to", typeUrl).allMatch(n -> s.all || s.names.contains(n));
             }
