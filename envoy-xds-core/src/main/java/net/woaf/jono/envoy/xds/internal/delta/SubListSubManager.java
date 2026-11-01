@@ -1,7 +1,6 @@
 package net.woaf.jono.envoy.xds.internal.delta;
 
 import com.google.common.collect.ImmutableSet;
-import io.grpc.Status;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -15,17 +14,10 @@ class SubListSubManager implements SubManager {
     public Optional<Predicate<String>> processResourceListChange(ImmutableSet<String> resourceNamesSubscribe, ImmutableSet<String> resourceNamesUnsubscribe) {
         Set<String> newSubs = new HashSet<>(resourceNamesSubscribe);
 
-        for (String name: resourceNamesSubscribe) {
-            subs.add(name);
-            if (resourceNamesUnsubscribe.contains(name)) {
-                // This should never happen, but if it does the xDS spec provides no guidance on correct behaviour.
-                // Both possible options are potentially bad, so it seems best if this is an error. It's Envoy's, so the
-                // stream ends with INVALID_ARGUMENT.
-                throw Status.INVALID_ARGUMENT.withDescription("Attempt to subscribe and unsubscribe from the same resource in one request: " + name)
-                    .asRuntimeException();
-            }
-        }
+        // A name in both is subscribed to: the xDS spec doesn't say which wins, and a resource Envoy doesn't want does
+        // less harm than missing one it does.
         subs.removeAll(resourceNamesUnsubscribe);
+        subs.addAll(resourceNamesSubscribe);
         if (newSubs.isEmpty()) {
             // Unsubscribing needs no response, and sending an empty one would hold up pushes until Envoy ACKs it.
             return Optional.empty();

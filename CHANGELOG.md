@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 * `AggregatedDiscoveryService` takes an optional Guava `Ticker`: the time source for the waits that give up after 30 seconds, so tests can move time on
 * `DiscoveryServiceManagerMetrics.onFrozen()`: called once when a NACK freezes a stream, so you can count frozen streams against `close()` and alert on them
 
+### Changed
+* A delta request that subscribes to and unsubscribes from the same name, `*` included, now subscribes to it, instead of failing the stream with `INVALID_ARGUMENT`. The xDS spec doesn't say which wins, and Envoy never sends such a request
+
 ## [2.0.0] - 2026-10-31
 ### Added
 * `envoy-xds-snapshot` module: snapshot-style config with automatic make-before-break ordering. A `SnapshotSource` holds named groups of resources and named views, each an ordered list of groups, and picks each client's view from its details; changing a group only wakes the clients whose view has it

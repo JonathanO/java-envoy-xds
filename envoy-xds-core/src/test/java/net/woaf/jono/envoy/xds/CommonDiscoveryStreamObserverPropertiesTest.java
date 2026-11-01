@@ -149,9 +149,10 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
                 List<String> unsub = r.getResourceNamesUnsubscribeList();
                 boolean legacy = !before && sub.isEmpty() && unsub.isEmpty();
                 before = true;
-                all = wildcardType && (all || legacy || sub.contains("*")) && !unsub.contains("*"); // unsubscribing wins
-                names.addAll(sub);
+                // Subscribing wins.
+                all = wildcardType && ((all && !unsub.contains("*")) || legacy || sub.contains("*"));
                 names.removeAll(unsub);
+                names.addAll(sub);
             }
         }
     }
@@ -388,13 +389,8 @@ public class CommonDiscoveryStreamObserverPropertiesTest {
         }
 
         @Invariant(alwaysRun = true)
-        void failsOnlyForProtocolViolations(TestCase tc) {
-            assertThat(escaped).allSatisfy(e -> assertThat(e).isInstanceOfSatisfying(io.grpc.StatusRuntimeException.class,
-                    s -> assertThat(s.getStatus().getCode()).isEqualTo(io.grpc.Status.Code.INVALID_ARGUMENT))
-                .hasMessageContaining("subscribe and unsubscribe from the same resource"));
-            if (!escaped.isEmpty()) {
-                assertThat(client.ended).as("an exception escaped but the stream is still open").isTrue();
-            }
+        void neverFails(TestCase tc) {
+            assertThat(escaped).isEmpty();
         }
     }
 }

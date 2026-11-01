@@ -28,13 +28,15 @@ class ReplayTest {
     void carriesOnAfterAStreamTheServerEnds() {
         String vector = """
             {"name": "v", "protocols": ["delta"], "serves": ["CDS"], "envoys": [{"name": "e", "view": "v"}], "steps": [
-              {"request": "CDS", "subscribe": ["a"], "unsubscribe": ["a"]},
+              {"request": "CDS"},
+              {"resync": "e"},
               {"request": "CDS"}
             ]}""";
 
         assertThat(Replay.replay(JsonParser.parseString(vector).getAsJsonObject())).isEqualTo(JsonParser.parseString("""
             {"name": "v", "runs": {"delta": {"steps": [
-              [{"envoy": "e", "ended": "INVALID_ARGUMENT"}],
+              [{"envoy": "e", "type": "CDS", "resources": [], "removed": []}],
+              [{"envoy": "e", "ended": "OK"}],
               [{"envoy": "e", "type": "CDS", "resources": [], "removed": []}]
             ]}}}"""));
     }

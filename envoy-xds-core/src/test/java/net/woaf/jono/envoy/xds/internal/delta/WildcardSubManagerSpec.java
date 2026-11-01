@@ -45,6 +45,21 @@ public class WildcardSubManagerSpec {
     }
 
     @Test
+    public void wildcardInBothListsIsSubscribed() {
+        WildcardSubManager subManager = new WildcardSubManager();
+        subManager.processResourceListChange(ImmutableSet.of("foo"), ImmutableSet.of());
+
+        // Subscribing wins, as for names: the wildcard starts.
+        Predicate<String> wouldSendUpdates = subManager.processResourceListChange(ImmutableSet.of("*"), ImmutableSet.of("*")).orElseThrow();
+        assertThat(wouldSendUpdates).accepts("bar").rejects("foo", "*");
+        assertThat(subManager.isSubscribedTo("bar")).isTrue();
+
+        // And it doesn't start again, so there's nothing to answer.
+        assertThat(subManager.processResourceListChange(ImmutableSet.of("*"), ImmutableSet.of("*"))).isNotPresent();
+        assertThat(subManager.isSubscribedTo("bar")).isTrue();
+    }
+
+    @Test
     public void testSubUnsubSubWildcard() {
         WildcardSubManager subManager = new WildcardSubManager();
 

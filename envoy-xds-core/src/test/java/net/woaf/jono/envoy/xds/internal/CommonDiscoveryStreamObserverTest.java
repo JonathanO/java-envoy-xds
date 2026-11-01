@@ -6,8 +6,6 @@ import net.woaf.jono.envoy.xds.XdsConfig;
 import com.google.common.collect.ImmutableList;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
 import io.envoyproxy.envoy.config.core.v3.Node;
-import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryRequest;
-import io.envoyproxy.envoy.service.discovery.v3.DeltaDiscoveryResponse;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryRequest;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import io.grpc.stub.StreamObserver;
@@ -103,20 +101,6 @@ public class CommonDiscoveryStreamObserverTest {
 
         verify(responseObserver).onError(argThat(e -> isInternalError(e)));
         verify(source).unsubscribe(observer);
-    }
-
-    @Test
-    public void badRequestEndsTheStreamWithInvalidArgument(@Mock StreamObserver<DeltaDiscoveryResponse> responseObserver,
-                                                           @Mock ClusterEventSource<DummyUpdate> source) {
-        when(source.subscribe(any(), any())).thenReturn(new DummyUpdate());
-        StreamObserver<DeltaDiscoveryRequest> requests = ads(source, ImmutableList.of()).deltaAggregatedResources(responseObserver);
-
-        // The xDS spec doesn't say which should win, so it's Envoy's mistake.
-        assertThatThrownBy(() -> requests.onNext(DeltaDiscoveryRequest.newBuilder().setNode(Node.newBuilder().setId("envoy"))
-            .setTypeUrl(TypeUrl.CDS.getTypeUrl()).addResourceNamesSubscribe("a").addResourceNamesUnsubscribe("a").build()));
-
-        verify(responseObserver).onError(argThat(e -> io.grpc.Status.fromThrowable(e).getCode() == io.grpc.Status.Code.INVALID_ARGUMENT
-            && io.grpc.Status.fromThrowable(e).getDescription().contains("subscribe and unsubscribe from the same resource")));
     }
 
     @Test

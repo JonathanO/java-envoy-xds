@@ -1,15 +1,12 @@
 package net.woaf.jono.envoy.xds.internal.delta;
 
 import com.google.common.collect.ImmutableSet;
-import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
 import net.woaf.jono.envoy.xds.internal.delta.SubListSubManager;
 import org.junit.jupiter.api.Test;
 
 import java.util.function.Predicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SuppressWarnings("Duplicates")
 public class SubListSubManagerSpec {
@@ -66,11 +63,16 @@ public class SubListSubManagerSpec {
     }
 
     @Test
-    public void testSubscribeUnsubscribeSameResourceThrows() {
+    public void testSubscribeUnsubscribeSameResourceSubscribes() {
         SubListSubManager subManager = new SubListSubManager();
+        subManager.processResourceListChange(ImmutableSet.of("foo"), ImmutableSet.of());
 
-        assertThatThrownBy(() -> subManager.processResourceListChange(ImmutableSet.of("foo"), ImmutableSet.of("foo")))
-            .isInstanceOfSatisfying(StatusRuntimeException.class, e -> assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.INVALID_ARGUMENT));
+        // Subscribing wins, whether it was subscribed to already or not, and both are answered.
+        Predicate<String> filter = subManager.processResourceListChange(ImmutableSet.of("foo", "bar"), ImmutableSet.of("foo", "bar")).orElseThrow();
+
+        assertThat(filter).accepts("foo", "bar").rejects("baz");
+        assertThat(subManager.isSubscribedTo("foo")).isTrue();
+        assertThat(subManager.isSubscribedTo("bar")).isTrue();
     }
 
 }
