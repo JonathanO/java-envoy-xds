@@ -307,7 +307,7 @@ public class CommonDiscoveryStreamObserver<T extends Message, R extends Message,
 
     /**
      * {@return what to end Envoy's stream with}
-     * A gRPC status as it is, such as INVALID_ARGUMENT for a bad request. Anything else is our own failure, e.g. a config
+     * A gRPC status as it is, such as one a ClientConfigProvider throws. Anything else is our own failure, e.g. a config
      * builder's, so Envoy hears only that it was internal: the exception, logged here, is no business of Envoy's.
      */
     private static StatusRuntimeException forEnvoy(Throwable t) {

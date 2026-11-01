@@ -47,9 +47,10 @@ public class SubManagerPropertiesTest {
                 wildcard = true;
                 return;
             }
-            wildcard = (wildcard || subscribe.contains(WILDCARD)) && !unsubscribe.contains(WILDCARD);
-            names.addAll(withoutWildcard(subscribe));
+            // A name in both, the wildcard included, is subscribed to.
+            wildcard = (wildcard && !unsubscribe.contains(WILDCARD)) || subscribe.contains(WILDCARD);
             names.removeAll(unsubscribe);
+            names.addAll(withoutWildcard(subscribe));
         }
 
         Set<String> subscribed() {
@@ -71,9 +72,7 @@ public class SubManagerPropertiesTest {
         int requests = tc.draw(integers().min(1).max(8), "requests");
         for (int i = 0; i < requests; i++) {
             Set<String> subscribe = tc.draw(sets(sampledFrom(names)), "subscribe");
-            // Subscribing to and unsubscribing from one name in one request is rejected; see SubListSubManagerSpec. The
-            // wildcard isn't a name: it may be in both.
-            Set<String> unsubscribe = Sets.difference(tc.draw(sets(sampledFrom(names)), "unsubscribe"), withoutWildcard(subscribe));
+            Set<String> unsubscribe = tc.draw(sets(sampledFrom(names)), "unsubscribe");
 
             Set<String> before = model.subscribed();
             boolean wasWildcard = model.wildcard;
