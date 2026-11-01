@@ -25,7 +25,7 @@ class ReplayTest {
     }
 
     @Test
-    void stopsAtAStreamTheServerEnds() {
+    void carriesOnAfterAStreamTheServerEnds() {
         String vector = """
             {"name": "v", "protocols": ["delta"], "serves": ["CDS"], "envoys": [{"name": "e", "view": "v"}], "steps": [
               {"request": "CDS", "subscribe": ["a"], "unsubscribe": ["a"]},
@@ -33,7 +33,10 @@ class ReplayTest {
             ]}""";
 
         assertThat(Replay.replay(JsonParser.parseString(vector).getAsJsonObject())).isEqualTo(JsonParser.parseString("""
-            {"name": "v", "runs": {"delta": {"steps": [[{"envoy": "e", "ended": "INVALID_ARGUMENT"}]]}}}"""));
+            {"name": "v", "runs": {"delta": {"steps": [
+              [{"envoy": "e", "ended": "INVALID_ARGUMENT"}],
+              [{"envoy": "e", "type": "CDS", "resources": [], "removed": []}]
+            ]}}}"""));
     }
 
     @Test

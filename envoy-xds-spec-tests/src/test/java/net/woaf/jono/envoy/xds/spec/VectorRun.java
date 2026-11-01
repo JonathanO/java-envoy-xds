@@ -23,6 +23,7 @@ import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -42,6 +43,8 @@ import net.woaf.jono.envoy.xds.AggregatedDiscoveryService;
 import net.woaf.jono.envoy.xds.TypeUrl;
 import net.woaf.jono.envoy.xds.XdsConfig;
 import net.woaf.jono.envoy.xds.api.DiscoveryServiceManagerMetrics;
+import net.woaf.jono.envoy.xds.api.XdsEventListener;
+import net.woaf.jono.envoy.xds.api.ClientHandle;
 import net.woaf.jono.envoy.xds.api.utils.MergingStateBacklog;
 import net.woaf.jono.envoy.xds.snapshot.Snapshot;
 import net.woaf.jono.envoy.xds.snapshot.SnapshotConfigBuilder;
@@ -78,6 +81,9 @@ final class VectorRun {
     private final Map<String, FakeEnvoy> envoys = new LinkedHashMap<>();
 
     private final Map<String, Received> labels = new HashMap<>();
+
+    /** Each Envoy's latest stream, by node ID, for resync steps. */
+    private final Map<String, ClientHandle> clients = new HashMap<>();
 
     private final SnapshotSource<String, String, String> source;
 
@@ -118,8 +124,18 @@ final class VectorRun {
         source = new SnapshotSource<>(views::get, tasks::add);
         @SuppressWarnings("unchecked")
         Class<? extends Message>[] served = types(vector.getAsJsonArray("serves")).stream().map(TypeUrl::getMessageClazz).toArray(Class[]::new);
+        XdsEventListener<String> streams = new XdsEventListener<>() {
+            @Override
+            public void onNewClient(ClientHandle clientHandle, Node node, XdsConfig<String> config) {
+                clients.put(node.getId(), clientHandle);
+            }
+
+            @Override
+            public void onClientDisconnected(ClientHandle clientHandle, Node node) {
+            }
+        };
         ads = new AggregatedDiscoveryService<>(source, SnapshotConfigBuilder.<String>forTypes(served), node -> configs.get(node.getId()),
-            ImmutableList.of(), MergingStateBacklog.factory(), DiscoveryServiceManagerMetrics.METRICS_DISABLED, new Ticker() {
+            ImmutableList.of(streams), MergingStateBacklog.factory(), DiscoveryServiceManagerMetrics.METRICS_DISABLED, new Ticker() {
                 @Override
                 public long read() {
                     return now;
@@ -159,7 +175,6 @@ final class VectorRun {
                 return run;
             }
             JsonArray responses = new JsonArray();
-            boolean ended = false;
             for (FakeEnvoy envoy : envoys.values()) {
                 for (Received response : envoy.received) {
                     responses.add(replayed(envoy.name, response));
@@ -170,13 +185,10 @@ final class VectorRun {
                     end.addProperty("envoy", envoy.name);
                     end.addProperty("ended", envoy.ended);
                     responses.add(end);
-                    ended = true;
+                    envoy.reset(); // its next request opens a new stream
                 }
             }
             steps.add(responses);
-            if (ended) {
-                return run;
-            }
         }
         return run;
     }
@@ -200,8 +212,16 @@ final class VectorRun {
     private void perform(JsonObject step) {
         if (step.has("update")) {
             update(step.getAsJsonArray("update"));
+        } else if (step.has("request") && !isTypeName(step.get("request"))) {
+            envoy(step).sendRaw(step);
         } else if (step.has("request")) {
             envoy(step).send(step);
+        } else if (step.has("resync")) {
+            ClientHandle client = clients.get(envoyNamed(step.get("resync").getAsString()).name);
+            if (client == null) {
+                throw new IllegalArgumentException(step.get("resync") + " has no stream to resync");
+            }
+            client.resync();
         } else if (step.has("disconnect")) {
             envoyNamed(step.get("disconnect").getAsString()).disconnect();
         } else if (step.has("advance")) {
@@ -259,15 +279,20 @@ final class VectorRun {
             for (JsonElement e : step.getAsJsonArray("expect")) {
                 JsonObject response = e.getAsJsonObject();
                 String envoy = response.has("envoy") ? response.get("envoy").getAsString()
-                    : step.has("request") ? envoy(step).name : onlyEnvoy().name;
+                    : step.has("request") ? envoy(step).name : step.has("resync") ? step.get("resync").getAsString() : onlyEnvoy().name;
                 expected.computeIfAbsent(envoyNamed(envoy).name, k -> new ArrayList<>()).add(response);
             }
         }
         for (FakeEnvoy envoy : envoys.values()) {
-            if (envoy.failed != null) {
-                throw new AssertionError(where + "\nthe server failed Envoy " + envoy.name + "'s stream: " + envoy.failed, envoy.failed);
+            List<JsonObject> want = new ArrayList<>(expected.getOrDefault(envoy.name, List.of()));
+            JsonObject end = !want.isEmpty() && want.get(want.size() - 1).has("ended") ? want.remove(want.size() - 1) : null;
+            if (envoy.ended == null && end != null) {
+                throw new AssertionError(where + "\nexpected the server to end Envoy " + envoy.name + "'s stream with " + end.get("ended").getAsString());
             }
-            List<JsonObject> want = expected.getOrDefault(envoy.name, List.of());
+            if (envoy.ended != null && (end == null || !end.get("ended").getAsString().equals(envoy.ended))) {
+                throw new AssertionError(where + "\nthe server ended Envoy " + envoy.name + "'s stream with " + envoy.ended
+                    + (end == null ? "" : ", not " + end.get("ended").getAsString()) + ": " + envoy.failed, envoy.failed);
+            }
             List<Received> got = List.copyOf(envoy.received);
             envoy.received.clear();
             boolean matches = want.size() == got.size();
@@ -285,6 +310,9 @@ final class VectorRun {
                 if (want.get(i).has("as") && labels.put(want.get(i).get("as").getAsString(), got.get(i)) != null) {
                     throw new IllegalArgumentException("label " + want.get(i).get("as") + " is used twice");
                 }
+            }
+            if (envoy.ended != null) {
+                envoy.reset(); // its next request opens a new stream
             }
         }
     }
@@ -328,6 +356,10 @@ final class VectorRun {
             throw new IllegalArgumentException("there are several envoys, so say which");
         }
         return envoys.values().iterator().next();
+    }
+
+    private static boolean isTypeName(JsonElement name) {
+        return Arrays.stream(TypeUrl.values()).anyMatch(t -> t.name().equals(name.getAsString()));
     }
 
     private static TypeUrl type(JsonElement name) {
@@ -538,12 +570,40 @@ final class VectorRun {
                 sotwStream().onCompleted();
             }
             closing = false;
+            reset();
+        }
+
+        /** Forgets its stream: its next request opens a new one. */
+        void reset() {
             sotw = null;
             deltaStream = null;
             first = true;
             history.clear();
             accepted.clear();
             names.clear();
+            failed = null;
+            ended = null;
+        }
+
+        /** Sends a request for a type URL that isn't one of the eight, with the names it subscribes to. */
+        void sendRaw(JsonObject step) {
+            String typeUrl = step.get("request").getAsString();
+            Node node = Node.newBuilder().setId(name).build();
+            if (delta) {
+                DeltaDiscoveryRequest.Builder request = DeltaDiscoveryRequest.newBuilder().setTypeUrl(typeUrl)
+                    .addAllResourceNamesSubscribe(strings(step, "subscribe")).addAllResourceNamesUnsubscribe(strings(step, "unsubscribe"));
+                if (first) {
+                    request.setNode(node);
+                }
+                deliver(() -> deltaStream().onNext(request.build()));
+            } else {
+                DiscoveryRequest.Builder request = DiscoveryRequest.newBuilder().setTypeUrl(typeUrl).addAllResourceNames(strings(step, "subscribe"));
+                if (first) {
+                    request.setNode(node);
+                }
+                deliver(() -> sotwStream().onNext(request.build()));
+            }
+            first = false;
         }
 
         private @Nullable Received ref(TypeUrl type, String ref) {
