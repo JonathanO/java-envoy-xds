@@ -3,6 +3,7 @@ package net.woaf.jono.envoy.xds;
 import net.woaf.jono.envoy.xds.internal.CommonDiscoveryRequest;
 import net.woaf.jono.envoy.xds.internal.CommonDiscoveryStreamObserver;
 import net.woaf.jono.envoy.xds.internal.DiscoveryServiceManagerFactory;
+import com.google.common.base.Ticker;
 import com.google.common.collect.ImmutableList;
 import net.woaf.jono.envoy.xds.api.ClientConfigProvider;
 import net.woaf.jono.envoy.xds.api.ClusterEventSource;
@@ -58,9 +59,33 @@ public class AggregatedDiscoveryService<StateUpdT, DetailsT> extends AggregatedD
         StateBacklogFactory<StateUpdT> stateBacklogFactory,
         Supplier<DiscoveryServiceManagerMetrics> metricsFactory
     ) {
+        this(clusterManager, configBuilders, clientConfigSource, listeners, stateBacklogFactory, metricsFactory, Ticker.systemTicker());
+    }
+
+    /**
+     * As the other constructor, with the time source for the waits that give up after 30 seconds: for stale removals
+     * after a reconnect, and for {@code delayUpdatesUntilAckOf}. Tests can pass a fake one to move time on.
+     * @param clusterManager tells each connection about changes to the desired config
+     * @param configBuilders one per resource type served: turn state updates into resources
+     * @param clientConfigSource config for each Envoy, looked up from its node when it connects
+     * @param listeners told when Envoys connect, disconnect and NACK
+     * @param stateBacklogFactory how a connection holds the changes that arrive while it waits for an Envoy's ACKs,
+     *     e.g. MergingStateBacklog
+     * @param metricsFactory metrics for each connection, e.g. DiscoveryServiceManagerMetrics.METRICS_DISABLED
+     * @param ticker the time source, Ticker.systemTicker() unless testing
+     */
+    public AggregatedDiscoveryService(
+        ClusterEventSource<StateUpdT> clusterManager,
+        ImmutableList<IncrementalConfigBuilder<?, StateUpdT, DetailsT>> configBuilders,
+        ClientConfigProvider<DetailsT> clientConfigSource,
+        ImmutableList<XdsEventListener<DetailsT>> listeners,
+        StateBacklogFactory<StateUpdT> stateBacklogFactory,
+        Supplier<DiscoveryServiceManagerMetrics> metricsFactory,
+        Ticker ticker
+    ) {
         this.clusterManager = clusterManager;
-        this.sotwManagerFactory = new DiscoveryServiceManagerFactory<>(new SotwDiscoveryServiceFactory<>(configBuilders), stateBacklogFactory);
-        this.deltaManagerFactory = new DiscoveryServiceManagerFactory<>(new IncrementalDiscoveryServiceFactory<>(configBuilders), stateBacklogFactory);
+        this.sotwManagerFactory = new DiscoveryServiceManagerFactory<>(new SotwDiscoveryServiceFactory<>(configBuilders), stateBacklogFactory, ticker);
+        this.deltaManagerFactory = new DiscoveryServiceManagerFactory<>(new IncrementalDiscoveryServiceFactory<>(configBuilders), stateBacklogFactory, ticker);
         this.clientConfigSource = clientConfigSource;
         this.listeners = listeners;
         this.metricsFactory = metricsFactory;

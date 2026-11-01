@@ -8,7 +8,6 @@ import com.google.protobuf.Message;
 import net.woaf.jono.envoy.xds.api.StateBacklog;
 import net.woaf.jono.envoy.xds.api.DiscoveryServiceManagerMetrics;
 
-import com.google.common.annotations.VisibleForTesting;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Iterator;
@@ -155,7 +154,10 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
         initialized = true;
     }
 
-    @VisibleForTesting
+    /**
+     * Sets the time source for the 30 second give-ups, in nanoseconds: System.nanoTime by default.
+     * @param clock reads the time
+     */
     public void setClock(LongSupplier clock) {
         this.clock = clock;
         this.startedNanos = clock.getAsLong();
