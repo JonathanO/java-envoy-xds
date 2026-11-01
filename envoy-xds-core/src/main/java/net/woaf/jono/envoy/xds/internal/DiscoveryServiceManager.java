@@ -301,6 +301,7 @@ public class DiscoveryServiceManager<RequestT extends Message, StateUpdT> {
             discoveryServices.values().forEach(DiscoveryService::abandonChange);
             metrics.onPushComplete();
         }
+        metrics.onFrozen();
         while (waitingStateBacklog.take() != null) {
             // Drop it. Nothing more will be sent.
         }

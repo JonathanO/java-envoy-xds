@@ -58,4 +58,13 @@ public interface DiscoveryServiceManagerMetrics {
 
     }
 
+    /**
+     * This is called once, when Envoy NACKs and the stream freezes: it gets no more changes until it ends, and Envoy
+     * keeps its last good config. close() follows when the stream ends, so a gauge of frozen streams goes up here and
+     * down in close(). If a push was under way, onPushComplete() is called first.
+     */
+    default void onFrozen() {
+
+    }
+
 }
