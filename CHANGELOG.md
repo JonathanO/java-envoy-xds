@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+
+## [2.1.0] - 2026-11-01
 ### Added
 * `AggregatedDiscoveryService` takes an optional Guava `Ticker`: the time source for the waits that give up after 30 seconds, so tests can move time on
 * `DiscoveryServiceManagerMetrics.onFrozen()`: called once when a NACK freezes a stream, so you can count frozen streams against `close()` and alert on them
