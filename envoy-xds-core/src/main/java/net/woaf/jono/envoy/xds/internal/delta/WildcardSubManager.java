@@ -26,19 +26,18 @@ class WildcardSubManager implements SubManager {
             firstResourceListChange = false;
         }
 
-        boolean subChanged = false;
+        boolean wasInWildcardMode = inWildcardMode;
 
-        if (resourceNamesSubscribe.contains(WILDCARD)) {
-            if (!inWildcardMode) {
-                subChanged = true;
-                inWildcardMode = true;
-            }
-            resourceNamesSubscribe = withoutWildcard(resourceNamesSubscribe);
-        }
+        // Subscribing wins, as for names.
         if (resourceNamesUnsubscribe.contains(WILDCARD)) {
             inWildcardMode = false;
             resourceNamesUnsubscribe = withoutWildcard(resourceNamesUnsubscribe);
         }
+        if (resourceNamesSubscribe.contains(WILDCARD)) {
+            inWildcardMode = true;
+            resourceNamesSubscribe = withoutWildcard(resourceNamesSubscribe);
+        }
+        boolean subChanged = inWildcardMode && !wasInWildcardMode;
 
         // The spec allows all discovery services to be operated in sublist mode, even those that support wildcards, so we delegate to a SubListSubManager instance to manage that.
         // The sublist should be maintained even in wildcard mode, as a client can unsubscribe from "*" and then expect the explicit subscriptions it sent previously to take effect.
