@@ -27,6 +27,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -284,7 +285,12 @@ public class DiscoveryServiceManagerTest {
         verify(eds, never()).onNetworkUpdate(queued);
         verify(eds, never()).onNetworkUpdate(queuedToo);
         verify(eds, never()).onNetworkUpdate(later);
-        verify(metrics).onPushComplete(); // the abandoned push ended, so the stream looks idle
+        InOrder order = inOrder(metrics);
+        order.verify(metrics).onPushComplete(); // the abandoned push ended, so the stream looks idle
+        order.verify(metrics).onFrozen();
+
+        dsm.processUpdate(new CommonDiscoveryRequest<>(null, TypeUrl.EDS.getTypeUrl(), null, com.google.rpc.Status.newBuilder().setMessage("again").build()));
+        verify(metrics).onFrozen(); // once only
     }
 
     @Test

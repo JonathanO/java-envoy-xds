@@ -379,6 +379,8 @@ does nothing by default; `DiscoveryServiceManagerMetrics.METRICS_DISABLED` recor
 - `onAwaitingAck()` and `onMessageAcked()`: an answer to one of Envoy's requests, or a removal after a reconnect, was
   sent, and was ACKed. A change's own responses aren't counted here, unless a request of their type arrives while
   they await their ACK: then that type is counted until the ACK comes.
+- `onFrozen()`: Envoy NACKed, so the stream gets no more changes until it ends. Count these against `close()` for a
+  gauge of frozen streams, and alert on it: a frozen Envoy serves its last good config until it reconnects.
 - `close()`: the stream ended.
 
 ```java
