@@ -85,12 +85,30 @@ source.update(c -> c
 source.update(c -> c.group("svc-b", g -> g.put(newEndpointsB)));
 ```
 
-Edit groups (`group(name, edit)`) so only the names you touch are compared; a group replaced whole
-(`group(name, snapshot)`) compares everything in it. Putting a resource equal to the one already there changes nothing.
-`put(resource)` names a resource as Envoy does, by its `name`, or its `cluster_name` for a `ClusterLoadAssignment`; use
+Edit a group (`group(name, edit)`), or replace it whole (`group(name, snapshot)`): either way clients compare only the
+names that changed. Putting a resource equal to the one already there changes nothing, so a group rebuilt from scratch
+and changing nothing wakes no one. `put(resource)` names a resource as Envoy does, by its `name`, or its `cluster_name` for a `ClusterLoadAssignment`; use
 `put(name, resource)` for anything else. Groups and views changed in one `update()` reach each client as one change, so
 a new cluster in one group arrives before the route to it in another. `source.group(name)` and `source.view(name)`
 return what was last published.
+
+Rebuilding a group, whether you replace it or put everything through its editor, still builds and compares every
+resource in it on every update. Put what views have in common in a group of its own, in every view that sees it, such as
+a group per upstream service, rather than a copy in each view's own group: a change is then one edit, and clients share
+one copy of each resource. If you rebuild groups from inputs that carry a revision, such as a database version, skip the
+ones whose revision hasn't changed. Build snapshots before calling `update()`, which holds the source's lock while your
+change runs, so connecting clients wait:
+
+```java
+Map<String, Snapshot> changed = new HashMap<>();
+inputs.forEach((profile, input) -> {
+    if (!input.revision().equals(published.get(profile))) {
+        changed.put(profile, render(input));
+    }
+});
+source.update(c -> changed.forEach(c::group));
+changed.keySet().forEach(profile -> published.put(profile, inputs.get(profile).revision()));
+```
 
 ## 3. Per-client config
 
