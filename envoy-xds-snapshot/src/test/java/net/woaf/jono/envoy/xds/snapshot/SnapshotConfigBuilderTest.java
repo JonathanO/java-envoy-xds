@@ -68,13 +68,24 @@ public class SnapshotConfigBuilderTest {
     }
 
     @Test
-    public void replacedGroupIsComparedInFull() {
-        source.update(all(e -> e.put(cluster("foo")).put(cluster("same"))));
+    public void replacedGroupComparesOnlyWhatChanged() {
+        source.update(all(e -> e.put(cluster("foo")).put(cluster("same")).put(cla("foo", "127.0.0.5"))));
 
         SnapshotUpdate<String> update = sent(source.update(c -> c.group("all", Snapshot.empty().edit().put(cluster("bar")).put(cluster("same")).build())), "all");
 
         assertThat(added(Cluster.class, update)).containsExactly(cluster("bar"));
         assertThat(removed(Cluster.class, update)).containsExactly("foo");
+        assertThat(removed(ClusterLoadAssignment.class, update)).containsExactly("foo");
+        assertThat(update.candidates(Cluster.class)).containsExactlyInAnyOrder("foo", "bar");
+    }
+
+    @Test
+    public void groupReplacedByAnEqualOneWakesNoOneAndKeepsItsResources() {
+        Cluster same = cluster("same");
+        source.update(all(e -> e.put(same)));
+
+        assertThat(source.update(c -> c.group("all", Snapshot.empty().edit().put(cluster("same")).build()))).isEmpty();
+        assertThat(source.group("all").get(Cluster.class).get("same")).isSameAs(same);
     }
 
     @Test
