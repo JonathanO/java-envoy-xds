@@ -310,17 +310,27 @@ public class SnapshotSource<D, G, V> implements ClusterEventSource<SnapshotUpdat
         }
 
         /**
-         * Replace a group with a snapshot built however you like. Every name in the old and new group is compared.
+         * Replace a group with a snapshot built however you like, such as one rebuilt from scratch. It's compared with
+         * the old group here, once, so clients compare only the names that changed, and a resource equal to the old one
+         * keeps the old instance. Build the snapshot before calling {@link SnapshotSource#update}, which holds the
+         * source's lock while your change runs.
          * @param name the group's name
          * @param snapshot its new contents
          * @return this change
          */
         @CanIgnoreReturnValue // returns the change for chaining
         public Change<G, V> group(G name, Snapshot snapshot) {
-            touchAll(name, group(name));
-            touchAll(name, snapshot);
-            phase().groups.put(name, snapshot);
-            return this;
+            return group(name, editor -> {
+                Snapshot old = group(name);
+                for (Class<? extends Message> type : old.types()) {
+                    ImmutableMap<String, ? extends Message> next = snapshot.get(type);
+                    old.get(type).keySet().stream().filter(n -> !next.containsKey(n)).forEach(n -> editor.remove(type, n));
+                }
+                for (Class<? extends Message> type : snapshot.types()) {
+                    snapshot.get(type).forEach(editor::put);
+                }
+                return editor;
+            });
         }
 
         /**

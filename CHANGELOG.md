@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+### Changed
+* `SnapshotSource.Change.group(name, snapshot)` compares the new snapshot with the old group once, so clients compare only the names that changed, instead of every name in both. A group rebuilt from scratch on every update no longer costs every client a full comparison, and one rebuilt with nothing changed wakes no one
 
 ## [2.1.0] - 2026-11-01
 ### Added
