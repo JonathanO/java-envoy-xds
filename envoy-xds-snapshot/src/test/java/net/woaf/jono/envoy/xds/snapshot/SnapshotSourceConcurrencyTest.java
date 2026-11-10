@@ -81,7 +81,7 @@ public class SnapshotSourceConcurrencyTest {
             connected = new ConcurrentPool<>(tc);
         }
 
-        @Rule(group = "ops")
+        @Rule(groups = "ops")
         void connect(TestCase tc) {
             Client client = new Client();
             client.connect(source);
@@ -89,12 +89,12 @@ public class SnapshotSourceConcurrencyTest {
             connected.add(tc, client);
         }
 
-        @Rule(group = "ops")
+        @Rule(groups = "ops")
         void disconnect(TestCase tc) {
             tc.draw(connected.consuming()).disconnect(source);
         }
 
-        @Rule(group = "ops", weight = 3)
+        @Rule(groups = "ops", weight = 3)
         void publish(TestCase tc) {
             String name = tc.draw(sampledFrom("a", "b", "c"), "cluster");
             Cluster cluster = TestResources.cluster(name).toBuilder().setAltStatName("change-" + changes.incrementAndGet()).build();
