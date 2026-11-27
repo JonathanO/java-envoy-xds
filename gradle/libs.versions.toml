@@ -13,7 +13,7 @@ spotbugs = "4.10.5"
 
 [libraries]
 assertj = "org.assertj:assertj-core:3.27.7"
-awaitility = "org.awaitility:awaitility:4.3.0"
+awaitility = "org.awaitility:awaitility:4.4.0"
 envoy-api = { module = "net.woaf.jono.envoy:envoy-api", version.ref = "envoy-api" }
 errorprone-annotations = { module = "com.google.errorprone:error_prone_annotations", version.ref = "errorprone" }
 errorprone-core = { module = "com.google.errorprone:error_prone_core", version.ref = "errorprone" }
