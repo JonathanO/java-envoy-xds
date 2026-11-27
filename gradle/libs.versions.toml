@@ -45,7 +45,7 @@ testcontainers = "org.testcontainers:testcontainers:2.0.5"
 # Gradle plugins the convention plugins in build-logic apply, as build-logic dependencies.
 errorprone-plugin = "net.ltgt.gradle:gradle-errorprone-plugin:5.2.0"
 pitest-plugin = "info.solidsoft.gradle.pitest:gradle-pitest-plugin:1.19.0"
-spotbugs-plugin = "com.github.spotbugs.snom:spotbugs-gradle-plugin:6.5.13"
+spotbugs-plugin = "com.github.spotbugs.snom:spotbugs-gradle-plugin:6.5.15"
 
 [plugins]
 fray = "org.pastalab.fray.gradle:0.9.2"
